@@ -15,4 +15,35 @@ jobs:
       - run: flutter test
       - name: Assert no Android internet permission
         run: '! grep -R "android.permission.INTERNET" android/app/src/main'
-      - run: flutter build apk --debug --target-platform android-arm64
+      # Consolidated §10/§11.4 assertions (design docs/architecture/gates-2-3-design.md)
+      - name: Assert no second native sqlite in dependency tree
+        run: '! grep -E "^  (sqlite3_flutter_libs|sqlcipher_flutter_libs|drift_flutter|sqflite)" pubspec.lock'
+      - name: Assert SQLCipher source hook is configured
+        run: |
+          grep -A3 'user_defines' pubspec.yaml | grep -q 'source: sqlcipher'
+      # Checked against the --no-dev graph: the doc's raw pubspec.lock grep
+      # would trip on build_runner's dev-only transitive web_socket_channel,
+      # which never ships. The release-APK aapt step below stays the
+      # authoritative INTERNET gate.
+      - name: Assert no network-capable packages
+        run: |
+          flutter pub deps --no-dev --style=compact | \
+            (! grep -E "^- (http|dio|web_socket_channel|grpc|firebase_[a-z_]+|connectivity_plus) ")
+      - name: Assert no raw sockets or HttpClient in app code
+        run: '! grep -RE "HttpClient|(Raw)?(Secure)?Socket\.connect" lib/'
+      - name: Assert Android backups disabled
+        run: |
+          grep -q 'android:allowBackup="false"' android/app/src/main/AndroidManifest.xml
+          grep -q 'android:dataExtractionRules="@xml/data_extraction_rules"' android/app/src/main/AndroidManifest.xml
+          ! grep -R 'usesCleartextTraffic="true"' android/app/src/main
+      - name: Assert no debugPrint in lib
+        run: '! grep -R "debugPrint(" lib/'
+      - name: Assert committed drift schema dump is current
+        run: |
+          dart run drift_dev schema dump lib/data/db/app_database.dart drift_schemas/loadout/
+          git diff --exit-code drift_schemas/
+      - name: Assert release manifest has no INTERNET permission
+        run: |
+          flutter build apk --release --target-platform android-arm64
+          $ANDROID_HOME/build-tools/*/aapt dump permissions \
+            build/app/outputs/flutter-apk/app-release.apk | (! grep INTERNET)
