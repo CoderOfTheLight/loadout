@@ -1,80 +1,38 @@
-import 'package:flutter/material.dart';
+/// Production entry point: resolve paths, wire the real key manager,
+/// diagnostics ring file, and scratch space, run the §7.3 startup machine,
+/// then hand the resolved overrides to the ProviderScope. A cipher-missing
+/// bootstrap failure rethrows out of `main` on purpose (§7.2: refuse to run
+/// on plain SQLite).
+library;
 
-void main() => runApp(const LoadoutApp());
+import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class LoadoutApp extends StatelessWidget {
-  const LoadoutApp({super.key});
+import 'app/app.dart';
+import 'app/bootstrap.dart';
+import 'infrastructure/diagnostics/diag_sink.dart';
+import 'infrastructure/files/loadout_paths.dart';
+import 'infrastructure/files/scratch_space.dart';
+import 'infrastructure/security/key_manager.dart';
+import 'infrastructure/startup/startup_service.dart';
 
-  @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: 'Loadout',
-    debugShowCheckedModeBanner: false,
-    themeMode: ThemeMode.system,
-    theme: _theme(Brightness.light),
-    darkTheme: _theme(Brightness.dark),
-    home: const WelcomeScreen(),
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final paths = await LoadoutPaths.resolve();
+  final diag = RingFileDiag(logFile: paths.diagLogFile);
+  final keyManager = SecureStorageKeyManager();
+  final scratch = AppSupportScratchSpace(root: paths.scratchDir, diag: diag);
+  final startup = StartupService(
+    paths: paths,
+    keyManager: keyManager,
+    scratch: scratch,
+    diag: diag,
   );
-
-  ThemeData _theme(Brightness brightness) => ThemeData(
-    brightness: brightness,
-    useMaterial3: true,
-    colorScheme: ColorScheme.fromSeed(
-      seedColor: const Color(0xff356859),
-      brightness: brightness,
-    ),
+  final boot = await bootstrapLoadout(
+    startup: startup,
+    keyManager: keyManager,
+    scratch: scratch,
+    diag: diag,
   );
-}
-
-class WelcomeScreen extends StatelessWidget {
-  const WelcomeScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    body: SafeArea(
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 640),
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Icon(
-                  Icons.inventory_2_outlined,
-                  size: 72,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-                const SizedBox(height: 32),
-                Text(
-                  'Plan what to bring. Learn from what happened.',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.headlineMedium,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Loadout keeps your events, inventory, recipes, and forecasts '
-                  'on this device. Nothing is uploaded.',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyLarge,
-                ),
-                const SizedBox(height: 32),
-                Semantics(
-                  label: 'Create a private local workspace',
-                  button: true,
-                  child: FilledButton(
-                    onPressed: () {},
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size(0, 56),
-                    ),
-                    child: const Text('Create workspace'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
+  runApp(ProviderScope(overrides: boot.overrides, child: const LoadoutApp()));
 }
