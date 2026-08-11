@@ -83,4 +83,50 @@ LIMIT ?2
         ),
     ];
   }
+
+  // ------------------------------------------- snapshot reads (Gate 2 §6.6)
+
+  /// Latest persisted snapshot for [eventId] (`MAX(id)`), or null.
+  Future<ForecastSnapshot?> latestSnapshotForEvent(String eventId) =>
+      (select(forecastSnapshots)
+            ..where((s) => s.eventId.equals(eventId))
+            ..orderBy([(s) => OrderingTerm.desc(s.id)])
+            ..limit(1))
+          .getSingleOrNull();
+
+  Stream<ForecastSnapshot?> watchLatestSnapshotForEvent(String eventId) =>
+      (select(forecastSnapshots)
+            ..where((s) => s.eventId.equals(eventId))
+            ..orderBy([(s) => OrderingTerm.desc(s.id)])
+            ..limit(1))
+          .watchSingleOrNull();
+
+  Future<ForecastSnapshot?> snapshotById(String id) => (select(
+    forecastSnapshots,
+  )..where((s) => s.id.equals(id))).getSingleOrNull();
+
+  /// Snapshot lines in item-id order (deterministic).
+  Future<List<ForecastLine>> linesForSnapshot(String snapshotId) =>
+      (select(forecastLines)
+            ..where((l) => l.snapshotId.equals(snapshotId))
+            ..orderBy([(l) => OrderingTerm.asc(l.itemId)]))
+          .get();
+
+  /// Evidence value-copies, grouped by item, in stored position order.
+  Future<List<ForecastEvidenceData>> evidenceForSnapshot(String snapshotId) =>
+      (select(forecastEvidence)
+            ..where((e) => e.snapshotId.equals(snapshotId))
+            ..orderBy([
+              (e) => OrderingTerm.asc(e.itemId),
+              (e) => OrderingTerm.asc(e.position),
+            ]))
+          .get();
+
+  /// Every override row for the snapshot, oldest first; the latest row per
+  /// item (MAX(id)) wins for display.
+  Future<List<ForecastOverride>> overridesForSnapshot(String snapshotId) =>
+      (select(forecastOverrides)
+            ..where((o) => o.snapshotId.equals(snapshotId))
+            ..orderBy([(o) => OrderingTerm.asc(o.id)]))
+          .get();
 }
