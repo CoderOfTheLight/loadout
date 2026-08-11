@@ -1,0 +1,18 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.7'
+          cache: true
+      - run: flutter pub get
+      - run: dart format --output=none --set-exit-if-changed .
+      - run: flutter analyze
+      - run: flutter test
+      - name: Assert no Android internet permission
+        run: '! grep -R "android.permission.INTERNET" android/app/src/main'
+      - run: flutter build apk --debug --target-platform android-arm64
