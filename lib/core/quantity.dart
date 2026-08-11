@@ -1,3 +1,5 @@
+import 'errors.dart';
+
 /// Exact nonnegative fixed-point quantity. One unit is one million micros.
 final class Quantity implements Comparable<Quantity> {
   const Quantity._(this.micros);
@@ -6,14 +8,26 @@ final class Quantity implements Comparable<Quantity> {
     if (micros < 0) {
       throw ArgumentError.value(micros, 'micros', 'must be nonnegative');
     }
+    if (micros > maxMicros) {
+      throw QuantityOverflowError('$micros micros exceeds maxMicros');
+    }
     return Quantity._(micros);
   }
 
   factory Quantity.whole(int value) => Quantity.fromMicros(value * scale);
 
   static const int scale = 1000000;
+
+  /// Hard magnitude cap for every stored quantity (design §3): 1e15 micros —
+  /// generous, and small enough that the frozen engine's `multiplyRatio` with
+  /// reserve numerators cannot wrap int64.
+  static const int maxMicros = 1000000000000000;
+
   static const zero = Quantity._(0);
   final int micros;
+
+  /// Checked add: throws [QuantityOverflowError] above [maxMicros].
+  Quantity plus(Quantity other) => Quantity.fromMicros(micros + other.micros);
 
   Quantity multiplyRatio(int numerator, int denominator) {
     if (numerator < 0 || denominator <= 0) {
