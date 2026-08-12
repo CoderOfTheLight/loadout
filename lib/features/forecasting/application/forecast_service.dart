@@ -204,6 +204,31 @@ final class DriftForecastService implements ForecastService {
       final exposureLabel = await _settings.exposureLabel();
       final lines = <ForecastSnapshotLineDraft>[];
       for (final input in inputs.lines) {
+        if (_exceedsEngineEnvelope(input, inputs.upcomingExposure)) {
+          // Outside the envelope the frozen engine's rate × exposure product
+          // wraps int64 and it would return a plausible-looking but wrong
+          // number. Report no forecast instead: a blank line with the reason
+          // is honest, a wrong load quantity is not.
+          lines.add(
+            ForecastSnapshotLineDraft(
+              itemId: ItemId(input.itemId),
+              packSizeMicros: input.packSizeMicros,
+              onHandMicros: input.onHandMicros,
+              confirmedInboundMicros: input.confirmedInboundMicros,
+              expectedUseMicros: null,
+              plannedMicros: null,
+              loadMicros: null,
+              acquireMicros: null,
+              evidenceGrade: EvidenceGrade.insufficientData,
+              warnings: const [
+                'Confirmed history for this item is too large to scale to '
+                    'this event. Check the recorded outcomes and attendance.',
+              ],
+              evidence: input.evidence,
+            ),
+          );
+          continue;
+        }
         final engineLine = _engine.forecastDirect(
           upcomingExposure: inputs.upcomingExposure,
           observations: [
@@ -380,6 +405,29 @@ final class DriftForecastService implements ForecastService {
           ),
       ],
     );
+  }
+
+  /// Whether scaling this item's history to [upcomingExposure] would leave
+  /// the range the frozen engine can compute in.
+  ///
+  /// The engine normalises each observation to `depletion × 1e6 ÷ exposure`
+  /// and multiplies the median by the upcoming exposure. Both the schema and
+  /// the validator accept a depletion of 1e12 micros against an exposure of
+  /// 1 — a plausible typo — and that product overflows int64 silently. The
+  /// median is bounded by the largest observed rate, so bounding that is
+  /// enough and needs no copy of the engine's median.
+  static bool _exceedsEngineEnvelope(
+    SnapshotLineInput input,
+    int upcomingExposure,
+  ) {
+    if (upcomingExposure <= 0) return false; // the engine rejects this itself
+    final limit = Quantity.maxMicros ~/ upcomingExposure;
+    for (final e in input.evidence) {
+      if (e.exposure <= 0) continue; // filtered by the engine
+      final rate = (e.depletionMicros * Quantity.scale) ~/ e.exposure;
+      if (rate > limit) return true;
+    }
+    return false;
   }
 
   Future<Result<CommandReceipt>> _submit(WorkspaceCommand command) =>

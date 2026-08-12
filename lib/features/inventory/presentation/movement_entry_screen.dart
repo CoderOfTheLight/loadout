@@ -300,8 +300,17 @@ class _MovementEntryScreenState extends ConsumerState<MovementEntryScreen> {
     }
   }
 
-  String _onHandLabel(ItemSummary item) =>
-      formatSignedMicros(item.onHandMicros, item.item.unit);
+  /// Live on-hand, not the value captured when the item was picked: after
+  /// "Record & add another" the summary snapshot is a movement out of date.
+  String _onHandLabel(ItemSummary item) {
+    final live = ref
+        .watch(stockPositionProvider(item.item.id as String))
+        .valueOrNull;
+    return formatSignedMicros(
+      live?.onHandMicros ?? item.onHandMicros,
+      item.item.unit,
+    );
+  }
 
   Future<void> _pickItem() async {
     final picked = await showItemPickerSheet(context);

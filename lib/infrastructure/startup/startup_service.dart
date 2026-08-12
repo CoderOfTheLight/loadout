@@ -224,7 +224,11 @@ final class StartupService implements DatabaseHost {
     }
     _db = db;
     // §7.2/§10: exclude db/ and scratch/ from iOS backup. Best-effort no-op
-    // off iOS.
+    // off iOS. scratch/ is created here rather than lazily at first use:
+    // setting the attribute on a path that does not exist yet fails
+    // silently, and the directory would then be backed up the first time a
+    // backup container is staged in it.
+    _paths.scratchDir.createSync(recursive: true);
     unawaited(_backupExclusion.excludeFromBackup(_paths.dbDir));
     unawaited(_backupExclusion.excludeFromBackup(_paths.scratchDir));
     return db;

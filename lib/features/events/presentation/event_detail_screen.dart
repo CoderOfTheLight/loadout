@@ -20,6 +20,14 @@ import '../application/event_service.dart';
 import '../domain/event.dart';
 import 'event_ui.dart';
 
+/// True while an activate command is in flight for this event. The button
+/// is stateless, so without this a double tap sends two commands: the
+/// second is validated against the already-active event and rejected,
+/// reporting a failure for an activation that actually succeeded.
+final _activatingProvider = StateProvider.autoDispose.family<bool, String>(
+  (ref, eventId) => false,
+);
+
 class EventDetailScreen extends ConsumerWidget {
   const EventDetailScreen({super.key, required this.eventId});
 
@@ -92,7 +100,9 @@ class _EventDetailBody extends ConsumerWidget {
                     style: FilledButton.styleFrom(
                       minimumSize: primaryButtonMinSize,
                     ),
-                    onPressed: () => _activate(context, ref),
+                    onPressed: ref.watch(_activatingProvider(eventId))
+                        ? null
+                        : () => _activate(context, ref),
                     icon: const Icon(Icons.play_arrow),
                     label: const Text('Activate event'),
                   ),
@@ -271,15 +281,22 @@ class _EventDetailBody extends ConsumerWidget {
   }
 
   Future<void> _activate(BuildContext context, WidgetRef ref) async {
+    final inFlight = ref.read(_activatingProvider(eventId).notifier);
+    if (inFlight.state) return;
+    inFlight.state = true;
     final messenger = ScaffoldMessenger.of(context);
-    final result = await ref.read(eventServiceProvider).activate(eventId);
-    result.fold((_) {}, (_) {
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text("Couldn't activate this event. Try again."),
-        ),
-      );
-    });
+    try {
+      final result = await ref.read(eventServiceProvider).activate(eventId);
+      result.fold((_) {}, (_) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text("Couldn't activate this event. Try again."),
+          ),
+        );
+      });
+    } finally {
+      inFlight.state = false;
+    }
   }
 
   Future<void> _cancelFlow(BuildContext context, WidgetRef ref) async {

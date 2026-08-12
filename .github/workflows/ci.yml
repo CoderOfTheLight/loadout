@@ -26,9 +26,12 @@ jobs:
       # which never ships. The release-APK aapt step below stays the
       # authoritative INTERNET gate.
       - name: Assert no network-capable packages
+        # pipefail: without it the pipeline reports only the trailing grep,
+        # which "passes" on empty input even when the command feeding it died.
+        shell: bash -euo pipefail {0}
         run: |
-          flutter pub deps --no-dev --style=compact | \
-            (! grep -E "^- (http|dio|web_socket_channel|grpc|firebase_[a-z_]+|connectivity_plus) ")
+          flutter pub deps --no-dev --style=compact > deps.txt
+          ! grep -E "^- (http|dio|web_socket_channel|grpc|firebase_[a-z_]+|connectivity_plus) " deps.txt
       - name: Assert no raw sockets or HttpClient in app code
         run: '! grep -RE "HttpClient|(Raw)?(Secure)?Socket\.connect" lib/'
       - name: Assert Android backups disabled
@@ -42,8 +45,18 @@ jobs:
         run: |
           dart run drift_dev schema dump lib/data/db/app_database.dart drift_schemas/loadout/
           git diff --exit-code drift_schemas/
+      # The authoritative INTERNET gate: debug and profile builds inject the
+      # permission for the VM service, so only the release artifact proves
+      # the shipped app has none. Resolve aapt explicitly and fail if it is
+      # missing — a gate that cannot run must not report success.
       - name: Assert release manifest has no INTERNET permission
+        shell: bash -euo pipefail {0}
         run: |
           flutter build apk --release --target-platform android-arm64
-          $ANDROID_HOME/build-tools/*/aapt dump permissions \
-            build/app/outputs/flutter-apk/app-release.apk | (! grep INTERNET)
+          apk=build/app/outputs/flutter-apk/app-release.apk
+          test -f "$apk"
+          aapt=$(ls -1 "${ANDROID_HOME:?ANDROID_HOME is unset}"/build-tools/*/aapt \
+            | sort -V | tail -1)
+          test -x "$aapt"
+          "$aapt" dump permissions "$apk" > permissions.txt
+          ! grep INTERNET permissions.txt

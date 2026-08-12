@@ -74,6 +74,33 @@ void main() {
   );
 
   group('generateSnapshot (frozen engine, §6.6)', () {
+    test(
+      'history too large to scale reports no forecast, not a wrapped one',
+      () async {
+        // A plausible typo: a whole event's depletion recorded against an
+        // attendance of 1. Scaling that rate to the upcoming event overflows
+        // the engine's int64 product.
+        await closedEvent(
+          name: 'Typo night',
+          date: '2026-07-01',
+          exposure: 1,
+          depletionMicros: 10000000000, // 10 000 g
+        );
+        final eventId = await upcomingEvent(exposure: 2000);
+
+        final view = (await service.generateSnapshot(
+          eventId,
+        )).fold((v) => v, (e) => fail('${e.code}: ${e.message}'));
+
+        final line = view.lines.single;
+        expect(line.expectedUseMicros, isNull);
+        expect(line.loadMicros, isNull);
+        expect(line.acquireMicros, isNull);
+        expect(line.evidenceGrade, EvidenceGrade.insufficientData);
+        expect(line.warnings.single, contains('too large to scale'));
+      },
+    );
+
     test('persists header, lines, and evidence value-copies that match the '
         'engine and label query exactly', () async {
       await closedEvent(

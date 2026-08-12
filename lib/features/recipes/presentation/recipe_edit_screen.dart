@@ -59,7 +59,25 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
   int _nextRevision = 1;
   int _nextRowUid = 0;
 
+  /// Form contents when editing began; the back guard compares against it.
+  /// This is the app's longest form and it has no autosave, so popping it
+  /// unguarded discards everything typed.
+  String? _pristine;
+  bool _saved = false;
+
   bool get _isRevise => widget.recipeId != null;
+
+  bool get _dirty => !_saved && _pristine != null && _signature() != _pristine;
+
+  String _signature() => [
+    _nameController.text,
+    _outputItemId ?? '',
+    _yieldController.text,
+    _yieldLabelController.text,
+    _noteController.text,
+    for (final row in _rows)
+      '${row.itemId ?? ''}:${row.quantityController.text}',
+  ].join('\u0000');
 
   @override
   void initState() {
@@ -67,6 +85,7 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
     if (!_isRevise) {
       // Start pleasant: one empty ingredient row ready to fill.
       _rows.add(_newRow());
+      _pristine = _signature();
     }
   }
 
@@ -109,6 +128,7 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
         ),
       );
     }
+    _pristine = _signature();
   }
 
   @override
@@ -155,201 +175,237 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
     ];
     final outputItem = _outputItemId == null ? null : itemsById[_outputItemId];
     final theme = Theme.of(context);
-    return Scaffold(
-      appBar: AppBar(title: title),
-      body: SingleChildScrollView(
-        child: ContentColumn(
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (_isRevise) ...[
-                  _InfoNote(
-                    message:
-                        'Revisions are permanent. Saving adds revision '
-                        '$_nextRevision on top; earlier revisions never '
-                        'change.',
+    return PopScope(
+      canPop: !_dirty,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) {
+          _confirmDiscard();
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(title: title),
+        body: SingleChildScrollView(
+          child: ContentColumn(
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (_isRevise) ...[
+                    _InfoNote(
+                      message:
+                          'Revisions are permanent. Saving adds revision '
+                          '$_nextRevision on top; earlier revisions never '
+                          'change.',
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  if (_submitError != null) ...[
+                    _SubmitErrorBanner(
+                      error: _submitError!,
+                      itemsById: itemsById,
+                      recipeNamesById: recipeNamesById,
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  if (_isRevise)
+                    InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Output item',
+                        helperText:
+                            'Fixed for this recipe — revisions change the '
+                            'method, not the output.',
+                        border: OutlineInputBorder(),
+                        enabled: false,
+                      ),
+                      child: Text(outputItem?.name ?? 'Unknown item'),
+                    )
+                  else
+                    DropdownButtonFormField<String>(
+                      key: const Key('output-item-picker'),
+                      initialValue: _outputItemId,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Output item',
+                        helperText: 'What one batch of this recipe makes',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: [
+                        for (final item in liveItems)
+                          DropdownMenuItem(
+                            value: item.id.value,
+                            child: Text(
+                              '${item.name} · ${item.unit.dbValue}',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (value) =>
+                          setState(() => _outputItemId = value),
+                      validator: (value) =>
+                          value == null ? 'Choose the output item' : null,
+                    ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    key: const Key('recipe-name'),
+                    controller: _nameController,
+                    enabled: !_isRevise,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(
+                      labelText: 'Recipe name',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (value) {
+                      final trimmed = (value ?? '').trim();
+                      if (trimmed.isEmpty || trimmed.length > 120) {
+                        return 'Enter a name (up to 120 characters)';
+                      }
+                      return null;
+                    },
                   ),
                   const SizedBox(height: 16),
-                ],
-                if (_submitError != null) ...[
-                  _SubmitErrorBanner(
-                    error: _submitError!,
-                    itemsById: itemsById,
-                    recipeNamesById: recipeNamesById,
-                  ),
-                  const SizedBox(height: 16),
-                ],
-                if (_isRevise)
-                  InputDecorator(
-                    decoration: const InputDecoration(
-                      labelText: 'Output item',
-                      helperText:
-                          'Fixed for this recipe — revisions change the '
-                          'method, not the output.',
-                      border: OutlineInputBorder(),
-                      enabled: false,
-                    ),
-                    child: Text(outputItem?.name ?? 'Unknown item'),
-                  )
-                else
-                  DropdownButtonFormField<String>(
-                    key: const Key('output-item-picker'),
-                    initialValue: _outputItemId,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Output item',
-                      helperText: 'What one batch of this recipe makes',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: [
-                      for (final item in liveItems)
-                        DropdownMenuItem(
-                          value: item.id.value,
-                          child: Text(
-                            '${item.name} · ${item.unit.dbValue}',
-                            overflow: TextOverflow.ellipsis,
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: QuantityFormField(
+                          key: const Key('recipe-yield'),
+                          controller: _yieldController,
+                          labelText: 'Yield per batch',
+                          unitLabel: outputItem?.unit.dbValue,
+                          requiredMessage: 'Enter the yield',
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextFormField(
+                          key: const Key('recipe-yield-label'),
+                          controller: _yieldLabelController,
+                          decoration: const InputDecoration(
+                            labelText: 'Yield label (optional)',
+                            hintText: 'e.g. 12 tacos',
+                            border: OutlineInputBorder(),
                           ),
                         ),
+                      ),
                     ],
-                    onChanged: (value) => setState(() => _outputItemId = value),
-                    validator: (value) =>
-                        value == null ? 'Choose the output item' : null,
                   ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  key: const Key('recipe-name'),
-                  controller: _nameController,
-                  enabled: !_isRevise,
-                  textCapitalization: TextCapitalization.sentences,
-                  decoration: const InputDecoration(
-                    labelText: 'Recipe name',
-                    border: OutlineInputBorder(),
+                  const SizedBox(height: 24),
+                  Text(
+                    'Ingredients per batch',
+                    style: theme.textTheme.titleMedium,
                   ),
-                  validator: (value) {
-                    final trimmed = (value ?? '').trim();
-                    if (trimmed.isEmpty || trimmed.length > 120) {
-                      return 'Enter a name (up to 120 characters)';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: QuantityFormField(
-                        key: const Key('recipe-yield'),
-                        controller: _yieldController,
-                        labelText: 'Yield per batch',
-                        unitLabel: outputItem?.unit.dbValue,
-                        requiredMessage: 'Enter the yield',
-                      ),
+                  const SizedBox(height: 8),
+                  ReorderableListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    buildDefaultDragHandles: false,
+                    itemCount: _rows.length,
+                    // onReorderItem already adjusts newIndex for the removal.
+                    onReorderItem: (oldIndex, newIndex) => setState(() {
+                      _rows.insert(newIndex, _rows.removeAt(oldIndex));
+                    }),
+                    itemBuilder: (context, index) => _buildIngredientRow(
+                      context,
+                      index,
+                      itemsById: itemsById,
+                      liveItems: liveItems,
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextFormField(
-                        key: const Key('recipe-yield-label'),
-                        controller: _yieldLabelController,
-                        decoration: const InputDecoration(
-                          labelText: 'Yield label (optional)',
-                          hintText: 'e.g. 12 tacos',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  'Ingredients per batch',
-                  style: theme.textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                ReorderableListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  buildDefaultDragHandles: false,
-                  itemCount: _rows.length,
-                  // onReorderItem already adjusts newIndex for the removal.
-                  onReorderItem: (oldIndex, newIndex) => setState(() {
-                    _rows.insert(newIndex, _rows.removeAt(oldIndex));
-                  }),
-                  itemBuilder: (context, index) => _buildIngredientRow(
-                    context,
-                    index,
-                    itemsById: itemsById,
-                    liveItems: liveItems,
                   ),
-                ),
-                if (_showLinesError && _rows.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.error_outline,
-                          size: 18,
-                          color: theme.colorScheme.error,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Add at least one ingredient.',
-                          style: theme.textTheme.bodyMedium?.copyWith(
+                  if (_showLinesError && _rows.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.error_outline,
+                            size: 18,
                             color: theme.colorScheme.error,
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 8),
+                          Text(
+                            'Add at least one ingredient.',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.error,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      key: const Key('add-ingredient'),
+                      onPressed: () => setState(() {
+                        _rows.add(_newRow());
+                        _showLinesError = false;
+                      }),
+                      icon: const Icon(Icons.add),
+                      label: const Text('Add ingredient'),
                     ),
                   ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: OutlinedButton.icon(
-                    key: const Key('add-ingredient'),
-                    onPressed: () => setState(() {
-                      _rows.add(_newRow());
-                      _showLinesError = false;
-                    }),
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add ingredient'),
+                  const SizedBox(height: 24),
+                  TextFormField(
+                    key: const Key('recipe-note'),
+                    controller: _noteController,
+                    minLines: 2,
+                    maxLines: 5,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(
+                      labelText: 'Note (optional)',
+                      hintText: 'Method, prep reminders, allergens…',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 24),
-                TextFormField(
-                  key: const Key('recipe-note'),
-                  controller: _noteController,
-                  minLines: 2,
-                  maxLines: 5,
-                  textCapitalization: TextCapitalization.sentences,
-                  decoration: const InputDecoration(
-                    labelText: 'Note (optional)',
-                    hintText: 'Method, prep reminders, allergens…',
-                    border: OutlineInputBorder(),
+                  const SizedBox(height: 24),
+                  FilledButton(
+                    key: const Key('save-recipe'),
+                    style: FilledButton.styleFrom(
+                      minimumSize: primaryButtonMinSize,
+                    ),
+                    onPressed: _submitting ? null : _submit,
+                    child: Text(
+                      _isRevise
+                          ? 'Save as revision $_nextRevision'
+                          : 'Save recipe',
+                    ),
                   ),
-                ),
-                const SizedBox(height: 24),
-                FilledButton(
-                  key: const Key('save-recipe'),
-                  style: FilledButton.styleFrom(
-                    minimumSize: primaryButtonMinSize,
-                  ),
-                  onPressed: _submitting ? null : _submit,
-                  child: Text(
-                    _isRevise
-                        ? 'Save as revision $_nextRevision'
-                        : 'Save recipe',
-                  ),
-                ),
-                const SizedBox(height: 24),
-              ],
+                  const SizedBox(height: 24),
+                ],
+              ),
             ),
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDiscard() async {
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Discard this recipe?'),
+        content: const Text('Nothing has been saved yet.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Keep editing'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Discard'),
+          ),
+        ],
+      ),
+    );
+    if (discard == true && mounted) {
+      _saved = true; // stop the guard re-asking on the way out
+      final navigator = Navigator.of(context);
+      if (navigator.canPop()) {
+        navigator.pop();
+      }
+    }
   }
 
   Widget _buildIngredientRow(
@@ -493,6 +549,7 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
             ),
           ),
         );
+        _saved = true;
         _close();
       case Err(:final error):
         setState(() {

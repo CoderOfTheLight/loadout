@@ -16,6 +16,7 @@ import '../../../app/widgets/content_column.dart';
 import '../../../app/widgets/quantity_form_field.dart';
 import '../../../core/quantity.dart';
 import '../../../core/quantity_codec.dart';
+import '../../events/domain/event.dart';
 import '../application/inventory_service.dart';
 import '../domain/movement.dart';
 import 'movement_display.dart';
@@ -223,6 +224,16 @@ class _CorrectionScreenState extends ConsumerState<CorrectionScreen> {
     setState(() => _submitting = true);
 
     final movement = view.movement;
+    // A replacement is a NEW movement, and new movements may not attach to an
+    // event that is no longer open (§12.14). Carrying the original's link
+    // over would make every correction of an event-linked waste fail once
+    // that event closes, so the link is dropped and the user is told.
+    final linkedEventId = movement.kind == MovementKind.waste
+        ? movement.eventId as String?
+        : null;
+    final eventStillOpen =
+        linkedEventId == null || await _eventAcceptsMovements(linkedEventId);
+    if (!mounted) return;
     final replacement = _reverseOnly
         ? null
         : MovementFormDraft(
@@ -230,12 +241,12 @@ class _CorrectionScreenState extends ConsumerState<CorrectionScreen> {
             kind: movement.kind,
             quantity: QuantityFormField.tryParse(_quantityCtrl.text)!,
             negativeAdjust: _negativeAdjust,
-            eventId: movement.kind == MovementKind.waste
-                ? movement.eventId as String?
-                : null,
+            eventId: eventStillOpen ? linkedEventId : null,
             occurredAt: instantToLocal(movement.occurredAt),
             note: movement.note,
           );
+    final droppedEventLink =
+        replacement != null && linkedEventId != null && !eventStillOpen;
     final result = await ref
         .read(inventoryServiceProvider)
         .correct(
@@ -248,15 +259,17 @@ class _CorrectionScreenState extends ConsumerState<CorrectionScreen> {
     final messenger = ScaffoldMessenger.of(context);
     result.fold(
       (receipt) {
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(
-              receipt.warnings.contains('NEGATIVE_ON_HAND')
-                  ? 'Correction recorded — on hand is now below zero.'
-                  : 'Correction recorded.',
-            ),
-          ),
-        );
+        final String message;
+        if (receipt.warnings.contains('NEGATIVE_ON_HAND')) {
+          message = 'Correction recorded — on hand is now below zero.';
+        } else if (droppedEventLink) {
+          message =
+              'Correction recorded. Its event is closed, so the new entry '
+              'is not linked to it.';
+        } else {
+          message = 'Correction recorded.';
+        }
+        messenger.showSnackBar(SnackBar(content: Text(message)));
         if (context.canPop()) {
           context.pop();
         } else {
@@ -272,6 +285,21 @@ class _CorrectionScreenState extends ConsumerState<CorrectionScreen> {
         setState(() => _submitting = false);
       },
     );
+  }
+
+  /// Whether [eventId] still accepts new movements (planned or active).
+  /// Unknown events answer "no" — the applier would refuse either way.
+  Future<bool> _eventAcceptsMovements(String eventId) async {
+    try {
+      final detail = await ref
+          .read(eventServiceProvider)
+          .watchEvent(eventId)
+          .first;
+      final status = detail.event.status;
+      return status == EventStatus.planned || status == EventStatus.active;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> _confirmDiscard(bool didPop, Object? result) async {

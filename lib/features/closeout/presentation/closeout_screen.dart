@@ -26,6 +26,7 @@ import '../../../core/quantity.dart';
 import '../../../core/quantity_codec.dart';
 import '../../approval/domain/proposal.dart';
 import '../../events/domain/event.dart';
+import '../application/closeout_service.dart';
 import '../domain/closeout.dart';
 import '../domain/closeout_form.dart';
 import 'closeout_line_card.dart';
@@ -61,6 +62,10 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
   bool _submitting = false;
   Timer? _autosave;
 
+  /// Resolved while mounted: `dispose()` runs after the element is defunct,
+  /// so reading `ref` there throws and the pending draft would be lost.
+  CloseoutService? _closeoutService;
+
   @override
   void initState() {
     super.initState();
@@ -68,12 +73,18 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _closeoutService = ref.read(closeoutServiceProvider);
+  }
+
+  @override
   void dispose() {
     final pendingSave = (_autosave?.isActive ?? false) && !_confirmed;
     _autosave?.cancel();
-    if (pendingSave) {
+    final service = _closeoutService;
+    if (pendingSave && service != null) {
       // Flush the debounced draft so backing out never loses entries.
-      final service = ref.read(closeoutServiceProvider);
       final draft = _buildDraft();
       unawaited(service.saveDraft(draft).catchError((Object _) {}));
     }

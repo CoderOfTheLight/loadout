@@ -215,7 +215,11 @@ final class DriftInventoryService implements InventoryService {
         'JOIN items i ON i.id = m.item_id '
         'LEFT JOIN inventory_movements r ON r.reverses_movement_id = m.id '
         '${where.isEmpty ? '' : 'WHERE ${where.join(' AND ')} '}'
-        'ORDER BY m.id DESC LIMIT ?${variables.length}';
+        // Business time first: the screens group these rows by occurredAt,
+        // so ordering by id alone wedges a backdated entry between today's
+        // and repeats the day header. Id breaks ties (same instant).
+        'ORDER BY m.occurred_at_micros DESC, m.id DESC '
+        'LIMIT ?${variables.length}';
     return _db
         .customSelect(
           sql,

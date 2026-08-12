@@ -35,6 +35,14 @@ final class AppSupportScratchSpace implements ScratchSpace {
   final Directory _root;
   final Diag _diag;
 
+  /// Sessions handed out and not yet disposed. [sweepAll] leaves these
+  /// alone: a session is in use until its owner says otherwise, and the OS
+  /// pauses this app whenever a system file picker takes the screen — the
+  /// exact moment a backup container is sitting in scratch waiting to be
+  /// copied out. The set starts empty each launch, so anything left behind
+  /// by a previous run is still swept.
+  final Set<String> _liveSessions = {};
+
   @override
   Future<Directory> createSession(String purpose) async {
     if (!_purposes.contains(purpose)) {
@@ -42,6 +50,7 @@ final class AppSupportScratchSpace implements ScratchSpace {
     }
     final session = Directory(p.join(_root.path, purpose, newUlid()));
     await session.create(recursive: true);
+    _liveSessions.add(p.canonicalize(session.path));
     return session;
   }
 
@@ -54,6 +63,7 @@ final class AppSupportScratchSpace implements ScratchSpace {
         'not a scratch session directory',
       );
     }
+    _liveSessions.remove(p.canonicalize(session.path));
     if (await session.exists()) {
       await session.delete(recursive: true);
     }
@@ -69,6 +79,9 @@ final class AppSupportScratchSpace implements ScratchSpace {
           continue;
         }
         await for (final session in purposeDir.list()) {
+          if (_liveSessions.contains(p.canonicalize(session.path))) {
+            continue;
+          }
           await session.delete(recursive: true);
           swept++;
         }
