@@ -75,7 +75,7 @@ class _ForecastReviewBody extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final snapshotAsync = ref.watch(liveSnapshotProvider(eventId));
+    final snapshotAsync = ref.watch(latestSnapshotProvider(eventId));
     return Scaffold(
       appBar: AppBar(title: const Text('Forecast')),
       body: snapshotAsync.when(
@@ -217,7 +217,7 @@ class _SnapshotBodyState extends ConsumerState<_SnapshotBody> {
     if (!mounted) return;
     setState(() => _refreshing = false);
     // The frozen staleness provider re-fires on ledger/event changes but a
-    // fresh snapshot append is invisible to it (see [liveSnapshotProvider]);
+    // fresh snapshot append is invisible to it (see [latestSnapshotProvider]);
     // recompute explicitly so the banner clears.
     ref.invalidate(forecastStalenessProvider(widget.eventId));
     result.fold((_) {}, (error) {
@@ -519,7 +519,7 @@ class _AccuracyReviewBody extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final reviewAsync = ref.watch(accuracyReviewProvider(eventId));
-    final snapshot = ref.watch(liveSnapshotProvider(eventId)).valueOrNull;
+    final snapshot = ref.watch(latestSnapshotProvider(eventId)).valueOrNull;
     final items =
         ref.watch(forecastItemIndexProvider).valueOrNull ??
         const <String, Item>{};

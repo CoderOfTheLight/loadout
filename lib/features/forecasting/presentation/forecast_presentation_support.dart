@@ -23,13 +23,6 @@ import '../domain/snapshot.dart';
 
 // ------------------------------------------------------------- providers
 
-/// The latest PERSISTED snapshot view for one event, live.
-final liveSnapshotProvider = StreamProvider.autoDispose
-    .family<ForecastSnapshotView?, String>(
-      (ref, eventId) =>
-          ref.watch(forecastServiceProvider).watchLatestSnapshot(eventId),
-    );
-
 /// itemId → [Item] over the whole catalog, archived included: snapshot
 /// lines are frozen history and may reference archived items.
 final forecastItemIndexProvider = StreamProvider.autoDispose<Map<String, Item>>(
@@ -52,11 +45,11 @@ typedef OverrideHistoryKey = ({
 });
 
 /// The append-only override log for one (snapshot, item), newest first.
-/// Recomputes whenever [liveSnapshotProvider] emits (it re-emits on any
+/// Recomputes whenever [latestSnapshotProvider] emits (it re-emits on any
 /// `forecast_overrides` write).
 final overrideHistoryProvider = FutureProvider.autoDispose
     .family<List<OverrideView>, OverrideHistoryKey>((ref, key) async {
-      ref.watch(liveSnapshotProvider(key.eventId));
+      ref.watch(latestSnapshotProvider(key.eventId));
       final rows = await ref
           .read(appDatabaseProvider)
           .forecastDao

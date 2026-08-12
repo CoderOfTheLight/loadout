@@ -20,12 +20,6 @@ import '../application/event_service.dart';
 import '../domain/event.dart';
 import 'event_ui.dart';
 
-/// Feature-local live detail projection.
-final _liveEventDetailProvider = StreamProvider.autoDispose
-    .family<EventDetail, String>(
-      (ref, eventId) => ref.watch(eventServiceProvider).watchEvent(eventId),
-    );
-
 class EventDetailScreen extends ConsumerWidget {
   const EventDetailScreen({super.key, required this.eventId});
 
@@ -33,7 +27,7 @@ class EventDetailScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final detail = ref.watch(_liveEventDetailProvider(eventId));
+    final detail = ref.watch(eventDetailProvider(eventId));
     return detail.when(
       loading: () => Scaffold(
         appBar: AppBar(title: const Text('Event')),

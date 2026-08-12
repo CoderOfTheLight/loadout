@@ -114,7 +114,7 @@ class _ForecastLineDetailScreenState
 
   @override
   Widget build(BuildContext context) {
-    final snapshotAsync = ref.watch(liveSnapshotProvider(widget.eventId));
+    final snapshotAsync = ref.watch(latestSnapshotProvider(widget.eventId));
     return Scaffold(
       appBar: AppBar(title: const Text('Forecast line')),
       body: snapshotAsync.when(
