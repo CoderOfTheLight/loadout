@@ -28,13 +28,15 @@ final class LoadoutPaths {
 
   File get diagLogFile => File(p.join(diagDir.path, 'diag.log'));
 
-  /// Archive name for orphaned ciphertext (§7.3 start-fresh; never deleted).
-  File orphanedDatabaseFile(DateTime utcNow) {
+  /// Compact `yyyyMMddHHmmss` stamp used to name retained artifacts.
+  static String utcStamp(DateTime utcNow) {
     final t = utcNow.toUtc();
     String two(int v) => v.toString().padLeft(2, '0');
-    final stamp =
-        '${t.year}${two(t.month)}${two(t.day)}'
+    return '${t.year}${two(t.month)}${two(t.day)}'
         '${two(t.hour)}${two(t.minute)}${two(t.second)}';
-    return File(p.join(dbDir.path, 'orphaned-$stamp.db'));
   }
+
+  /// Archive name for orphaned ciphertext (§7.3 start-fresh; never deleted).
+  File orphanedDatabaseFile(DateTime utcNow) =>
+      File(p.join(dbDir.path, 'orphaned-${utcStamp(utcNow)}.db'));
 }

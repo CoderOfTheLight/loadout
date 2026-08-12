@@ -6,8 +6,11 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:loadout/core/diagnostics/diag.dart';
+import 'package:loadout/data/db/app_database.dart';
+import 'package:loadout/infrastructure/db/open_database.dart';
 import 'package:loadout/infrastructure/security/key_manager.dart';
 import 'package:loadout/infrastructure/startup/startup_service.dart';
+import 'package:path/path.dart' as p;
 
 import 'harness.dart';
 
@@ -119,6 +122,46 @@ void main() {
       archived,
       isNotEmpty,
       reason: 'ciphertext is archived, never deleted',
+    );
+  });
+
+  test('archived ciphertext stays readable via its retained key', () async {
+    final db = await h.startup.createFreshWorkspace();
+    await seedWorkspaceData(db);
+    final originalKey = await h.keyManager.getOrCreateDatabaseKey();
+    await h.startup.close();
+
+    // Reset/start-fresh with the key still present: the workspace is archived
+    // and the live key is destroyed.
+    await h.startup.startFreshFromRecovery();
+    expect(await h.keyManager.hasDatabaseKey(), isTrue, reason: 'new key');
+    expect(
+      await h.keyManager.getOrCreateDatabaseKey(),
+      isNot(originalKey),
+      reason: 'the new workspace must not reuse the retired key',
+    );
+
+    final archived = h.paths.dbDir.listSync().whereType<File>().singleWhere(
+      (f) => f.path.contains('orphaned-'),
+    );
+    final label = p.basenameWithoutExtension(archived.path);
+    expect(
+      h.keyManager.retained[label],
+      originalKey,
+      reason: 'archiving ciphertext without its key is deleting it',
+    );
+
+    final reopened = AppDatabase(
+      openLoadoutExecutor(file: archived, key: h.keyManager.retained[label]!),
+    );
+    addTearDown(reopened.close);
+    final rows = await reopened
+        .customSelect('SELECT count(*) AS c FROM items')
+        .get();
+    expect(
+      rows.single.read<int>('c'),
+      greaterThan(0),
+      reason: 'the archived workspace is recoverable, not lost',
     );
   });
 

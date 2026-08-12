@@ -8,14 +8,15 @@
 /// | absent  | absent  | [StartupFreshWorkspace] → `/welcome`; key generated on create |
 /// | present | present | normal open; wrong-key probe → [StartupRecovery] (wrongKey) |
 /// | present | absent  | [StartupRecovery] (keyMissing) |
-/// | absent  | present | key entry overwritten with a fresh key → [StartupFreshWorkspace] |
+/// | absent  | present | old key retained, entry rotated → [StartupFreshWorkspace] |
 ///
 /// Never silently delete a DB file; never auto-create a new DB over the
 /// present/absent case. The recovery actions are (a) restore from a Loadout
 /// backup file (§8 flow, wired by the shell) and (b) start fresh
 /// ([StartupService.startFreshFromRecovery] — the typed confirmation word is
 /// the shell's concern), which archives the orphaned ciphertext to
-/// `db/orphaned-<utcstamp>.db` (never deleted).
+/// `db/orphaned-<utcstamp>.db` (never deleted) and retains the key that
+/// opens it — an archive without its key is deleted data.
 library;
 
 // The prefer_initializing_formals fix ('this._x' named parameters) needs
@@ -27,6 +28,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:drift/drift.dart';
+import 'package:path/path.dart' as p;
 
 import '../../core/diagnostics/diag.dart';
 import '../../data/db/app_database.dart';
@@ -106,9 +108,14 @@ final class StartupService implements DatabaseHost {
       return const StartupFreshWorkspace();
     }
     if (!dbPresent && keyPresent) {
-      // §7.3 row 4: treat as fresh workspace; overwrite the key entry with a
-      // newly generated key, continue to /welcome. (Storage-only overwrite —
-      // there is no database to rekey.)
+      // §7.3 row 4: treat as fresh workspace; rotate the key entry, continue
+      // to /welcome. (Storage-only overwrite — there is no database to
+      // rekey.) The outgoing key is retained first: a restore or archive
+      // interrupted mid-swap can leave ciphertext on disk that only this key
+      // opens, and rotating over it would be silent data loss.
+      await _keyManager.retainDatabaseKey(
+        'superseded-${LoadoutPaths.utcStamp(DateTime.now().toUtc())}',
+      );
       await _keyManager.rekeyDatabase(generateDatabaseKey());
       return const StartupFreshWorkspace();
     }
@@ -154,15 +161,22 @@ final class StartupService implements DatabaseHost {
   /// a new key. The typed confirmation word is validated by the UI.
   Future<AppDatabase> startFreshFromRecovery() async {
     await close();
-    _archiveOrphanedDatabase();
+    final archived = _archiveOrphanedDatabase();
+    // Retain the key BEFORE destroying it: the archive we just made is
+    // ciphertext under it, and a key-less archive is deleted data.
+    if (archived != null) {
+      await _keyManager.retainDatabaseKey(archived);
+    }
     await _keyManager.destroyDatabaseKey();
     return createFreshWorkspace();
   }
 
-  void _archiveOrphanedDatabase() {
+  /// Moves the database aside; returns the archive's label, or null when
+  /// there was nothing to archive.
+  String? _archiveOrphanedDatabase() {
     final db = _paths.databaseFile;
     if (!db.existsSync()) {
-      return;
+      return null;
     }
     final archived = _paths.orphanedDatabaseFile(DateTime.now().toUtc());
     db.renameSync(archived.path);
@@ -172,6 +186,7 @@ final class StartupService implements DatabaseHost {
         sidecar.renameSync('${archived.path}$suffix');
       }
     }
+    return p.basenameWithoutExtension(archived.path);
   }
 
   // ------------------------------------------------------------ DatabaseHost

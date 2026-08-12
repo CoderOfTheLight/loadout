@@ -22,6 +22,10 @@ import 'hex.dart';
 /// Secure-store entry name (design §7.1).
 const String databaseKeyStorageName = 'loadout.db_key.v1';
 
+/// Entry name holding the key for the orphaned ciphertext tagged [label].
+String retainedKeyStorageName(String label) =>
+    '$databaseKeyStorageName.retained.$label';
+
 /// 32 bytes from `Random.secure()` (platform CSPRNG).
 Uint8List generateDatabaseKey({Random? random}) {
   final rng = random ?? Random.secure();
@@ -43,6 +47,16 @@ abstract interface class KeyManager {
   /// `PRAGMA rekey = "x'<hex>'"` on the live connection, then call this.
   /// Also used by bootstrap for the §7.3 db-absent/key-present overwrite.
   Future<void> rekeyDatabase(Uint8List newKey);
+
+  /// Copies the live key to a retained entry tagged [label], so ciphertext
+  /// encrypted under it stays decryptable after the live entry is replaced or
+  /// destroyed.
+  ///
+  /// Archiving a database file without archiving its key destroys the data as
+  /// surely as deleting it: call this before [rekeyDatabase] or
+  /// [destroyDatabaseKey] whenever ciphertext encrypted under the live key is
+  /// being kept. No-op when no key is stored.
+  Future<void> retainDatabaseKey(String label);
 
   /// ONLY from the workspace-reset flow (and recovery start-fresh, which is a
   /// workspace reset).
@@ -98,6 +112,15 @@ final class SecureStorageKeyManager implements KeyManager {
   }
 
   @override
+  Future<void> retainDatabaseKey(String label) async {
+    final stored = await _storage.read(key: databaseKeyStorageName);
+    if (stored == null) {
+      return;
+    }
+    await _storage.write(key: retainedKeyStorageName(label), value: stored);
+  }
+
+  @override
   Future<void> destroyDatabaseKey() =>
       _storage.delete(key: databaseKeyStorageName);
 
@@ -134,6 +157,9 @@ final class InMemoryKeyManager implements KeyManager {
   Uint8List? _key;
   final Random? _random;
 
+  /// label → key, mirroring the retained entries in the secure store.
+  final Map<String, Uint8List> retained = {};
+
   @override
   Future<bool> hasDatabaseKey() async => _key != null;
 
@@ -145,6 +171,15 @@ final class InMemoryKeyManager implements KeyManager {
   Future<void> rekeyDatabase(Uint8List newKey) async {
     SecureStorageKeyManager._requireKeyLength(newKey);
     _key = Uint8List.fromList(newKey);
+  }
+
+  @override
+  Future<void> retainDatabaseKey(String label) async {
+    final key = _key;
+    if (key == null) {
+      return;
+    }
+    retained[label] = Uint8List.fromList(key);
   }
 
   @override
