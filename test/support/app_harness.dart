@@ -187,10 +187,35 @@ final class AppHarness {
   }
 
   /// Navigates the pumped app ([pumpApp] first) and settles.
-  Future<void> go(WidgetTester tester, String location) async {
+  ///
+  /// Bounded on purpose: a screen that never stops animating (an unresolved
+  /// spinner, say) otherwise burns `pumpAndSettle`'s ten-minute default
+  /// before the suite reports anything.
+  Future<void> go(
+    WidgetTester tester,
+    String location, {
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
     container.read(routerProvider).go(location);
-    await tester.pumpAndSettle();
+    await tester.pumpAndSettle(
+      const Duration(milliseconds: 100),
+      EnginePhase.sendSemanticsUpdate,
+      timeout,
+    );
+    // Leaving a route auto-disposes its providers, and drift closes the
+    // query streams behind them on a zero-duration timer. Flush it, or the
+    // test ends with a pending timer.
+    await tester.pump(Duration.zero);
   }
+
+  /// Pumps a zero-duration frame so that drift's stream-close timers fire.
+  ///
+  /// Auto-disposing a provider (leaving a route, popping a form) closes the
+  /// query stream behind it on a `Timer(Duration.zero)`. A test that ends
+  /// before that timer runs fails with "A Timer is still pending even after
+  /// the widget tree was disposed". [go] already does this; call it by hand
+  /// after any interaction that pops or disposes a screen.
+  Future<void> flushTimers(WidgetTester tester) => tester.pump(Duration.zero);
 
   /// Pumps ONE screen with the full provider graph but no router — for
   /// screens under test that do not navigate. Navigation calls

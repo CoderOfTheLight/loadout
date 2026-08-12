@@ -18,12 +18,18 @@ class RecipeDao extends DatabaseAccessor<AppDatabase> with _$RecipeDaoMixin {
       (select(recipes)..where((r) => r.id.equals(id))).watchSingleOrNull();
 
   /// Every recipe, live first, then case-insensitively by name.
-  Stream<List<Recipe>> watchAll() =>
-      (select(recipes)..orderBy([
-            (r) => OrderingTerm.asc(r.archivedAtMicros.isNotNull()),
-            (r) => OrderingTerm.asc(r.name.lower()),
-          ]))
-          .watch();
+  Stream<List<Recipe>> watchAll() => _allQuery().watch();
+
+  /// One-shot [watchAll]. Callers assembling a summary inside a stream
+  /// transform must use this: awaiting `watchAll().first` there opens a
+  /// second query stream that never delivers.
+  Future<List<Recipe>> all() => _allQuery().get();
+
+  MultiSelectable<Recipe> _allQuery() => select(recipes)
+    ..orderBy([
+      (r) => OrderingTerm.asc(r.archivedAtMicros.isNotNull()),
+      (r) => OrderingTerm.asc(r.name.lower()),
+    ]);
 
   /// All revisions of one recipe, newest first (current = first row).
   Future<List<RecipeRevision>> revisionsFor(String recipeId) =>

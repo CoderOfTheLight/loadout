@@ -8,6 +8,7 @@ import '../../approval/domain/commands.dart';
 import '../../approval/domain/proposal.dart';
 import '../domain/recipe.dart';
 import '../domain/recipe_drafts.dart';
+import '../../../data/db/table_watch.dart';
 
 final class RecipeSummary {
   const RecipeSummary({
@@ -126,29 +127,25 @@ final class DriftRecipeService implements RecipeService {
 
   @override
   Stream<List<RecipeSummary>> watchRecipes() => _db
-      .customSelect(
-        'SELECT 1 AS one',
-        readsFrom: {
-          _db.recipes,
-          _db.recipeRevisions,
-          _db.recipeLines,
-          _db.items,
-        },
-      )
-      .watch()
+      .watchTables('recipes.list', {
+        _db.recipes,
+        _db.recipeRevisions,
+        _db.recipeLines,
+        _db.items,
+      })
       .asyncMap((_) => _loadSummaries());
 
   @override
   Stream<RecipeDetail> watchRecipe(String recipeId) => _db
-      .customSelect(
-        'SELECT 1 AS one',
-        readsFrom: {_db.recipes, _db.recipeRevisions, _db.recipeLines},
-      )
-      .watch()
+      .watchTables('recipes.detail', {
+        _db.recipes,
+        _db.recipeRevisions,
+        _db.recipeLines,
+      })
       .asyncMap((_) => _loadDetail(recipeId));
 
   Future<List<RecipeSummary>> _loadSummaries() async {
-    final recipes = await _db.recipeDao.watchAll().first;
+    final recipes = await _db.recipeDao.all();
     final summaries = <RecipeSummary>[];
     for (final recipe in recipes) {
       final latest = await _db.recipeDao.latestRevisionFor(recipe.id);

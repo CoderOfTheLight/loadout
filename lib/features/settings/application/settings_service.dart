@@ -5,6 +5,7 @@ import 'package:drift/drift.dart';
 import '../../../core/time.dart';
 import '../../../data/db/app_database.dart';
 import '../../forecasting/domain/forecast_engine.dart';
+import '../../../data/db/table_watch.dart';
 
 /// Workspace read model (design §6.5): the singleton `workspace_meta` row
 /// plus the preference settings.
@@ -107,11 +108,7 @@ final class DriftSettingsService implements SettingsService {
 
   @override
   Stream<Workspace?> watchWorkspace() => _db
-      .customSelect(
-        'SELECT 1 AS one',
-        readsFrom: {_db.workspaceMeta, _db.settings},
-      )
-      .watch()
+      .watchTables('settings.workspace', {_db.workspaceMeta, _db.settings})
       .asyncMap((_) => _loadWorkspace());
 
   Future<Workspace?> _loadWorkspace({bool requireCreated = true}) async {

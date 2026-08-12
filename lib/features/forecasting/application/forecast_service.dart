@@ -14,6 +14,7 @@ import '../../settings/application/settings_service.dart';
 import '../domain/forecast_engine.dart';
 import '../domain/snapshot.dart';
 import '../domain/snapshot_inputs.dart';
+import '../../../data/db/table_watch.dart';
 
 /// Screen-facing forecasting surface (design §6.5). Snapshots are appended,
 /// never rewritten; the frozen engine is the only arithmetic source.
@@ -81,16 +82,12 @@ final class DriftForecastService implements ForecastService {
 
   @override
   Stream<ForecastSnapshotView?> watchLatestSnapshot(String eventId) => _db
-      .customSelect(
-        'SELECT 1 AS one',
-        readsFrom: {
-          _db.forecastSnapshots,
-          _db.forecastLines,
-          _db.forecastEvidence,
-          _db.forecastOverrides,
-        },
-      )
-      .watch()
+      .watchTables('forecast.latestSnapshot', {
+        _db.forecastSnapshots,
+        _db.forecastLines,
+        _db.forecastEvidence,
+        _db.forecastOverrides,
+      })
       .asyncMap((_) async {
         final latest = await _db.forecastDao.latestSnapshotForEvent(eventId);
         return latest == null ? null : await _loadView(latest.id);

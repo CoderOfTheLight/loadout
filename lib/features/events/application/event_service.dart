@@ -7,6 +7,7 @@ import '../../approval/domain/approval_service.dart';
 import '../../approval/domain/commands.dart';
 import '../../approval/domain/proposal.dart';
 import '../domain/event.dart';
+import '../../../data/db/table_watch.dart';
 
 /// List filter (design §9 EventListScreen: Upcoming / Active / Closed /
 /// All). Upcoming = planned; cancelled events appear under All only.
@@ -154,11 +155,7 @@ final class DriftEventService implements EventService {
 
   @override
   Stream<EventDetail> watchEvent(String eventId) => _db
-      .customSelect(
-        'SELECT 1 AS one',
-        readsFrom: {_db.events, _db.eventItems, _db.items},
-      )
-      .watch()
+      .watchTables('events.detail', {_db.events, _db.eventItems, _db.items})
       .asyncMap((_) => _loadDetail(eventId));
 
   Future<EventDetail> _loadDetail(String eventId) async {
