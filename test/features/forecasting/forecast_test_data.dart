@@ -145,3 +145,54 @@ Future<ForecastScenario> seedScenario(AppHarness h) async {
     upcomingEventId: upcomingEventId,
   );
 }
+
+/// Three closed events for one item, all at 100 attendance: 60 sold with
+/// stock left, 50 sold with stock left, then 40 sold and RAN OUT. Plus an
+/// upcoming event for 100.
+///
+/// Untreated, the median of {60, 50, 40} is 50 and the sell-out drags the
+/// plan down. Treated as the lower bound it is, the sell-out day is credited
+/// with the typical rate of 55, so the forecast is 55 — never 50.
+/// `historyEventId` is the day that sold out.
+Future<ForecastScenario> seedSelloutScenario(AppHarness h) async {
+  final itemId = await seedItem(h);
+  Future<String> closedDay(
+    String name,
+    String date,
+    int units,
+    bool ranOut,
+  ) async {
+    final eventId = await seedEvent(
+      h,
+      name: name,
+      date: date,
+      exposure: 100,
+      itemIds: [itemId],
+    );
+    await seedCloseout(
+      h,
+      eventId: eventId,
+      confirmedExposure: 100,
+      itemId: itemId,
+      depletionMicros: units * 1000000,
+      stockout: ranOut,
+    );
+    return eventId;
+  }
+
+  await closedDay('Full day', '2026-07-01', 60, false);
+  await closedDay('Quiet day', '2026-07-08', 50, false);
+  final soldOutEventId = await closedDay('Sold out', '2026-07-15', 40, true);
+  final upcomingEventId = await seedEvent(
+    h,
+    name: 'Street fair',
+    date: '2026-09-01',
+    exposure: 100,
+    itemIds: [itemId],
+  );
+  return ForecastScenario(
+    itemId: itemId,
+    historyEventId: soldOutEventId,
+    upcomingEventId: upcomingEventId,
+  );
+}

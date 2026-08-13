@@ -72,16 +72,24 @@ void main() {
   group('canonical encoding', () {
     test('golden vector: fixed inputs → fixed 64-hex digest', () {
       // Recomputed independently (python hashlib) over the §6.6 encoding.
+      // Moved with the method version: v2 treats sell-out days as a lower
+      // bound, so these inputs produce different outputs than v1 did and the
+      // hash has to say so.
       expect(
         computeInputsHash(inputs()),
-        '3036c390947674f5ece117a25e7b773a04e323fec74b7a65980e69736b140363',
+        'e38015c3f3ae5392a50a291f5b601f7e3cfb2c7e13afb5fc160155430fbf85e0',
       );
+    });
+
+    test('the encoding is tagged with the current method version', () {
+      expect(forecastMethodVersion, 2);
+      expect(canonicalInputs(inputs()), startsWith('direct_median|2|'));
     });
 
     test('canonical text matches the §6.6 contract exactly', () {
       expect(
         canonicalInputs(inputs()),
-        'direct_median|1|balanced|150|12'
+        'direct_median|2|balanced|150|12'
         '\n${pad('ITEMA')}|1000000|5000000|0'
         '\n${pad('ITEMB')}|12000000|-2500000|0'
         ';${pad('CLOSEB1')}:120:30000000:1:0'

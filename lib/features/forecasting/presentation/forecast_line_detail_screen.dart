@@ -442,6 +442,12 @@ class _ForecastLineDetailScreenState
           children: [
             row('Exposure', '${snapshot.upcomingExposure} $exposureLabel'),
             row('Policy', '${policyChipLabel(snapshot.policy)} reserve'),
+            // What was done about days that ran out. The Warnings section
+            // below says why in plain language; this says how much of the
+            // history it touched.
+            if (selloutHandlingNote(line, methodVersion: snapshot.methodVersion)
+                case final note?)
+              row('Days you ran out', note),
             if (line.baselineServesPerUnitMicros != null)
               row(
                 'One serves',

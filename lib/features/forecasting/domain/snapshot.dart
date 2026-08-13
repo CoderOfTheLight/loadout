@@ -5,7 +5,20 @@ import 'snapshot_inputs.dart';
 
 /// The only forecast method shipping in v1 (design §6.6).
 const String forecastMethodDirectMedian = 'direct_median';
-const int forecastMethodVersion = 1;
+
+/// v2: sell-out days are treated as a lower bound on demand before the frozen
+/// engine sees them (`application/stockout_adjustment.dart`). The engine is
+/// unchanged, but the same confirmed history now legitimately produces a
+/// different — never lower — number, so the version has to say so. The
+/// canonical input encoding carries the same tag, which is what keeps
+/// "same hash ⇒ byte-identical outputs" true across the change.
+const int forecastMethodVersion = 2;
+
+/// The first method version that treats a sell-out day as a lower bound on
+/// demand. A snapshot stored below this was computed WITHOUT that correction,
+/// and its numbers are frozen history: nothing on screen may describe them as
+/// having allowed for the days that ran out, because they did not.
+const int selloutAwareMethodVersion = 2;
 
 /// Db string mapping for the frozen engine's [EvidenceGrade].
 String evidenceGradeToDb(EvidenceGrade grade) => switch (grade) {

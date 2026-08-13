@@ -328,7 +328,9 @@ class ForecastSnapshots extends Table {
       text().references(Events, #id, onDelete: KeyAction.restrict)();
   TextColumn get method => text()(); // 'direct_median'
   IntColumn get methodVersion =>
-      integer().check(methodVersion.isBiggerThanValue(0))(); // 1
+      // Stored, not assumed: v1 snapshots predate the sell-out correction and
+      // stay readable exactly as they were computed (§6.6).
+      integer().check(methodVersion.isBiggerThanValue(0))();
   TextColumn get policy =>
       text().check(policy.isIn(['lean', 'balanced', 'cautious']))();
   IntColumn get upcomingExposure =>

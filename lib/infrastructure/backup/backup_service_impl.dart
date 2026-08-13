@@ -651,12 +651,19 @@ final class BackupServiceImpl implements BackupService {
     final deviceKey = await _keyManager.getOrCreateDatabaseKey();
     final newDb = File('${_databaseFile.path}.new');
     var swapped = false;
+    // Whether THIS restore parked the live workspace. A `.pre-restore` copy
+    // can already be sitting there from an earlier restore that died
+    // mid-swap — that is the §7.3 parked state, and `/settings/restore` is
+    // reachable from its recovery screen. This restore did not put that copy
+    // there, so this restore neither deletes it on success nor renames it
+    // back on failure.
+    var parked = false;
     try {
       await _host.close();
       await restoreFaultInjector?.call('after-close');
 
       // Rename db/loadout.db (+-wal, -shm) aside; never delete.
-      _renameSidecars(from: '', to: '.pre-restore');
+      parked = _renameSidecars(from: '', to: '.pre-restore');
 
       // Re-encrypt the payload under the DEVICE key via sqlcipher_export
       // into db/loadout.db.new; plaintext never touches disk.
@@ -683,8 +690,10 @@ final class BackupServiceImpl implements BackupService {
       await _host.open();
       await restoreFaultInjector?.call('after-reopen');
 
-      // Success: delete staging and the .pre-restore copy.
-      _deleteSidecars(suffix: '.pre-restore');
+      // Success: delete staging and the .pre-restore copy this restore made.
+      if (parked) {
+        _deleteSidecars(suffix: '.pre-restore');
+      }
       try {
         await _scratch.disposeSession(preview.stagingDir);
       } catch (_) {
@@ -696,7 +705,7 @@ final class BackupServiceImpl implements BackupService {
         schemaVersion: preview.payloadUserVersion,
       );
     } catch (e) {
-      await _rollback(newDb: newDb, swapped: swapped);
+      await _rollback(newDb: newDb, swapped: swapped, parked: parked);
       _diag.event(
         DiagEvent.restoreRolledBack,
         errorType: e.runtimeType.toString(),
@@ -711,7 +720,11 @@ final class BackupServiceImpl implements BackupService {
     }
   }
 
-  Future<void> _rollback({required File newDb, required bool swapped}) async {
+  Future<void> _rollback({
+    required File newDb,
+    required bool swapped,
+    required bool parked,
+  }) async {
     try {
       await _host.close();
     } catch (_) {
@@ -721,28 +734,38 @@ final class BackupServiceImpl implements BackupService {
       if (newDb.existsSync()) {
         newDb.deleteSync();
       }
-      final preRestore = File('${_databaseFile.path}.pre-restore');
-      if (preRestore.existsSync()) {
-        if (swapped) {
-          // The current loadout.db* is the failed new workspace; remove it
-          // before putting the original back.
-          _deleteSidecars(suffix: '');
-        }
+      if (swapped) {
+        // The current loadout.db* is the failed new workspace this restore
+        // created; remove it before putting anything back.
+        _deleteSidecars(suffix: '');
+      }
+      if (parked) {
         _renameSidecars(from: '.pre-restore', to: '');
       }
-      await _host.open();
+      // Restored INTO the §7.3 parked state: there was no live workspace
+      // before, so there is none to reopen. Opening here would create an
+      // empty one over the top; bootstrap offers the parked copy instead.
+      if (_databaseFile.existsSync()) {
+        await _host.open();
+      }
     } catch (_) {
       // The .pre-restore copy is still on disk; bootstrap surfaces recovery.
     }
   }
 
-  void _renameSidecars({required String from, required String to}) {
+  /// Renames `loadout.db$from` (+`-wal`, `-shm`) to `loadout.db$to`.
+  /// Returns whether the main database file itself moved — the caller needs
+  /// to know whether the `.pre-restore` copy is its own to clean up.
+  bool _renameSidecars({required String from, required String to}) {
+    var movedMain = false;
     for (final suffix in const ['', '-wal', '-shm']) {
       final source = File('${_databaseFile.path}$suffix$from');
       if (source.existsSync()) {
         source.renameSync('${_databaseFile.path}$suffix$to');
+        movedMain |= suffix.isEmpty;
       }
     }
+    return movedMain;
   }
 
   void _deleteSidecars({required String suffix}) {

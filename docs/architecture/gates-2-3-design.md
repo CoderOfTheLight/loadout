@@ -1034,8 +1034,54 @@ extension of the same seam (§13); Gate 2 needs `forecastDirect` plus persistenc
 `confirmedInbound = Quantity.zero` (column defaults 0; **no UI in v1** — the line-detail
 assumptions copy states "inbound: 0"); `packSize = item.packSizeMicros`; `policy` from event
 (falling back to workspace default); `upcomingExposure = event.plannedExposure` (required — the
-UI blocks Generate until set). Method `'direct_median'`, version `1`. Assumptions JSON records
-at minimum `reserve_percent`, `history_window`, `exposure_label`.
+UI blocks Generate until set). Method `'direct_median'`, version `2`. Assumptions JSON records
+at minimum `reserve_percent`, `history_window`, `exposure_label`, and the sell-out rule below
+(`stockout_rule`, `stockout_rule_note`, `stockout_adjusted_lines`,
+`stockout_all_sellout_lines`).
+
+**Sell-out (right-censored) observations — method v2, normative.** A closeout records a
+depletion plus a `stockout` flag. "Sold 40 and ran out" is a LOWER BOUND on demand, not demand:
+she might have sold 60. Feeding that into the median like any other observation biases every
+forecast downward and the bias compounds — run out, record 40, forecast 40, bring 44, run out
+again. Running out is the expensive failure for a stall, so the observations are corrected
+before the frozen engine sees them, in
+`lib/features/forecasting/application/stockout_adjustment.dart`
+(`adjustForSellouts`). The engine itself is untouched.
+
+Let rate(o) be the engine's own `depletion × 1e6 ÷ exposure` (truncated), `U` the rates of the
+observations with `stockout = false` and `C` the ones with `stockout = true`:
+
+- `C` empty → nothing happens; the engine sees the raw history.
+- `U` non-empty → each censored rate becomes `max(itsOwnRate, median(U))`, using the engine's
+  own median (middle value; floored mean of the two middles for an even count). A sell-out can
+  only ever RAISE the estimate, never lower it.
+- `U` empty (every observation censored) → the whole history is a lower bound. Every rate
+  becomes the largest observed rate, and the line warns that real demand is unknown and probably
+  higher. With a single censored observation there is nothing to raise it to, so the number is
+  unchanged and only the warning is added — the honest answer is to say so, not to invent a
+  multiplier.
+- Observations with `stockout = false` are never modified.
+
+The engine consumes depletions, not rates, so a lifted rate is realised as the smallest
+depletion the engine reads back as at least that rate: `ceil(rate × exposure ÷ 1e6)`, all
+integer (ADR 0001). That makes the transform **monotone** — every adjusted depletion is >= the
+one it replaced, so every adjusted rate is >=, so the median is >=, so the adjusted forecast is
+never below the unadjusted one. `test/domain/stockout_adjustment_test.dart` pins this as a
+property over a seeded deterministic RNG.
+
+Three invariants hold around it:
+
+1. **Stored evidence keeps the confirmed numbers.** `forecast_evidence` rows are the real
+   closeout figures with their real flags. An adjusted depletion is never written where a
+   confirmed outcome belongs — it exists only in memory, on the way into the engine.
+2. **Replay applies the same transform.** "Same inputs ⇒ byte-identical outputs" means
+   `adjustForSellouts(storedEvidence)` then `forecastDirect`, exactly as generation did. The
+   engine envelope check (below) also runs on the ADJUSTED observations, so a raised rate cannot
+   slip past it.
+3. **The owner is told in her own words.** Affected lines carry a plain-language warning beside
+   the engine's own strings — "You ran out on 2 of these days, so demand was probably higher
+   than recorded — this allows for that." — and the line-detail assumptions card shows how much
+   of the history it touched. No "censored", no "quantile".
 
 **`inputs_hash` canonical encoding (normative).** SHA-256 (`package:crypto`) lowercase hex over
 the UTF-8 bytes of:
@@ -1044,8 +1090,10 @@ the UTF-8 bytes of:
 String canonicalInputs(SnapshotInputs s) {
   // s.lines sorted by itemId bytewise ascending;
   // evidence in label-query order (scheduled_date DESC, event_id DESC).
+  // The leading tag is the METHOD version: it moves whenever the same inputs
+  // start producing different outputs (v1 -> v2 = sell-out handling).
   final b = StringBuffer()
-    ..write('direct_median|1|${s.policy.name}|${s.upcomingExposure}|${s.historyWindow}');
+    ..write('direct_median|2|${s.policy.name}|${s.upcomingExposure}|${s.historyWindow}');
   for (final line in s.lines) {
     b.write('\n${line.itemId}|${line.packSizeMicros}'
         '|${line.onHandMicros}|${line.confirmedInboundMicros}');
@@ -1061,6 +1109,11 @@ String canonicalInputs(SnapshotInputs s) {
 `on_hand_micros` in the encoding is the stored **signed** value. Same hash ⇒ byte-identical
 outputs (reproducibility); the applier recomputes and rejects a mismatched
 `SaveForecastSnapshot`; `isStale` rebuilds the encoding from live state and compares.
+
+Because the method version tags the encoding, that implication survives a method change: every
+snapshot stored by v1 now recomputes to a different hash and reads as out of date, which is
+exactly what it is. The forecast screen checks the stored `method_version` first and names that
+reason rather than claiming the inputs changed, so the banner is never a lie.
 
 **Actuals are derived, never stored** — the accuracy read model joins the latest snapshot's
 lines to the latest closeout revision's lines on `(event_id, item_id)`: per item
@@ -1184,19 +1237,44 @@ SQLCipher 4 defaults stand (AES-256-CBC, per-page HMAC-SHA512); the raw key form
 internal KDF. `cipher_memory_security` is deliberately OFF (CPU cost for no coverage against an
 attacker who already reads app memory).
 
-### 7.3 Four-state startup machine
+### 7.3 Five-state startup machine
 
-Bootstrap (before the router shows anything) inspects key and DB file presence:
+Bootstrap (before the router shows anything) inspects the `db/` directory and the key store.
+"Parked" means recoverable ciphertext sitting somewhere other than `db/loadout.db`: either
+`db/loadout.db.pre-restore` (a restore that died mid-swap, §8.2) or a `db/orphaned-<utcstamp>.db`
+archive left by an earlier start-fresh.
 
-| DB file | Key | Behavior |
-|---|---|---|
-| absent | absent | `/welcome` — fresh workspace creation (key generated on create) |
-| present | present | Normal open; wrong-key check guards mismatch → `/recovery` on failure |
-| present | absent | **`/recovery`** — "This device can't unlock the existing data." Actions: (a) **Restore from a Loadout backup file** (§8 flow), (b) **Start fresh** — typed confirmation word, then the orphaned ciphertext is archived to `db/orphaned-<utcstamp>.db` (never deleted) and a new workspace is created with a new key |
-| absent | present | Treat as fresh workspace; overwrite the key entry with a newly generated key, continue to `/welcome` |
+| DB file | Parked | Key | Behavior |
+|---|---|---|---|
+| absent | none | absent | `/welcome` — fresh workspace creation (key generated on create) |
+| present | any | present | Normal open; wrong-key check guards mismatch → `/recovery` on failure |
+| present | any | absent | **`/recovery`** — "This device can't unlock the existing data." Actions: (a) **Restore from a Loadout backup file** (§8 flow), (b) **Start fresh** — typed confirmation word, then the orphaned ciphertext is archived to `db/orphaned-<utcstamp>.db` (never deleted) and a new workspace is created with a new key |
+| absent | none | present | Treat as fresh workspace; overwrite the key entry with a newly generated key, continue to `/welcome` |
+| absent | **some** | any | **`/recovery`** (`StartupParkedWorkspace`) — "Your workspace is still on this device." Action (a) **Put my workspace back**, plus the two above. **No key is rotated or destroyed on this path.** |
+
+The last row is the interrupted-restore hole, and it is why the fourth row is not enough on its
+own: `restoreBackup` renames the live workspace aside while it re-encrypts the payload (§8.2), so
+a process death in that window leaves no live database and a key that still opens the parked
+copy. Reading that as a fresh install rotates the key over data that is sitting right there.
+So bootstrap scans for parked ciphertext **before** it may conclude anything, and never rotates
+or destroys a key while recoverable ciphertext exists.
+
+Putting a copy back is validated before anything moves, with the care §8.2 takes over a restore
+payload: the copy is staged in scratch, every key on the device is tried against it, and the
+winner must pass `cipher_integrity_check`, `integrity_check`, `user_version >= 1` and a
+`workspace_meta` singleton. Only then is the parked file **renamed** into place (never
+copy-then-delete); if the real open still fails, the rename and any key change are undone. Every
+refusal (`liveWorkspacePresent`, `missing`, `noKeyOnDevice`, `noMatchingKey`, `damaged`,
+`openFailed`) leaves the copy byte-identical where it was.
+
+A live `db/loadout.db` always wins over anything parked beside it — the §8.2 swap completed, so
+it is the authoritative copy. The parked one is retired to an `orphaned-*` archive with its key
+retained (never deleted) and logged as `parkedWorkspaceFound`, which also stops a later restore's
+rollback renaming a stale `.pre-restore` back over a newer workspace.
 
 Never silently delete a DB file; never auto-create a new DB over the present/absent case. A
-wrong-key open failure routes to the same `/recovery` screen with the same two actions.
+wrong-key open failure routes to the same `/recovery` screen, which additionally names any parked
+copies it found so they are not invisible.
 
 ---
 

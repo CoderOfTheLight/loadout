@@ -63,11 +63,47 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     await tester.scrollUntilVisible(
-      find.text('direct_median · v1'),
+      find.text('direct_median · v2'),
       200,
       scrollable: find.byType(Scrollable).first,
     );
-    expect(find.text('direct_median · v1'), findsOneWidget);
+    expect(find.text('direct_median · v2'), findsOneWidget);
+  });
+
+  testWidgets('the assumptions say what was done about days that ran out', (
+    tester,
+  ) async {
+    final h = (await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    ))!;
+    addTearDown(h.dispose);
+    final scenario = (await tester.runAsync(() => seedSelloutScenario(h)))!;
+    await tester.runAsync(
+      () => h
+          .read(forecastServiceProvider)
+          .generateSnapshot(scenario.upcomingEventId),
+    );
+
+    await h.pumpApp(tester);
+    await h.go(
+      tester,
+      '/events/${scenario.upcomingEventId}/forecast/${scenario.itemId}',
+    );
+
+    await tester.scrollUntilVisible(
+      find.text('Days you ran out'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('1 of 3 — raised to your typical rate'), findsOneWidget);
+
+    // The evidence rows still show the CONFIRMED 40, never the 55 the engine
+    // was handed.
+    expect(
+      find.textContaining('100 attendance · depletion 40'),
+      findsOneWidget,
+    );
+    expect(find.text('Ran out'), findsOneWidget);
   });
 
   testWidgets('override demands a reason of 3+ chars, appends rows, and '

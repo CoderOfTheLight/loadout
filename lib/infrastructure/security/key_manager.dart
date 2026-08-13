@@ -22,9 +22,12 @@ import 'hex.dart';
 /// Secure-store entry name (design §7.1).
 const String databaseKeyStorageName = 'loadout.db_key.v1';
 
+/// Entry-name prefix shared by every retained key (§7.3).
+const String retainedKeyStoragePrefix = '$databaseKeyStorageName.retained.';
+
 /// Entry name holding the key for the orphaned ciphertext tagged [label].
 String retainedKeyStorageName(String label) =>
-    '$databaseKeyStorageName.retained.$label';
+    '$retainedKeyStoragePrefix$label';
 
 /// 32 bytes from `Random.secure()` (platform CSPRNG).
 Uint8List generateDatabaseKey({Random? random}) {
@@ -57,6 +60,14 @@ abstract interface class KeyManager {
   /// [destroyDatabaseKey] whenever ciphertext encrypted under the live key is
   /// being kept. No-op when no key is stored.
   Future<void> retainDatabaseKey(String label);
+
+  /// Every retained label currently in the store, sorted. Recovery walks
+  /// these to find the key that opens a parked workspace (§7.3): a retained
+  /// key nobody can enumerate is as good as no key at all.
+  Future<List<String>> retainedKeyLabels();
+
+  /// The 32-byte key retained under [label], or null when there is none.
+  Future<Uint8List?> readRetainedKey(String label);
 
   /// ONLY from the workspace-reset flow (and recovery start-fresh, which is a
   /// workspace reset).
@@ -121,6 +132,24 @@ final class SecureStorageKeyManager implements KeyManager {
   }
 
   @override
+  Future<List<String>> retainedKeyLabels() async {
+    final all = await _storage.readAll();
+    final labels =
+        all.keys
+            .where((name) => name.startsWith(retainedKeyStoragePrefix))
+            .map((name) => name.substring(retainedKeyStoragePrefix.length))
+            .toList()
+          ..sort();
+    return labels;
+  }
+
+  @override
+  Future<Uint8List?> readRetainedKey(String label) async {
+    final stored = await _storage.read(key: retainedKeyStorageName(label));
+    return stored == null ? null : _decodeStored(stored);
+  }
+
+  @override
   Future<void> destroyDatabaseKey() =>
       _storage.delete(key: databaseKeyStorageName);
 
@@ -180,6 +209,16 @@ final class InMemoryKeyManager implements KeyManager {
       return;
     }
     retained[label] = Uint8List.fromList(key);
+  }
+
+  @override
+  Future<List<String>> retainedKeyLabels() async =>
+      retained.keys.toList()..sort();
+
+  @override
+  Future<Uint8List?> readRetainedKey(String label) async {
+    final key = retained[label];
+    return key == null ? null : Uint8List.fromList(key);
   }
 
   @override

@@ -10,6 +10,7 @@ import 'package:loadout/core/ids.dart';
 import 'package:loadout/core/quantity.dart';
 import 'package:loadout/features/approval/domain/commands.dart';
 import 'package:loadout/features/forecasting/application/forecast_service.dart';
+import 'package:loadout/features/forecasting/application/stockout_adjustment.dart';
 import 'package:loadout/features/forecasting/domain/forecast_engine.dart';
 import 'package:loadout/features/forecasting/domain/snapshot.dart';
 import 'package:loadout/features/forecasting/domain/snapshot_inputs.dart';
@@ -127,7 +128,7 @@ void main() {
       );
 
       expect(view.method, 'direct_median');
-      expect(view.methodVersion, 1);
+      expect(view.methodVersion, forecastMethodVersion);
       expect(view.policy, PlanningPolicy.balanced);
       expect(view.upcomingExposure, 150);
       expect(view.historyWindow, 12);
@@ -148,17 +149,21 @@ void main() {
 
       // The frozen engine is the only arithmetic source: replaying the
       // stored inputs must reproduce the stored outputs byte-for-byte.
+      // Replay applies the SAME documented transform generation did — the
+      // sell-out adjustment (§6.6) — from the same stored evidence. Skipping
+      // it here would make the property pass by not testing it.
+      final replayed = adjustForSellouts([
+        for (final e in line.evidence)
+          ConfirmedObservation(
+            exposure: e.exposure,
+            depletion: Quantity.fromMicros(e.depletionMicros),
+            stockout: e.stockout,
+            approximate: e.approximate,
+          ),
+      ]);
       final engineLine = const DeterministicForecastEngine().forecastDirect(
         upcomingExposure: 150,
-        observations: [
-          for (final e in line.evidence)
-            ConfirmedObservation(
-              exposure: e.exposure,
-              depletion: Quantity.fromMicros(e.depletionMicros),
-              stockout: e.stockout,
-              approximate: e.approximate,
-            ),
-        ],
+        observations: replayed.observations,
         policy: PlanningPolicy.balanced,
         packSize: Quantity.fromMicros(12000000),
         usableOnHand: Quantity.fromMicros(10000000),
@@ -168,7 +173,13 @@ void main() {
       expect(line.loadMicros, engineLine.roundedLoadQuantity!.micros);
       expect(line.acquireMicros, engineLine.acquireQuantity!.micros);
       expect(line.evidenceGrade, engineLine.evidenceGrade);
-      expect(line.warnings, engineLine.warnings);
+      expect(line.warnings, [...engineLine.warnings, replayed.warning]);
+
+      // The rule that produced those numbers is on the snapshot, so the
+      // forecast can still explain itself without this test's source code.
+      expect(view.assumptionsJson, contains('"stockout_rule"'));
+      expect(view.assumptionsJson, contains(selloutRuleTag));
+      expect(view.assumptionsJson, contains('"stockout_adjusted_lines":1'));
 
       // Stored hash matches the canonical recomputation.
       expect(
@@ -199,6 +210,144 @@ void main() {
           ),
         ),
       );
+    });
+
+    test(
+      'a sell-out raises the forecast instead of dragging it down',
+      () async {
+        // 60 sold with stock left, 50 sold with stock left, then 40 sold and
+        // ran out. Untreated, the median of {60, 50, 40} is 50 and the sell-out
+        // pulls the plan DOWN — straight back into another sell-out.
+        await closedEvent(
+          name: 'Full day',
+          date: '2026-07-01',
+          exposure: 100,
+          depletionMicros: 60000000,
+        );
+        await closedEvent(
+          name: 'Quiet day',
+          date: '2026-07-08',
+          exposure: 100,
+          depletionMicros: 50000000,
+        );
+        await closedEvent(
+          name: 'Sold out',
+          date: '2026-07-15',
+          exposure: 100,
+          depletionMicros: 40000000,
+          stockout: true,
+        );
+        final eventId = await upcomingEvent(exposure: 100);
+
+        final view = (await service.generateSnapshot(
+          eventId,
+        )).fold((v) => v, (e) => fail('${e.code}: ${e.message}'));
+        final line = view.lines.single;
+
+        // What the untreated history would have said, for contrast.
+        final untreated = const DeterministicForecastEngine().forecastDirect(
+          upcomingExposure: 100,
+          observations: [
+            for (final e in line.evidence)
+              ConfirmedObservation(
+                exposure: e.exposure,
+                depletion: Quantity.fromMicros(e.depletionMicros),
+                stockout: e.stockout,
+              ),
+          ],
+          policy: PlanningPolicy.balanced,
+          packSize: Quantity.fromMicros(12000000),
+          usableOnHand: Quantity.zero,
+        );
+        expect(untreated.expectedUse!.micros, 50000000);
+        expect(
+          line.expectedUseMicros,
+          55000000,
+          reason: 'the sell-out day is credited with the typical rate of 55',
+        );
+
+        // The stored evidence is the CONFIRMED outcome, never the adjusted
+        // figure the engine was handed.
+        final soldOut = line.evidence.firstWhere((e) => e.stockout);
+        expect(soldOut.depletionMicros, 40000000);
+        expect(soldOut.exposure, 100);
+        expect(line.evidence.map((e) => e.depletionMicros), [
+          40000000,
+          50000000,
+          60000000,
+        ]);
+
+        // And the owner is told, in her own words.
+        expect(
+          line.warnings,
+          contains(
+            'You ran out on 1 of these days, so demand was probably higher '
+            'than recorded — this allows for that.',
+          ),
+        );
+      },
+    );
+
+    test('when every day sold out, the busiest day is used and the number '
+        'is called unknown', () async {
+      for (final (index, depletion) in [40000000, 30000000, 20000000].indexed) {
+        await closedEvent(
+          name: 'Sold out $index',
+          date: '2026-07-0${index + 1}',
+          exposure: 100,
+          depletionMicros: depletion,
+          stockout: true,
+        );
+      }
+      final eventId = await upcomingEvent(exposure: 100);
+
+      final view = (await service.generateSnapshot(
+        eventId,
+      )).fold((v) => v, (e) => fail('${e.code}: ${e.message}'));
+      final line = view.lines.single;
+
+      expect(
+        line.expectedUseMicros,
+        40000000,
+        reason: 'the largest observed rate, not the median of lower bounds',
+      );
+      expect(
+        line.warnings.any((w) => w.contains('ran out every time')),
+        isTrue,
+      );
+      expect(
+        line.warnings.any((w) => w.contains('unknown and probably higher')),
+        isTrue,
+      );
+      expect(line.evidence.map((e) => e.depletionMicros), [
+        20000000,
+        30000000,
+        40000000,
+      ]);
+      expect(view.assumptionsJson, contains('"stockout_all_sellout_lines":1'));
+    });
+
+    test('a history with no sell-outs is left exactly as it was', () async {
+      await closedEvent(
+        name: 'July 1',
+        date: '2026-07-01',
+        exposure: 100,
+        depletionMicros: 30000000,
+      );
+      await closedEvent(
+        name: 'July 8',
+        date: '2026-07-08',
+        exposure: 100,
+        depletionMicros: 20000000,
+      );
+      final eventId = await upcomingEvent(exposure: 100);
+      final view = (await service.generateSnapshot(
+        eventId,
+      )).fold((v) => v, (e) => fail('${e.code}: ${e.message}'));
+      final line = view.lines.single;
+      expect(line.expectedUseMicros, 25000000); // plain median of 30 and 20
+      expect(line.warnings.any((w) => w.contains('ran out')), isFalse);
+      expect(view.assumptionsJson, contains('"stockout_adjusted_lines":0'));
     });
 
     test(

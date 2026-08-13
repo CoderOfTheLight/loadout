@@ -236,13 +236,31 @@ class _SnapshotBodyState extends ConsumerState<_SnapshotBody> {
         canRegenerate &&
         (ref.watch(forecastStalenessProvider(widget.eventId)).valueOrNull ??
             false);
+    // A snapshot from an older method is out of date for a different reason
+    // than changed inputs, and saying "inputs changed" when they did not
+    // would be a lie. The stored version says which. `isStale` also reports
+    // true here (the method version tags the inputs hash), so this case is
+    // checked first.
+    final olderMethod =
+        canRegenerate && snapshot.methodVersion != forecastMethodVersion;
     final items =
         ref.watch(forecastItemIndexProvider).valueOrNull ??
         const <String, Item>{};
     return ContentColumn(
       child: ListView(
         children: [
-          if (stale)
+          if (olderMethod)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: WarningBanner(
+                message:
+                    'This forecast was worked out before Loadout learned to '
+                    'allow for days you ran out — Refresh to redo it.',
+                actionLabel: 'Refresh',
+                onAction: _refresh,
+              ),
+            )
+          else if (stale)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: WarningBanner(
@@ -270,7 +288,7 @@ class _SnapshotBodyState extends ConsumerState<_SnapshotBody> {
   }
 }
 
-/// Header (§9): `Method: direct_median v1 · computed [relative time]` +
+/// Header (§9): `Method: direct_median v2 · computed [relative time]` +
 /// policy chip + exposure — every value from the persisted snapshot row,
 /// never hardcoded.
 class _SnapshotHeader extends StatelessWidget {

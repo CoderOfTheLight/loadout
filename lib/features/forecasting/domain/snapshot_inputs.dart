@@ -3,6 +3,9 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 import 'forecast_engine.dart';
+// The method version tags the encoding (see [canonicalInputs]); reading the
+// single constant beats keeping a duplicate literal in step with it.
+import 'snapshot.dart';
 
 /// One evidence value-copy as the engine saw it, in label-query order
 /// (`scheduled_date DESC, event_id DESC`).
@@ -71,17 +74,25 @@ final class SnapshotInputs {
 /// Lines are ordered by itemId bytewise ascending regardless of construction
 /// order; evidence keeps label-query order.
 ///
-/// v2 extension: an item's serves-per-unit changes the no-history baseline,
-/// so it is material and must be hashed. It is appended as `|s=<micros>`
-/// ONLY when non-null, which leaves the encoding byte-identical for every
-/// item that has no serves-per-unit — so schema-v1 snapshots keep the exact
-/// hash they were stored with and do not all read as stale after upgrade.
+/// Schema-v2 extension: an item's serves-per-unit changes the no-history
+/// baseline, so it is material and must be hashed. It is appended as
+/// `|s=<micros>` ONLY when non-null, which leaves the encoding byte-identical
+/// for every item that has no serves-per-unit.
+///
+/// The leading `direct_median|<n>` is the METHOD version, and it is what makes
+/// the contract below ("same hash ⇒ byte-identical outputs") true rather than
+/// merely usually true. Method v2 handles sell-out days as lower bounds
+/// (§6.6), so identical inputs produce different outputs than v1 did and the
+/// tag moves with it. The deliberate consequence: every snapshot stored by v1
+/// now recomputes to a different hash and reads as out of date, which is
+/// exactly what it is. The forecast screen names the reason rather than
+/// blaming an input change.
 String canonicalInputs(SnapshotInputs s) {
   final lines = s.lines.toList()..sort((a, b) => a.itemId.compareTo(b.itemId));
   final b = StringBuffer()
     ..write(
-      'direct_median|1|${s.policy.name}|${s.upcomingExposure}'
-      '|${s.historyWindow}',
+      'direct_median|$forecastMethodVersion|${s.policy.name}'
+      '|${s.upcomingExposure}|${s.historyWindow}',
     );
   for (final line in lines) {
     b.write(

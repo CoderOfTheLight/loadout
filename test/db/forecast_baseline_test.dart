@@ -274,10 +274,11 @@ void main() {
       expect(line.baselineExpectedUseMicros, 13000000, reason: 'ceil(100/8)');
     });
 
-    test('an item without serves-per-unit hashes exactly as it did in v1', () {
-      // The v2 field is appended only when present, so every schema-v1
-      // snapshot keeps the hash it was stored with and does not read as
-      // stale after the upgrade.
+    test('serves-per-unit is appended only when the item has one', () {
+      // The field is material (it drives the baseline) so it is hashed, but
+      // appending it only when present keeps the encoding byte-identical for
+      // every item that has none. The leading tag carries the METHOD version
+      // instead: it moved to 2 when sell-out handling changed the outputs.
       const withoutField = SnapshotInputs(
         policy: PlanningPolicy.balanced,
         upcomingExposure: 100,
@@ -293,7 +294,7 @@ void main() {
       );
       expect(
         canonicalInputs(withoutField),
-        'direct_median|1|balanced|100|12\nI1|1000000|0|0',
+        'direct_median|2|balanced|100|12\nI1|1000000|0|0',
       );
       const withField = SnapshotInputs(
         policy: PlanningPolicy.balanced,
@@ -311,7 +312,7 @@ void main() {
       );
       expect(
         canonicalInputs(withField),
-        'direct_median|1|balanced|100|12\nI1|1000000|0|0|s=4000000',
+        'direct_median|2|balanced|100|12\nI1|1000000|0|0|s=4000000',
       );
       expect(
         computeInputsHash(withField) == computeInputsHash(withoutField),

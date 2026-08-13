@@ -119,6 +119,38 @@ String evidenceBadgeLabel(ForecastLineView line) => switch (line.basis) {
   ForecastBasis.observedRange => '${line.evidence.length} events',
 };
 
+/// How this line's sell-out days were treated, or null when none sold out.
+///
+/// Derived from the STORED evidence — the real confirmed flags — so it says
+/// the same thing whether it is read now or in a year. Only lines the engine
+/// actually forecast carry an adjustment; a blank line had no arithmetic to
+/// adjust.
+///
+/// [methodVersion] is the SNAPSHOT's stored version, not the app's. A
+/// snapshot older than [selloutAwareMethodVersion] was computed before the
+/// correction existed, so it says the days ran out and that this forecast did
+/// not allow for them. Claiming otherwise over frozen history would be a lie
+/// the owner has no way to check — and a closed event shows no "older method"
+/// banner to correct it, because there is nothing left to regenerate.
+String? selloutHandlingNote(
+  ForecastLineView line, {
+  required int methodVersion,
+}) {
+  if (line.basis != ForecastBasis.singleEvent &&
+      line.basis != ForecastBasis.observedRange) {
+    return null;
+  }
+  final sellouts = line.evidence.where((e) => e.stockout).length;
+  if (sellouts == 0) return null;
+  final of = '$sellouts of ${line.evidence.length}';
+  if (methodVersion < selloutAwareMethodVersion) {
+    return '$of — this forecast did not allow for them';
+  }
+  return sellouts == line.evidence.length
+      ? '$of — busiest day used for all'
+      : '$of — raised to your typical rate';
+}
+
 /// `computed <relative time>` source (`just now`, `5 min ago`, `3 h ago`,
 /// else the local calendar date).
 String relativeTimeLabel(Instant instant, {DateTime? now}) {

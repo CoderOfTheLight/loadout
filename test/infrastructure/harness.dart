@@ -63,7 +63,12 @@ final class CapturingDiag implements Diag {
 final class SecurityHarness {
   SecurityHarness._(this.tempRoot, this.paths, this.keyManager, this.diag)
     : scratch = AppSupportScratchSpace(root: paths.scratchDir, diag: diag) {
-    startup = StartupService(paths: paths, keyManager: keyManager, diag: diag);
+    startup = StartupService(
+      paths: paths,
+      keyManager: keyManager,
+      scratch: scratch,
+      diag: diag,
+    );
     backup = BackupServiceImpl(
       host: startup,
       keyManager: keyManager,
@@ -113,6 +118,25 @@ final class SecurityHarness {
     await startup.close();
     if (tempRoot.existsSync()) {
       tempRoot.deleteSync(recursive: true);
+    }
+  }
+}
+
+/// Leaves the disk EXACTLY as `BackupServiceImpl.restoreBackup` leaves it
+/// when the process dies mid-restore: the live database (and its `-wal`/
+/// `-shm` sidecars) renamed aside, nothing at `db/loadout.db`, the device key
+/// still in the store. The rename loop is a byte-for-byte copy of
+/// `_renameSidecars(from: '', to: '.pre-restore')` — the point of this
+/// helper is that the simulation cannot drift from the real code by
+/// accident, so keep it identical.
+///
+/// Call with the database CLOSED, which is the state restoreBackup renames
+/// in (`_host.close()` runs first).
+void parkLiveWorkspaceAsInterruptedRestore(LoadoutPaths paths) {
+  for (final suffix in const ['', '-wal', '-shm']) {
+    final source = File('${paths.databaseFile.path}$suffix');
+    if (source.existsSync()) {
+      source.renameSync('${paths.databaseFile.path}$suffix.pre-restore');
     }
   }
 }

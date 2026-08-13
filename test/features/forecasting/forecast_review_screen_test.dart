@@ -33,7 +33,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Header values come from the snapshot row, never hardcoded.
-    expect(find.textContaining('direct_median v1'), findsOneWidget);
+    expect(find.textContaining('direct_median v2'), findsOneWidget);
     expect(find.textContaining('computed just now'), findsOneWidget);
     expect(find.text('Balanced +10 %'), findsOneWidget);
     expect(find.text('for 150 attendance'), findsOneWidget);
@@ -58,7 +58,7 @@ void main() {
     );
     expect(latest, isNotNull);
     expect(latest!.method, 'direct_median');
-    expect(latest.methodVersion, 1);
+    expect(latest.methodVersion, 2);
   });
 
   testWidgets('staleness banner appears after a ledger write and Refresh '
@@ -229,7 +229,37 @@ void main() {
     await h.pumpApp(tester);
     await h.go(tester, '/events/${scenario.upcomingEventId}/forecast');
     // Overflow errors at 200 % would fail the test; the header must render.
-    expect(find.textContaining('direct_median v1'), findsOneWidget);
+    expect(find.textContaining('direct_median v2'), findsOneWidget);
+  });
+
+  testWidgets('a sell-out in the history plans higher and says why in plain '
+      'language', (tester) async {
+    final h = (await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    ))!;
+    addTearDown(h.dispose);
+    final scenario = (await tester.runAsync(() => seedSelloutScenario(h)))!;
+    await tester.runAsync(
+      () => h
+          .read(forecastServiceProvider)
+          .generateSnapshot(scenario.upcomingEventId),
+    );
+
+    await h.pumpApp(tester);
+    await h.go(tester, '/events/${scenario.upcomingEventId}/forecast');
+
+    // 55, not the 50 the raw median of {60, 50, 40} would have given.
+    expect(find.text('55'), findsOneWidget); // expected
+    expect(find.text('60.5'), findsOneWidget); // planned (+10 %)
+    expect(find.text('50'), findsNothing);
+
+    expect(
+      find.textContaining('You ran out on 1 of these days'),
+      findsOneWidget,
+    );
+    // The owner never has to meet the vocabulary.
+    expect(find.textContaining('censored'), findsNothing);
+    expect(find.textContaining('quantile'), findsNothing);
   });
 
   testWidgets('a "1 serves N" line shows its estimate instead of being '

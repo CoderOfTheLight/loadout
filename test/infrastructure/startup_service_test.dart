@@ -1,4 +1,4 @@
-/// §7.3 four-state startup machine, exercised against real encrypted
+/// §7.3 startup machine, exercised against real encrypted
 /// databases in temp dirs.
 library;
 

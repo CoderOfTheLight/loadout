@@ -116,12 +116,20 @@ Tracked here so it is visible rather than remembered:
   expensive and has never been timed on a phone.
 - **Recovery drill.** Make a backup, delete the app, reinstall, restore.
   Automated tests cover the round trip; no human has done it end to end.
-- **Interrupted restore has no route back.** If the process dies mid-swap
-  the data survives (the key is retained) but the app reports a fresh
-  install and offers no way to recover the parked workspace.
-- **Stockouts bias forecasts downward.** A sellout is recorded as demand
-  rather than as a lower bound on demand, so forecasts drift down and cause
-  more sellouts. See the forecasting notes in
+- **Interrupted restore now has a route back** (fixed): if the process dies
+  mid-swap, bootstrap finds the parked workspace before it can conclude
+  "fresh install", never rotates a key while recoverable ciphertext is on
+  disk, and `/recovery` offers to put the workspace back. What remains open
+  is the crossed case — a live database that cannot be unlocked *and*
+  archives on disk: the screen reports the copies but cannot offer to swap
+  one in, because recovery refuses to act while a live file exists. See §7.3
+  of [gates-2-3-design.md](architecture/gates-2-3-design.md).
+- **Sell-outs no longer bias forecasts downward** (fixed in forecast method
+  v2): a sell-out is treated as a lower bound on demand, so it can only raise
+  the estimate. What remains open is that the size of the correction is a
+  floor, not a model — when every past event sold out, the app says outright
+  that real demand is unknown and plans for the busiest day rather than
+  guessing beyond it. See §6.6 of
   [gates-2-3-design.md](architecture/gates-2-3-design.md).
 - **Accessibility pass** — screen reader labels, 200% text scale, contrast.
 - **Physical Android device** — only the emulator so far.

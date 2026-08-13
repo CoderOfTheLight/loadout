@@ -106,14 +106,17 @@ final class RingFileDiag implements Diag {
     DiagEvent.restoreOk ||
     DiagEvent.scratchSweepOk ||
     DiagEvent.migrationOk ||
+    DiagEvent.parkedWorkspaceRecovered ||
     DiagEvent.commandApplied => 'I',
     DiagEvent.dbOpenWrongKey ||
     DiagEvent.dbKeyMissing ||
     DiagEvent.backupValidateFail ||
     DiagEvent.restoreRolledBack ||
+    DiagEvent.parkedWorkspaceFound ||
     DiagEvent.commandRejected => 'W',
     DiagEvent.dbCipherMissing ||
     DiagEvent.backupCreateFail ||
+    DiagEvent.parkedWorkspaceUnreadable ||
     DiagEvent.migrationFail => 'E',
   };
 

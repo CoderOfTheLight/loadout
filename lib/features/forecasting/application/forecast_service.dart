@@ -16,6 +16,7 @@ import '../domain/snapshot.dart';
 import '../domain/snapshot_inputs.dart';
 import '../../../data/db/table_watch.dart';
 import 'baseline_estimator.dart';
+import 'stockout_adjustment.dart';
 
 /// Screen-facing forecasting surface (design §6.5). Snapshots are appended,
 /// never rewritten; the frozen engine is the only arithmetic source.
@@ -205,8 +206,26 @@ final class DriftForecastService implements ForecastService {
     return inputsResult.fold((inputs) async {
       final exposureLabel = await _settings.exposureLabel();
       final lines = <ForecastSnapshotLineDraft>[];
+      var selloutAdjustedLines = 0;
+      var everyDaySoldOutLines = 0;
       for (final input in inputs.lines) {
-        if (_exceedsEngineEnvelope(input, inputs.upcomingExposure)) {
+        // A sell-out records a LOWER BOUND on demand. Fix that here, on the
+        // way into the frozen engine, so a sell-out can only ever raise the
+        // estimate — see `stockout_adjustment.dart` for the rule. The stored
+        // evidence below is untouched: it keeps the real confirmed numbers.
+        final adjustment = adjustForSellouts([
+          for (final e in input.evidence)
+            ConfirmedObservation(
+              exposure: e.exposure,
+              depletion: Quantity.fromMicros(e.depletionMicros),
+              stockout: e.stockout,
+              approximate: e.approximate,
+            ),
+        ]);
+        if (_exceedsEngineEnvelope(
+          adjustment.observations,
+          inputs.upcomingExposure,
+        )) {
           // Outside the envelope the frozen engine's rate × exposure product
           // wraps int64 and it would return a plausible-looking but wrong
           // number. Report no forecast instead: a blank line with the reason
@@ -234,19 +253,17 @@ final class DriftForecastService implements ForecastService {
         }
         final engineLine = _engine.forecastDirect(
           upcomingExposure: inputs.upcomingExposure,
-          observations: [
-            for (final e in input.evidence)
-              ConfirmedObservation(
-                exposure: e.exposure,
-                depletion: Quantity.fromMicros(e.depletionMicros),
-                stockout: e.stockout,
-                approximate: e.approximate,
-              ),
-          ],
+          observations: adjustment.observations,
           policy: inputs.policy,
           packSize: Quantity.fromMicros(input.packSizeMicros),
           usableOnHand: Quantity.fromMicros(max(0, input.onHandMicros)),
         );
+        if (adjustment.adjusted) {
+          selloutAdjustedLines++;
+          if (adjustment.kind == StockoutAdjustmentKind.everyDaySoldOut) {
+            everyDaySoldOutLines++;
+          }
+        }
         // No confirmed outcomes yet? The engine correctly refuses to
         // forecast. If the item says "1 serves N" we can still hand the
         // owner a starting number — clearly labelled, in its own columns,
@@ -285,9 +302,15 @@ final class DriftForecastService implements ForecastService {
             baselineLoadMicros: baseline?.loadMicros,
             baselineAcquireMicros: baseline?.acquireMicros,
             evidenceGrade: engineLine.evidenceGrade,
-            warnings: baseline == null
-                ? engineLine.warnings
-                : [...engineLine.warnings, baseline.warning],
+            // The engine's strings verbatim first — including its own
+            // lower-bound note — then, in plain language, what was done
+            // about it. A baseline and a sell-out adjustment are mutually
+            // exclusive: one needs no evidence, the other needs some.
+            warnings: [
+              ...engineLine.warnings,
+              if (adjustment.warning != null) adjustment.warning!,
+              if (baseline != null) baseline.warning,
+            ],
             evidence: input.evidence,
           ),
         );
@@ -297,6 +320,12 @@ final class DriftForecastService implements ForecastService {
         'history_window': inputs.historyWindow,
         'rate_normalization': 'per_exposure_median',
         'exposure_label': exposureLabel,
+        // How sell-out days were treated, recorded so a stored forecast can
+        // still explain its own numbers (§6.6 release contract).
+        'stockout_rule': selloutRuleTag,
+        'stockout_rule_note': selloutRuleNote,
+        'stockout_adjusted_lines': selloutAdjustedLines,
+        'stockout_all_sellout_lines': everyDaySoldOutLines,
       };
       return Ok(
         ForecastSnapshotDraft(
@@ -445,7 +474,7 @@ final class DriftForecastService implements ForecastService {
     );
   }
 
-  /// Whether scaling this item's history to [upcomingExposure] would leave
+  /// Whether scaling these observations to [upcomingExposure] would leave
   /// the range the frozen engine can compute in.
   ///
   /// The engine normalises each observation to `depletion × 1e6 ÷ exposure`
@@ -454,16 +483,18 @@ final class DriftForecastService implements ForecastService {
   /// 1 — a plausible typo — and that product overflows int64 silently. The
   /// median is bounded by the largest observed rate, so bounding that is
   /// enough and needs no copy of the engine's median.
+  ///
+  /// Runs on the observations the engine will actually see, i.e. AFTER the
+  /// sell-out adjustment, so a raised rate can never slip past the bound.
   static bool _exceedsEngineEnvelope(
-    SnapshotLineInput input,
+    List<ConfirmedObservation> observations,
     int upcomingExposure,
   ) {
     if (upcomingExposure <= 0) return false; // the engine rejects this itself
     final limit = Quantity.maxMicros ~/ upcomingExposure;
-    for (final e in input.evidence) {
-      if (e.exposure <= 0) continue; // filtered by the engine
-      final rate = (e.depletionMicros * Quantity.scale) ~/ e.exposure;
-      if (rate > limit) return true;
+    for (final o in observations) {
+      if (o.exposure <= 0) continue; // filtered by the engine
+      if (rateOf(o) > limit) return true;
     }
     return false;
   }
