@@ -1,5 +1,8 @@
-/// §11.3 ItemListScreen widget tests: catalog + on-hand at a glance,
-/// search, archived toggle, negative on-hand shown signed, empty state.
+/// §11.3 ItemListScreen widget tests: the catalog at a glance — how many
+/// you have, search, archived toggle, negatives shown signed, empty state.
+///
+/// Items are counted things, so their numbers are bare counts; a legacy
+/// schema-v1 row that really is measured keeps its unit next to the number.
 library;
 
 import 'package:flutter/material.dart';
@@ -19,15 +22,18 @@ import '../../support/app_harness.dart';
 Future<String> seedItem(
   AppHarness h, {
   required String name,
-  ItemUnit unit = ItemUnit.kg,
-  int packWhole = 2,
   String? category,
+  Quantity? servesPerUnit,
+  // Legacy schema-v1 shape; nothing asks for these any more.
+  ItemUnit unit = ItemUnit.each,
+  int packWhole = 1,
 }) async {
   final result = await h
       .read(catalogServiceProvider)
       .createItem(
         ItemDraft(
           name: name,
+          servesPerUnit: servesPerUnit,
           unit: unit,
           packSize: Quantity.whole(packWhole),
           category: category,
@@ -55,7 +61,7 @@ Future<void> seedMovement(
 }
 
 void main() {
-  testWidgets('shows items with on-hand, unit, and pack caption', (
+  testWidgets('shows how many you have, with no unit or pack caption', (
     tester,
   ) async {
     final h = (await tester.runAsync(
@@ -63,16 +69,25 @@ void main() {
     ))!;
     addTearDown(h.dispose);
     await tester.runAsync(() async {
-      final tortillas = await seedItem(h, name: 'Tortillas', category: 'Bread');
-      await seedItem(h, name: 'Salsa', unit: ItemUnit.litre, packWhole: 1);
+      final tortillas = await seedItem(
+        h,
+        name: 'Tortillas',
+        category: 'Bread',
+        servesPerUnit: Quantity.whole(4),
+      );
+      // A migrated schema-v1 row that really is measured.
+      await seedItem(h, name: 'Salsa', unit: ItemUnit.litre);
       await seedMovement(h, tortillas, whole: 5);
     });
 
     await h.pumpScreen(tester, const ItemListScreen());
 
     expect(find.text('Tortillas'), findsOneWidget);
-    expect(find.text('5 kg'), findsOneWidget);
-    expect(find.text('Bread · Pack of 2 kg'), findsOneWidget);
+    expect(find.text('5'), findsOneWidget);
+    expect(find.text('Bread · One serves 4'), findsOneWidget);
+    expect(find.textContaining('Pack of'), findsNothing);
+    expect(find.text('5 each'), findsNothing);
+    // The legacy row keeps its unit, so 0 litres is never read as 0 things.
     expect(find.text('Salsa'), findsOneWidget);
     expect(find.text('0 L'), findsOneWidget);
   });
@@ -91,7 +106,7 @@ void main() {
 
     await h.pumpScreen(tester, const ItemListScreen());
 
-    expect(find.text('−2 kg'), findsOneWidget);
+    expect(find.text('−2'), findsOneWidget);
     expect(find.text('Negative'), findsOneWidget);
     expect(find.byIcon(Icons.warning_amber_outlined), findsOneWidget);
   });
@@ -174,9 +189,12 @@ void main() {
     await h.pumpScreen(tester, const ItemListScreen());
 
     expect(find.byType(EmptyState), findsOneWidget);
+    expect(find.text('Nothing in your list yet'), findsOneWidget);
+    // Says what an item IS, not just that there are none.
     expect(
-      find.text('No items yet. Add what you sell or bring.'),
+      find.textContaining('Items are the things you bring and sell'),
       findsOneWidget,
     );
+    expect(find.text('Add your first item'), findsOneWidget);
   });
 }

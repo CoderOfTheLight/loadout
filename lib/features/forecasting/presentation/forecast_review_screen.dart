@@ -20,7 +20,6 @@ import '../../../app/widgets/warning_banner.dart';
 import '../../catalog/domain/item.dart';
 import '../../events/application/event_service.dart';
 import '../../events/domain/event.dart';
-import '../domain/forecast_engine.dart';
 import '../domain/snapshot.dart';
 import 'forecast_presentation_support.dart';
 
@@ -334,7 +333,7 @@ class _ForecastLineCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final unit = item?.unit.dbValue ?? '';
+    final unit = item?.unit;
     final overridden = line.isOverridden;
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -367,24 +366,27 @@ class _ForecastLineCard extends StatelessWidget {
                 spacing: 24,
                 runSpacing: 12,
                 children: [
+                  // `suggested*` / `plannedExpectedUse*`, not the raw engine
+                  // fields: those are null on a "1 serves N" line and would
+                  // print four em-dashes beside a usable estimate.
                   _Figure(
                     label: 'Expected',
-                    value: formatQuantity(line.expectedUseMicros, unit),
+                    value: formatQuantity(line.plannedExpectedUseMicros, unit),
                   ),
                   _Figure(
                     label: 'Planned',
-                    value: formatQuantity(line.plannedMicros, unit),
+                    value: formatQuantity(line.suggestedPlannedMicros, unit),
                   ),
                   _Figure(
                     label: 'Load',
                     value: formatQuantity(line.effectiveLoadMicros, unit),
                     struckValue: overridden
-                        ? formatQuantity(line.loadMicros, unit)
+                        ? formatQuantity(line.suggestedLoadMicros, unit)
                         : null,
                   ),
                   _Figure(
                     label: 'Acquire',
-                    value: formatQuantity(line.acquireMicros, unit),
+                    value: formatQuantity(line.suggestedAcquireMicros, unit),
                   ),
                 ],
               ),
@@ -406,7 +408,10 @@ class _ForecastLineCard extends StatelessWidget {
                   foreground: theme.colorScheme.onTertiaryContainer,
                 ),
               ],
-              if (line.evidenceGrade == EvidenceGrade.insufficientData)
+              // Only a line with NO number at all needs this prompt; a
+              // "1 serves N" estimate already has one and is still editable
+              // by tapping the card.
+              if (line.basis == ForecastBasis.insufficientData)
                 Align(
                   alignment: Alignment.centerLeft,
                   child: TextButton(
@@ -609,7 +614,7 @@ class _AccuracyLineCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final unit = item?.unit.dbValue ?? '';
+    final unit = item?.unit;
     final effectiveLoad = line.override?.overrideLoadMicros ?? line.loadMicros;
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -657,12 +662,23 @@ class _AccuracyLineCard extends StatelessWidget {
               ),
               if (line.stockout ||
                   line.approximate ||
+                  line.basis == ForecastBasis.servesBaseline ||
                   line.override?.overrideLoadMicros != null) ...[
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
                   children: [
+                    // Never let a "1 serves N" guess be read as a miss
+                    // against confirmed history: say what it was measured
+                    // against before the variance is believed.
+                    if (line.basis == ForecastBasis.servesBaseline)
+                      _IndicatorChip(
+                        icon: Icons.lightbulb_outline,
+                        label: 'Compared against an estimate, not history',
+                        background: theme.colorScheme.tertiaryContainer,
+                        foreground: theme.colorScheme.onTertiaryContainer,
+                      ),
                     if (line.stockout)
                       _IndicatorChip(
                         icon: Icons.warning_amber_outlined,

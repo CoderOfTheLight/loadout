@@ -40,9 +40,9 @@ void main() {
 
     // The per-line four figures, evidence badge, warning verbatim.
     expect(find.text('Tortillas'), findsOneWidget);
-    expect(find.text('45 each'), findsOneWidget); // expected
-    expect(find.text('49.5 each'), findsOneWidget); // planned (+10 %)
-    expect(find.text('60 each'), findsNWidgets(2)); // load + acquire
+    expect(find.text('45'), findsOneWidget); // expected
+    expect(find.text('49.5'), findsOneWidget); // planned (+10 %)
+    expect(find.text('60'), findsNWidgets(2)); // load + acquire
     expect(find.text('1 event'), findsOneWidget);
     expect(
       find.text('Upcoming exposure is outside the observed range.'),
@@ -161,9 +161,9 @@ void main() {
     expect(find.text('Accuracy review'), findsOneWidget);
     expect(find.text('Generate forecast'), findsNothing);
     expect(find.textContaining('confirmed 150'), findsOneWidget);
-    expect(find.text('45 each'), findsOneWidget); // forecast
-    expect(find.text('60 each'), findsOneWidget); // load
-    expect(find.text('31 each'), findsOneWidget); // actual (derived by join)
+    expect(find.text('45'), findsOneWidget); // forecast
+    expect(find.text('60'), findsOneWidget); // load
+    expect(find.text('31'), findsOneWidget); // actual (derived by join)
     expect(
       find.textContaining('forecast 45, actual 31, -31 %'),
       findsOneWidget,
@@ -230,5 +230,50 @@ void main() {
     await h.go(tester, '/events/${scenario.upcomingEventId}/forecast');
     // Overflow errors at 200 % would fail the test; the header must render.
     expect(find.textContaining('direct_median v1'), findsOneWidget);
+  });
+
+  testWidgets('a "1 serves N" line shows its estimate instead of being '
+      'badged as having no history', (tester) async {
+    final h = (await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    ))!;
+    addTearDown(h.dispose);
+    final ids = (await tester.runAsync(() async {
+      final itemId = await seedServesItem(h, name: 'Pizzas', servesPerUnit: 4);
+      final eventId = await seedEvent(
+        h,
+        name: 'First outing',
+        date: '2026-09-06',
+        exposure: 150,
+        itemIds: [itemId],
+      );
+      unwrap(await h.read(forecastServiceProvider).generateSnapshot(eventId));
+      return (itemId: itemId, eventId: eventId);
+    }))!;
+
+    await h.pumpApp(tester);
+    await h.go(tester, '/events/${ids.eventId}/forecast');
+
+    // The owner's complaint 3 paying off: ceil(150 / 4) = 38, +10 % = 41.8,
+    // rounded up to whole things = 42, minus nothing on hand = 42.
+    expect(find.text('38'), findsOneWidget); // expected
+    expect(find.text('41.8'), findsOneWidget); // planned (+10 %)
+    expect(find.text('42'), findsNWidgets(2)); // load + acquire
+    expect(find.text('—'), findsNothing);
+
+    // Badged as what it is, and never as confirmed history.
+    expect(find.text('Estimate'), findsOneWidget);
+    expect(find.text('No history'), findsNothing);
+    expect(find.text('1 event'), findsNothing);
+    expect(
+      find.textContaining('Estimate only: worked out from "1 serves 4"'),
+      findsOneWidget,
+    );
+
+    // It already has a number, so it is not asking for a baseline.
+    expect(find.text('Set a baseline'), findsNothing);
+
+    // Units left the product surface: nothing on this screen says "each".
+    expect(find.textContaining('each'), findsNothing);
   });
 }

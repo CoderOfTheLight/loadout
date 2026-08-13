@@ -396,16 +396,17 @@ class ForecastLines extends Table {
   IntColumn get baselineServesPerUnitMicros => integer().nullable().check(
     baselineServesPerUnitMicros.isBetweenValues(1, servesPerUnitCapMicros),
   )();
-  IntColumn get baselineExpectedUseMicros => integer()
-      .nullable()
-      .check(baselineExpectedUseMicros.isBiggerOrEqualValue(0))();
-  IntColumn get baselinePlannedMicros =>
-      integer().nullable().check(baselinePlannedMicros.isBiggerOrEqualValue(0))();
+  IntColumn get baselineExpectedUseMicros => integer().nullable().check(
+    baselineExpectedUseMicros.isBiggerOrEqualValue(0),
+  )();
+  IntColumn get baselinePlannedMicros => integer().nullable().check(
+    baselinePlannedMicros.isBiggerOrEqualValue(0),
+  )();
   IntColumn get baselineLoadMicros =>
       integer().nullable().check(baselineLoadMicros.isBiggerOrEqualValue(0))();
-  IntColumn get baselineAcquireMicros => integer()
-      .nullable()
-      .check(baselineAcquireMicros.isBiggerOrEqualValue(0))();
+  IntColumn get baselineAcquireMicros => integer().nullable().check(
+    baselineAcquireMicros.isBiggerOrEqualValue(0),
+  )();
 
   @override
   Set<Column> get primaryKey => {snapshotId, itemId};

@@ -59,9 +59,9 @@ void main() {
 
     // Current revision (2) by default.
     expect(find.text('Taco kit build'), findsOneWidget);
-    expect(find.text('Makes 12 each per batch — “12 kits”'), findsOneWidget);
+    expect(find.text('Makes 12 per batch — “12 kits”'), findsOneWidget);
     expect(find.text('Tortillas'), findsOneWidget);
-    expect(find.text('24 each'), findsOneWidget);
+    expect(find.text('24'), findsOneWidget);
     expect(find.text('v2 method'), findsOneWidget);
     // Source badge: seeded via the form path; picker + 2 history entries.
     expect(find.text('Entered by hand'), findsNWidgets(3));
@@ -71,13 +71,13 @@ void main() {
 
     // Select revision 1 from the history — rendered verbatim.
     await tapVisible(tester, find.text('Revision 1'));
-    expect(find.text('Makes 10 each per batch — “10 kits”'), findsOneWidget);
-    expect(find.text('20 each'), findsOneWidget);
+    expect(find.text('Makes 10 per batch — “10 kits”'), findsOneWidget);
+    expect(find.text('20'), findsOneWidget);
     expect(find.textContaining('Viewing revision 1'), findsOneWidget);
 
     // Back to current.
     await tapVisible(tester, find.text('View current'));
-    expect(find.text('24 each'), findsOneWidget);
+    expect(find.text('24'), findsOneWidget);
   });
 
   testWidgets('archive and unarchive round-trip', (tester) async {

@@ -24,10 +24,15 @@ Future<T> unwrap<T>(Future<Result<T>> future) async {
   );
 }
 
+/// Seeds an item in the shape the forms now produce: a counted thing with
+/// a name. [unit] and [packSize] exist only to stage a migrated schema-v1
+/// row; nothing in the product asks for them.
 Future<String> seedItem(
   AppHarness h, {
   String name = 'Tortillas',
-  ItemUnit unit = ItemUnit.kg,
+  Quantity? servesPerUnit,
+  Quantity openingCount = Quantity.zero,
+  ItemUnit unit = ItemUnit.each,
   Quantity? packSize,
 }) => unwrap(
   h
@@ -35,9 +40,11 @@ Future<String> seedItem(
       .createItem(
         ItemDraft(
           name: name,
+          servesPerUnit: servesPerUnit,
           unit: unit,
-          packSize: packSize ?? Quantity.fromMicros(1000000),
+          packSize: packSize ?? Quantity.one,
         ),
+        openingCount: openingCount,
       ),
 );
 

@@ -26,7 +26,7 @@ void main() {
     late String itemId;
     late String eventId;
     await tester.runAsync(() async {
-      itemId = await seedItem(h); // Tortillas, kg
+      itemId = await seedItem(h); // Tortillas: a counted thing
       eventId = await seedEvent(
         h,
         name: 'Night market',
@@ -58,12 +58,12 @@ void main() {
     expect(find.text('Revise closeout'), findsOneWidget);
     expect(find.text('Confirming appends revision 2.'), findsOneWidget);
     expect(find.text('120'), findsOneWidget); // confirmed exposure
-    expect(find.text('Depletion: 7 kg'), findsOneWidget); // worksheet derived
+    expect(find.text('Depletion: 7'), findsOneWidget); // worksheet derived
 
     // Correct the worksheet: returned 2 → 3, depletion re-derives live.
     await tester.enterText(find.widgetWithText(TextFormField, 'Returned'), '3');
     await tester.pumpAndSettle();
-    expect(find.text('Depletion: 6 kg'), findsOneWidget);
+    expect(find.text('Depletion: 6'), findsOneWidget);
 
     await tester.tap(find.text('Confirm revision'));
     await tester.pumpAndSettle();

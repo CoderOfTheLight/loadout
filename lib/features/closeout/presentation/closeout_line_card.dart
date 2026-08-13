@@ -32,8 +32,12 @@ final class CloseoutLineController {
   final String itemId;
   final String itemName;
 
-  /// Short unit suffix ('kg', 'each', …).
-  final String unitLabel;
+  /// Unit suffix for a legacy measured row ('kg', 'L', …); null for a
+  /// counted thing, which is every item created since schema v2.
+  final String? unitLabel;
+
+  /// The suffix as it appears in running text: `' kg'`, or nothing.
+  String get unitSuffix => unitLabel == null ? '' : ' $unitLabel';
 
   /// "Planned load was N" caption source; null when no snapshot exists.
   final int? plannedLoadMicros;
@@ -155,8 +159,8 @@ class CloseoutLineCard extends StatelessWidget {
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Text(
                   'Planned load was '
-                  '${QuantityCodec.format(Quantity.fromMicros(line.plannedLoadMicros!))} '
-                  '${line.unitLabel}',
+                  '${QuantityCodec.format(Quantity.fromMicros(line.plannedLoadMicros!))}'
+                  '${line.unitSuffix}',
                   style: theme.textTheme.bodySmall,
                 ),
               ),
@@ -276,8 +280,9 @@ class CloseoutLineCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Depletion: ${QuantityCodec.format(Quantity.fromMicros(derived))} '
-          '${line.unitLabel}',
+          'Depletion: '
+          '${QuantityCodec.format(Quantity.fromMicros(derived))}'
+          '${line.unitSuffix}',
           style: theme.textTheme.titleMedium,
         ),
         const SizedBox(height: 4),

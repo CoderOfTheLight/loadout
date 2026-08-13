@@ -28,7 +28,7 @@ void main() {
     late String itemId;
     late String eventId;
     await tester.runAsync(() async {
-      itemId = await seedItem(h); // Tortillas, kg
+      itemId = await seedItem(h); // Tortillas: a counted thing
       eventId = await seedEvent(
         h,
         name: 'Market',
@@ -57,7 +57,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Depletion is now derived, read-only, and excludes waste.
-    expect(find.text('Depletion: 7 kg'), findsOneWidget);
+    expect(find.text('Depletion: 7'), findsOneWidget);
     expect(find.textContaining('Depletion excludes waste'), findsOneWidget);
     expect(find.widgetWithText(TextFormField, 'Depletion'), findsNothing);
     expect(find.text('1 of 1 items confirmed'), findsOneWidget);
@@ -83,7 +83,7 @@ void main() {
 
     await tester.enterText(find.widgetWithText(TextFormField, 'Returned'), '2');
     await tester.pumpAndSettle();
-    expect(find.text('Depletion: 7 kg'), findsOneWidget);
+    expect(find.text('Depletion: 7'), findsOneWidget);
 
     // Confirm via the confirmation sheet.
     await tester.tap(find.text('Confirm closeout'));

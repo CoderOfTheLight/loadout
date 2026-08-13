@@ -13,6 +13,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/providers.dart';
+import '../../../app/unit_display.dart';
 import '../../../app/widgets/content_column.dart';
 import '../../../app/widgets/warning_banner.dart';
 import '../../../core/quantity_codec.dart';
@@ -251,7 +252,7 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
 
   String _yieldCaption(RecipeRevisionView revision, Item? outputItem) {
     final amount = QuantityCodec.format(revision.yieldQuantity);
-    final unit = outputItem == null ? '' : ' ${outputItem.unit.dbValue}';
+    final unit = outputItem == null ? '' : unitSuffix(outputItem.unit);
     final label = revision.yieldLabel;
     final suffix = label == null || label.isEmpty ? '' : ' — “$label”';
     return 'Makes $amount$unit per batch$suffix';
@@ -275,7 +276,7 @@ class _IngredientTile extends StatelessWidget {
         : item.isArchived
         ? '${item.name} (archived)'
         : item.name;
-    final unit = item == null ? '' : ' ${item.unit.dbValue}';
+    final unit = item == null ? '' : unitSuffix(item.unit);
     return ListTile(
       contentPadding: EdgeInsets.zero,
       title: Text(name),

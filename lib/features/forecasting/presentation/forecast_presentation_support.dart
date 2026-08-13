@@ -13,9 +13,11 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
+import '../../../app/unit_display.dart';
 import '../../../core/quantity.dart';
 import '../../../core/quantity_codec.dart';
 import '../../../core/time.dart';
+import '../../../core/units.dart';
 import '../../catalog/application/catalog_service.dart';
 import '../../catalog/domain/item.dart';
 import '../domain/forecast_engine.dart';
@@ -73,9 +75,15 @@ String formatMicros(int micros) => micros < 0
     ? '-${QuantityCodec.format(Quantity.fromMicros(-micros))}'
     : QuantityCodec.format(Quantity.fromMicros(micros));
 
-/// `45 each`, `1.5 kg`, or `—` for null.
-String formatQuantity(int? micros, String unit) =>
-    micros == null ? '—' : '${formatMicros(micros)} $unit';
+/// `45`, `1.5 kg`, or `—` for null.
+///
+/// A counted item reads as a bare number — units left the product surface in
+/// schema v2 (see [unitSuffix]). A legacy measured row keeps its real unit,
+/// because its stored number genuinely means kilograms or litres. A null
+/// unit (item missing from the index) is treated as counted.
+String formatQuantity(int? micros, ItemUnit? unit) => micros == null
+    ? '—'
+    : '${formatMicros(micros)}${unitSuffix(unit ?? ItemUnit.each)}';
 
 /// Policy chip label (§9: `Balanced +10 %`).
 String policyChipLabel(PlanningPolicy policy) {
@@ -98,13 +106,18 @@ String exposureLabelOf(ForecastSnapshotView snapshot) {
   return 'attendance';
 }
 
-/// Evidence badge text (§9: `No history` / `1 event` / `N events`).
-String evidenceBadgeLabel(ForecastLineView line) =>
-    switch (line.evidenceGrade) {
-      EvidenceGrade.insufficientData => 'No history',
-      EvidenceGrade.singleEvent => '1 event',
-      EvidenceGrade.observedRange => '${line.evidence.length} events',
-    };
+/// Evidence badge text (§9: `No history` / `1 event` / `N events`), plus the
+/// fourth state the frozen engine cannot express.
+///
+/// Switches on [ForecastLineView.basis], never on `evidenceGrade`: a line
+/// with no closeouts but a "1 serves N" estimate carries a real number, and
+/// badging it `No history` beside that number reads as a bug.
+String evidenceBadgeLabel(ForecastLineView line) => switch (line.basis) {
+  ForecastBasis.insufficientData => 'No history',
+  ForecastBasis.servesBaseline => 'Estimate',
+  ForecastBasis.singleEvent => '1 event',
+  ForecastBasis.observedRange => '${line.evidence.length} events',
+};
 
 /// `computed <relative time>` source (`just now`, `5 min ago`, `3 h ago`,
 /// else the local calendar date).

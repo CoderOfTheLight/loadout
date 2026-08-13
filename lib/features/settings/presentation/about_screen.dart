@@ -7,7 +7,9 @@ library;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../../app/theme.dart';
 import '../../../app/widgets/content_column.dart';
+import '../../../app/widgets/section_header.dart';
 import '../../../data/db/app_database.dart' show seedAppVersion;
 import '../../forecasting/domain/snapshot.dart';
 
@@ -65,31 +67,44 @@ class AboutScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SizedBox(height: 16),
-                Icon(
-                  Icons.inventory_2_outlined,
-                  size: 56,
-                  color: theme.colorScheme.primary,
+                const SizedBox(height: Space.xl),
+                Align(
+                  child: Container(
+                    padding: const EdgeInsets.all(Space.l),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(Radii.card),
+                    ),
+                    child: Icon(
+                      Icons.inventory_2_outlined,
+                      size: 32,
+                      color: theme.colorScheme.onPrimaryContainer,
+                    ),
+                  ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: Space.l),
                 Text(
                   'Loadout',
                   textAlign: TextAlign.center,
                   style: theme.textTheme.headlineSmall,
                 ),
+                const SizedBox(height: Space.xs),
                 Text(
                   'Version $seedAppVersion',
                   textAlign: TextAlign.center,
-                  style: theme.textTheme.bodyMedium,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: Space.s),
                 Text(
                   'Private, offline event inventory and forecasting.',
                   textAlign: TextAlign.center,
-                  style: theme.textTheme.bodyMedium,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
-                const SizedBox(height: 24),
-                Text('Forecast methods', style: theme.textTheme.titleSmall),
+                const SectionHeader('Forecast methods'),
                 Card(
                   child: ListTile(
                     leading: const Icon(Icons.insights_outlined),
@@ -103,7 +118,7 @@ class AboutScreen extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: Space.l),
                 Card(
                   child: ListTile(
                     leading: const Icon(Icons.description_outlined),

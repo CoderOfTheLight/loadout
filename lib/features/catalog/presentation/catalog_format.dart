@@ -5,12 +5,14 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../../../app/unit_display.dart';
 import '../../../core/quantity.dart';
 import '../../../core/quantity_codec.dart';
 import '../../../core/time.dart';
+import '../../../core/units.dart';
 import '../../inventory/domain/movement.dart';
 
-/// U+2212, the minus used throughout the design copy ("−2 kg").
+/// U+2212, the minus used throughout the design copy ("−2").
 const String minusSign = '−';
 
 /// Formats signed micros exactly: `-2_000_000` → `"−2"`, `1_500_000` →
@@ -23,6 +25,11 @@ String formatMicros(int micros) => micros < 0
 /// ledger rows: `5_000_000` → `"+5"`.
 String formatSignedMicros(int micros) =>
     micros < 0 ? formatMicros(micros) : '+${formatMicros(micros)}';
+
+/// An item's quantity as the owner reads it: "12", or "2.5 kg" for a
+/// legacy measured row (see [unitSuffix]).
+String formatCount(int micros, ItemUnit unit) =>
+    '${formatMicros(micros)}${unitSuffix(unit)}';
 
 /// Movement-kind display label (§5 kinds; forms call `adjust` a count).
 String movementKindLabel(MovementKind kind) => switch (kind) {

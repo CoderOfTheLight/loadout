@@ -6,6 +6,11 @@
 /// Data (Backup, Restore) with the §12.22 in-app backup nudge banner;
 /// Privacy; Diagnostics; About; danger zone (Reset workspace). The OS-lock
 /// advisory card is shown unconditionally (§12.18).
+///
+/// Visually each group is now one outlined card of rows rather than a run of
+/// loose tiles: on a long settings screen the grouping is what tells you
+/// where one subject ends and the next begins. Every subtitle says what the
+/// setting does, not what it is called.
 library;
 
 import 'package:flutter/material.dart';
@@ -13,12 +18,19 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../app/policy_copy.dart';
 import '../../../app/providers.dart';
+import '../../../app/theme.dart';
 import '../../../app/widgets/content_column.dart';
+import '../../../app/widgets/section_header.dart';
 import '../../../app/widgets/warning_banner.dart';
 import '../../backup/presentation/backup_providers.dart';
 import '../../forecasting/domain/forecast_engine.dart';
 import '../application/settings_service.dart';
+
+/// Kept exported from here: this screen was the original home of the shared
+/// policy caption, and other screens import it from this library.
+export '../../../app/policy_copy.dart' show policyCaption;
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -54,188 +66,251 @@ class SettingsScreen extends ConsumerWidget {
       body: SafeArea(
         child: SingleChildScrollView(
           child: ContentColumn(
-            padding: const EdgeInsets.symmetric(vertical: 16),
+            padding: const EdgeInsets.fromLTRB(
+              Space.l,
+              Space.l,
+              Space.l,
+              Space.xxl,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 if (showBackupNudge) ...[
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: WarningBanner(
-                      message:
-                          "You haven't saved a backup yet. One encrypted "
-                          'file protects everything in this workspace.',
-                      actionLabel: 'Back up now',
-                      onAction: () => context.push('/settings/backup'),
-                    ),
+                  WarningBanner(
+                    message:
+                        "You haven't saved a backup yet. One encrypted file "
+                        'protects everything in this workspace.',
+                    actionLabel: 'Back up now',
+                    onAction: () => context.push('/settings/backup'),
                   ),
-                  const SizedBox(height: 8),
                 ],
-                _GroupHeader('Workspace'),
-                ListTile(
-                  leading: const Icon(Icons.badge_outlined),
-                  title: const Text('Workspace name'),
-                  subtitle: Text(workspace?.displayName ?? '—'),
-                  onTap: workspace == null
-                      ? null
-                      : () async {
-                          final name = await _promptText(
-                            context,
-                            title: 'Workspace name',
-                            initial: workspace.displayName,
-                          );
-                          if (name != null && name.isNotEmpty) {
-                            if (!context.mounted) return;
-                            await _save(
-                              context,
-                              ref,
-                              (s) => s.updatePreferences(name: name),
-                            );
-                          }
-                        },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.tune),
-                  title: const Text('Default planning policy'),
-                  subtitle: Text(
-                    workspace == null
-                        ? '—'
-                        : policyCaption(workspace.defaultPolicy),
-                  ),
-                  onTap: workspace == null
-                      ? null
-                      : () async {
-                          final policy = await _promptPolicy(
-                            context,
-                            current: workspace.defaultPolicy,
-                          );
-                          if (policy != null) {
-                            if (!context.mounted) return;
-                            await _save(
-                              context,
-                              ref,
-                              (s) => s.updatePreferences(defaultPolicy: policy),
-                            );
-                          }
-                        },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.groups_outlined),
-                  title: const Text('Exposure label'),
-                  subtitle: Text(workspace?.exposureLabel ?? '—'),
-                  onTap: workspace == null
-                      ? null
-                      : () async {
-                          final label = await _promptText(
-                            context,
-                            title: 'Exposure label',
-                            initial: workspace.exposureLabel,
-                            helper:
-                                'The word Loadout uses for expected crowd '
-                                'size — "attendance", "covers", "orders".',
-                          );
-                          if (label != null && label.isNotEmpty) {
-                            if (!context.mounted) return;
-                            await _save(
-                              context,
-                              ref,
-                              (s) => s.updatePreferences(exposureLabel: label),
-                            );
-                          }
-                        },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.history_toggle_off),
-                  title: const Text('History window'),
-                  subtitle: Text(
-                    workspace == null
-                        ? '—'
-                        : '${workspace.historyWindow} closed events',
-                  ),
-                  onTap: workspace == null
-                      ? null
-                      : () async {
-                          final window = await _promptHistoryWindow(
-                            context,
-                            initial: workspace.historyWindow,
-                          );
-                          if (window != null) {
-                            if (!context.mounted) return;
-                            await _save(
-                              context,
-                              ref,
-                              (s) => s.updatePreferences(historyWindow: window),
-                            );
-                          }
-                        },
-                ),
-                const SizedBox(height: 8),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16),
-                  child: Card(
-                    child: ListTile(
-                      leading: Icon(Icons.lock_outline),
-                      title: Text(
-                        "Loadout's data is encrypted on this device. Protect "
-                        "it with your phone's screen lock.",
+
+                const SectionHeader('Workspace'),
+                _Group(
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.badge_outlined),
+                      title: const Text('Workspace name'),
+                      subtitle: Text(workspace?.displayName ?? '—'),
+                      onTap: workspace == null
+                          ? null
+                          : () async {
+                              final name = await _promptText(
+                                context,
+                                title: 'Workspace name',
+                                initial: workspace.displayName,
+                              );
+                              if (name != null && name.isNotEmpty) {
+                                if (!context.mounted) return;
+                                await _save(
+                                  context,
+                                  ref,
+                                  (s) => s.updatePreferences(name: name),
+                                );
+                              }
+                            },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.tune),
+                      title: const Text('Default planning policy'),
+                      subtitle: Text(
+                        workspace == null
+                            ? '—'
+                            : policyCaption(workspace.defaultPolicy),
                       ),
-                      subtitle: Text('Nothing is uploaded, ever.'),
+                      onTap: workspace == null
+                          ? null
+                          : () async {
+                              final policy = await _promptPolicy(
+                                context,
+                                current: workspace.defaultPolicy,
+                              );
+                              if (policy != null) {
+                                if (!context.mounted) return;
+                                await _save(
+                                  context,
+                                  ref,
+                                  (s) => s.updatePreferences(
+                                    defaultPolicy: policy,
+                                  ),
+                                );
+                              }
+                            },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.groups_outlined),
+                      title: const Text('Exposure label'),
+                      subtitle: Text(workspace?.exposureLabel ?? '—'),
+                      onTap: workspace == null
+                          ? null
+                          : () async {
+                              final label = await _promptText(
+                                context,
+                                title: 'Exposure label',
+                                initial: workspace.exposureLabel,
+                                helper:
+                                    'Your word for how many people you are '
+                                    'planning for — "attendance", "covers", '
+                                    '"orders".',
+                              );
+                              if (label != null && label.isNotEmpty) {
+                                if (!context.mounted) return;
+                                await _save(
+                                  context,
+                                  ref,
+                                  (s) =>
+                                      s.updatePreferences(exposureLabel: label),
+                                );
+                              }
+                            },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.history_toggle_off),
+                      title: const Text('History window'),
+                      subtitle: Text(
+                        workspace == null
+                            ? '—'
+                            : '${workspace.historyWindow} closed events',
+                      ),
+                      onTap: workspace == null
+                          ? null
+                          : () async {
+                              final window = await _promptHistoryWindow(
+                                context,
+                                initial: workspace.historyWindow,
+                              );
+                              if (window != null) {
+                                if (!context.mounted) return;
+                                await _save(
+                                  context,
+                                  ref,
+                                  (s) => s.updatePreferences(
+                                    historyWindow: window,
+                                  ),
+                                );
+                              }
+                            },
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: Space.m),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(Space.l),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.lock_outline,
+                          color: theme.colorScheme.primary,
+                        ),
+                        const SizedBox(width: Space.m),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "Loadout's data is encrypted on this device. "
+                                "Protect it with your phone's screen lock.",
+                                style: theme.textTheme.bodyMedium,
+                              ),
+                              const SizedBox(height: Space.xs),
+                              Text(
+                                'Nothing is uploaded, ever.',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
-                _GroupHeader('Data'),
-                ListTile(
-                  leading: const Icon(Icons.save_outlined),
-                  title: const Text('Back up'),
-                  subtitle: const Text('Create one encrypted backup file'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => context.push('/settings/backup'),
+
+                const SectionHeader('Data'),
+                _Group(
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.save_outlined),
+                      title: const Text('Back up'),
+                      subtitle: const Text(
+                        'Save everything as one encrypted file',
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.push('/settings/backup'),
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.settings_backup_restore),
+                      title: const Text('Restore'),
+                      subtitle: const Text(
+                        'Replace this workspace from a backup file',
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.push('/settings/restore'),
+                    ),
+                  ],
                 ),
-                ListTile(
-                  leading: const Icon(Icons.settings_backup_restore),
-                  title: const Text('Restore'),
-                  subtitle: const Text(
-                    'Replace this workspace from a backup file',
-                  ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => context.push('/settings/restore'),
+
+                const SectionHeader('App'),
+                _Group(
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.shield_outlined),
+                      title: const Text('Privacy'),
+                      subtitle: const Text('What stays on this phone, and why'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.push('/settings/privacy'),
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.receipt_long_outlined),
+                      title: const Text('Diagnostics'),
+                      subtitle: const Text(
+                        'Content-free log of what the app did',
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.push('/settings/diagnostics'),
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.info_outline),
+                      title: const Text('About'),
+                      subtitle: const Text(
+                        'Version, forecast method, licences',
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.push('/settings/about'),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 8),
-                _GroupHeader('App'),
-                ListTile(
-                  leading: const Icon(Icons.shield_outlined),
-                  title: const Text('Privacy'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => context.push('/settings/privacy'),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.receipt_long_outlined),
-                  title: const Text('Diagnostics'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => context.push('/settings/diagnostics'),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.info_outline),
-                  title: const Text('About'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => context.push('/settings/about'),
-                ),
-                const SizedBox(height: 8),
-                _GroupHeader('Danger zone', color: theme.colorScheme.error),
-                ListTile(
-                  leading: Icon(
-                    Icons.warning_amber_outlined,
-                    color: theme.colorScheme.error,
-                  ),
-                  title: Text(
-                    'Reset workspace',
-                    style: TextStyle(color: theme.colorScheme.error),
-                  ),
-                  subtitle: const Text(
-                    'Archive the encrypted data and start over',
-                  ),
-                  onTap: () => context.push('/settings/reset'),
+
+                SectionHeader('Danger zone', color: theme.colorScheme.error),
+                _Group(
+                  borderColor: theme.colorScheme.error.withValues(alpha: 0.4),
+                  children: [
+                    ListTile(
+                      leading: Icon(
+                        Icons.warning_amber_rounded,
+                        color: theme.colorScheme.error,
+                      ),
+                      title: Text(
+                        'Reset workspace',
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: theme.colorScheme.error,
+                        ),
+                      ),
+                      subtitle: const Text(
+                        'Archive the encrypted data and start over',
+                      ),
+                      trailing: Icon(
+                        Icons.chevron_right,
+                        color: theme.colorScheme.error,
+                      ),
+                      onTap: () => context.push('/settings/reset'),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -246,32 +321,28 @@ class SettingsScreen extends ConsumerWidget {
   }
 }
 
-/// "Balanced (+10 % reserve)" — shared caption shape.
-String policyCaption(PlanningPolicy policy) {
-  final name = switch (policy) {
-    PlanningPolicy.lean => 'Lean',
-    PlanningPolicy.balanced => 'Balanced',
-    PlanningPolicy.cautious => 'Cautious',
-  };
-  return '$name (+${policy.reservePercent} % reserve)';
-}
+/// One settings group: rows in a single outlined card, hairline-separated.
+class _Group extends StatelessWidget {
+  const _Group({required this.children, this.borderColor});
 
-class _GroupHeader extends StatelessWidget {
-  const _GroupHeader(this.label, {this.color});
-
-  final String label;
-  final Color? color;
+  final List<Widget> children;
+  final Color? borderColor;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-      child: Text(
-        label,
-        style: theme.textTheme.titleSmall?.copyWith(
-          color: color ?? theme.colorScheme.primary,
-        ),
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(Radii.card),
+        side: BorderSide(color: borderColor ?? scheme.outlineVariant),
+      ),
+      child: Column(
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            if (i > 0) const Divider(height: 1, indent: Space.l),
+            children[i],
+          ],
+        ],
       ),
     );
   }
@@ -381,6 +452,7 @@ Future<PlanningPolicy?> _promptPolicy(
                 : Icons.radio_button_unchecked,
           ),
           title: Text(policyCaption(policy)),
+          subtitle: Text(policyBlurb(policy)),
           selected: policy == current,
           onTap: () => Navigator.of(dialogContext).pop(policy),
         ),

@@ -1,9 +1,10 @@
 /// `/items` (design §9 ItemListScreen): catalog + on-hand at a glance.
 ///
-/// Search bar, category `FilterChip` row from `categorySuggestions`, tiles
-/// showing `on-hand · unit` (negatives shown signed with a warning icon and
-/// label, never clamped) with a pack caption, archived toggle in the
-/// overflow menu, FAB → `/items/new`. Read-only: no commands.
+/// Search bar, group `FilterChip` row from `categorySuggestions`, tiles
+/// showing how many you have (negatives shown signed with a warning icon
+/// and label, never clamped) over an optional group / "one serves N"
+/// caption, archived toggle in the overflow menu, FAB → `/items/new`.
+/// Read-only: no commands.
 library;
 
 import 'package:flutter/material.dart';
@@ -153,8 +154,12 @@ class _ItemListScreenState extends ConsumerState<ItemListScreen> {
         );
       }
       return EmptyState(
-        message: 'No items yet. Add what you sell or bring.',
-        actionLabel: 'Add item',
+        title: 'Nothing in your list yet',
+        message:
+            'Items are the things you bring and sell — burgers, buns, cups. '
+            'Add one with its name and how many you have, and Loadout keeps '
+            'count from there.',
+        actionLabel: 'Add your first item',
         onAction: () => context.push('/items/new'),
       );
     }
@@ -180,20 +185,20 @@ class _ItemTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final item = summary.item;
-    final unit = item.unit;
-    final onHandText = '${formatMicros(summary.onHandMicros)} ${unit.dbValue}';
+    final onHandText = formatCount(summary.onHandMicros, item.unit);
     final subtitle = [
       if (item.category != null) item.category!,
-      'Pack of ${formatMicros(item.packSize.micros)} ${unit.dbValue}',
+      if (item.servesPerUnit != null)
+        'One serves ${formatMicros(item.servesPerUnit!.micros)}',
       if (item.isArchived) 'Archived',
     ].join(' · ');
     return ListTile(
       minTileHeight: 56,
       title: Text(item.name),
-      subtitle: Text(subtitle),
+      subtitle: subtitle.isEmpty ? null : Text(subtitle),
       trailing: Semantics(
         label:
-            'On hand ${formatMicros(summary.onHandMicros)} ${unit.label}'
+            'You have $onHandText'
             '${summary.isNegative ? ', negative' : ''}',
         excludeSemantics: true,
         child: Row(

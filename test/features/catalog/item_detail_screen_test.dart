@@ -22,15 +22,18 @@ import '../../support/app_harness.dart';
 Future<String> seedItem(
   AppHarness h, {
   required String name,
-  ItemUnit unit = ItemUnit.kg,
-  int packWhole = 2,
   String? category,
+  Quantity? servesPerUnit,
+  // Legacy schema-v1 shape; nothing asks for these any more.
+  ItemUnit unit = ItemUnit.each,
+  int packWhole = 1,
 }) async {
   final result = await h
       .read(catalogServiceProvider)
       .createItem(
         ItemDraft(
           name: name,
+          servesPerUnit: servesPerUnit,
           unit: unit,
           packSize: Quantity.whole(packWhole),
           category: category,
@@ -69,7 +72,12 @@ void main() {
     ))!;
     addTearDown(h.dispose);
     final id = (await tester.runAsync(() async {
-      final id = await seedItem(h, name: 'Tortillas', category: 'Bread');
+      final id = await seedItem(
+        h,
+        name: 'Tortillas',
+        category: 'Bread',
+        servesPerUnit: Quantity.whole(4),
+      );
       await seedMovement(h, id, whole: 5);
       await seedMovement(h, id, kind: MovementKind.waste, whole: 2);
       return id;
@@ -78,13 +86,13 @@ void main() {
     await h.pumpScreen(tester, ItemDetailScreen(itemId: id));
 
     expect(find.text('Tortillas'), findsOneWidget);
-    expect(find.text('Bread · kilograms · Pack of 2 kg'), findsOneWidget);
-    expect(find.text('On hand'), findsOneWidget);
-    expect(find.text('3 kg'), findsOneWidget);
+    expect(find.text('Bread · One serves 4 people'), findsOneWidget);
+    expect(find.text('You have'), findsOneWidget);
+    expect(find.text('3'), findsOneWidget);
     expect(find.text('Purchase'), findsOneWidget);
-    expect(find.text('+5 kg'), findsOneWidget);
+    expect(find.text('+5'), findsOneWidget);
     expect(find.text('Waste'), findsOneWidget);
-    expect(find.text('−2 kg'), findsOneWidget);
+    expect(find.text('−2'), findsOneWidget);
     // One day header groups both movements (both recorded "now").
     final today = DateTime.now();
     final day =
@@ -109,8 +117,28 @@ void main() {
 
     await h.pumpScreen(tester, ItemDetailScreen(itemId: id));
 
-    expect(find.text('−2 kg'), findsNWidgets(2)); // stat + history row
+    expect(find.text('−2'), findsNWidgets(2)); // stat + history row
     expect(find.text('Negative — record a count to fix it.'), findsOneWidget);
+  });
+
+  testWidgets('a legacy measured item keeps its unit beside the number', (
+    tester,
+  ) async {
+    final h = (await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    ))!;
+    addTearDown(h.dispose);
+    final id = (await tester.runAsync(() async {
+      // Migrated schema-v1 row: 5 kg is a weight, not five things.
+      final id = await seedItem(h, name: 'Mince', unit: ItemUnit.kg);
+      await seedMovement(h, id, whole: 5);
+      return id;
+    }))!;
+
+    await h.pumpScreen(tester, ItemDetailScreen(itemId: id));
+
+    expect(find.text('5 kg'), findsOneWidget);
+    expect(find.text('+5 kg'), findsOneWidget);
   });
 
   testWidgets('empty history shows the §9 message', (tester) async {

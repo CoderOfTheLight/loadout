@@ -10,6 +10,6 @@ void main() {
     await h.pumpApp(tester);
 
     expect(find.textContaining('Nothing is uploaded'), findsOneWidget);
-    expect(find.text('Create workspace'), findsOneWidget);
+    expect(find.text('Get started'), findsOneWidget);
   });
 }

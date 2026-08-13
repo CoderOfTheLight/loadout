@@ -1,38 +1,49 @@
-/// `/items/new` and `/items/:itemId/edit` (design §9 ItemEditScreen).
+/// `/items/new` and `/items/:itemId/edit` — ItemEditScreen.
 ///
-/// Name (required, live unique-among-live check), unit (`DropdownMenu`,
-/// closed list each/g/kg/ml/L — read-only in edit mode once the item has
-/// any movement, helper explains archive+recreate), pack size
-/// (`QuantityFormField`, required > 0), category (free text + autocomplete
-/// over `categorySuggestions`), notes. Commands:
-/// `CatalogService.createItem` / `updateItem` — plain updates, no revision
-/// log. Once locked, the stored unit is always resubmitted verbatim; a
-/// racing IMMUTABLE_RECORD from the applier surfaces the same
-/// archive+recreate explanation.
+/// The owner's model of an item, in her words: NAME + HOW MANY YOU HAVE +
+/// optionally HOW MANY PEOPLE ONE SERVES. So this form asks exactly that:
+///
+///   * **Item name** — required, live unique-among-live check. Something
+///     sold by weight goes in the name ("Mince (500 g packs)") and is
+///     counted as whole packs; the app never does weight arithmetic.
+///   * **How many do you have?** — a plain whole number, create only. It
+///     rides inside `CreateItem` as the opening `adjust` movement, so the
+///     item and its count land in one transaction. On an existing item the
+///     count is derived from the ledger and can only change by recording a
+///     movement, so edit mode shows it read-only with a button to do that.
+///   * **How many people does one serve?** — optional. Blank is an honest
+///     answer and simply means a first-ever event gets no estimate.
+///
+/// No unit picker, no pack size: units left the product surface in schema
+/// v2. A legacy row's stored unit and pack size are resubmitted verbatim so
+/// a rename can never trip the §4 unit lock or silently restate what its
+/// numbers mean.
+///
+/// Commands: `CatalogService.createItem` / `updateItem` — plain updates, no
+/// revision log.
 library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../app/providers.dart';
 import '../../../app/theme.dart';
 import '../../../app/widgets/content_column.dart';
+import '../../../app/widgets/count_form_field.dart';
 import '../../../app/widgets/empty_state.dart';
-import '../../../app/widgets/quantity_form_field.dart';
+import '../../../app/widgets/form_action_bar.dart';
 import '../../../core/errors.dart';
-import '../../../core/quantity_codec.dart';
+import '../../../core/quantity.dart';
 import '../../../core/result.dart';
 import '../../../core/units.dart';
-import '../application/catalog_service.dart';
 import '../domain/item.dart';
+import 'catalog_format.dart';
 import 'catalog_providers.dart';
-import '../../../app/widgets/form_action_bar.dart';
 
-/// The §9 unit-lock explanation, shown as dropdown helper text when locked
-/// and as the IMMUTABLE_RECORD snackbar (content-free by design).
-const String unitLockedExplanation =
-    'Unit is locked after the first movement. To change it, archive this '
-    'item and create a new one.';
+/// Cap on "how many people does one serve?", mirroring the command
+/// validator's `maxServesPerUnitMicros` (10 000 people per thing).
+const int maxServesPerUnit = 10000;
 
 class ItemEditScreen extends ConsumerStatefulWidget {
   const ItemEditScreen({super.key, this.itemId});
@@ -47,13 +58,20 @@ class ItemEditScreen extends ConsumerStatefulWidget {
 class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
-  final _packSize = TextEditingController();
+  final _count = TextEditingController();
+  final _serves = TextEditingController();
   final _notes = TextEditingController();
   String _category = '';
-  ItemUnit _unit = ItemUnit.each;
   bool _hydrated = false;
   bool _dirty = false;
   bool _submitting = false;
+
+  /// Schema-v1 leftovers. Never shown, never asked, always resubmitted
+  /// verbatim: changing a legacy item's unit after its first movement is an
+  /// IMMUTABLE_RECORD, and rewriting its pack size would restate what its
+  /// stored numbers mean.
+  ItemUnit _unit = ItemUnit.each;
+  Quantity _packSize = Quantity.one;
 
   /// Lowercased name most recently rejected by the command validator
   /// (uniqueness); mirrored onto the name field inline.
@@ -64,7 +82,8 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
   @override
   void dispose() {
     _name.dispose();
-    _packSize.dispose();
+    _count.dispose();
+    _serves.dispose();
     _notes.dispose();
     super.dispose();
   }
@@ -75,22 +94,16 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
     }
   }
 
-  Future<void> _save(ItemDetail? detail) async {
+  Future<void> _save() async {
     if (_submitting || !_formKey.currentState!.validate()) {
       return;
     }
-    final packSize = QuantityFormField.tryParse(_packSize.text);
-    if (packSize == null) {
-      return; // The field validator already rejected this.
-    }
-    final locked = detail?.hasMovements ?? false;
     final category = _category.trim();
     final draft = ItemDraft(
       name: _name.text.trim(),
-      // §4 unit lock: once any movement exists the stored unit is always
-      // resubmitted verbatim.
-      unit: locked ? detail!.item.unit : _unit,
-      packSize: packSize,
+      servesPerUnit: CountFormField.tryParseQuantity(_serves.text),
+      unit: _unit,
+      packSize: _packSize,
       category: category.isEmpty ? null : category,
       notes: _notes.text.trim(),
     );
@@ -98,7 +111,11 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
     final service = ref.read(catalogServiceProvider);
     final Result<Object?> result = _isEdit
         ? await service.updateItem(itemId: widget.itemId!, draft: draft)
-        : await service.createItem(draft);
+        : await service.createItem(
+            draft,
+            openingCount:
+                CountFormField.tryParseQuantity(_count.text) ?? Quantity.zero,
+          );
     if (!mounted) {
       return;
     }
@@ -119,7 +136,10 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
           setState(() => _rejectedDuplicateName = draft.name.toLowerCase());
           _formKey.currentState!.validate();
         } else if (error is ImmutableRecordError) {
-          _showSnack(unitLockedExplanation);
+          _showSnack(
+            'Some of this item is already locked by its history. Archive it '
+            'and add a new one instead.',
+          );
         } else if (error.message.contains('archived')) {
           _showSnack('This item is archived. Unarchive it first.');
         } else {
@@ -185,15 +205,21 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
       _hydrated = true;
       final item = detail!.item;
       _name.text = item.name;
-      _packSize.text = QuantityCodec.format(item.packSize);
+      // This form is the only writer of serves-per-unit and only ever
+      // writes whole people, so the truncation here is exact.
+      _serves.text = switch (item.servesPerUnit) {
+        final serves? => CountFormField.format(serves.micros ~/ Quantity.scale),
+        null => '',
+      };
       _notes.text = item.notes;
       _category = item.category ?? '';
       _unit = item.unit;
+      _packSize = item.packSize;
     }
-    final locked = _isEdit && detail!.hasMovements;
     final nameIndex = ref.watch(liveItemNameIndexProvider);
     final suggestions =
         ref.watch(categorySuggestionsProvider).valueOrNull ?? const <String>[];
+    final theme = Theme.of(context);
 
     return PopScope(
       canPop: !_dirty,
@@ -216,53 +242,52 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
                       controller: _name,
                       autovalidateMode: AutovalidateMode.onUserInteraction,
                       textInputAction: TextInputAction.next,
+                      textCapitalization: TextCapitalization.sentences,
                       decoration: const InputDecoration(
-                        labelText: 'Name',
+                        labelText: 'Item name',
+                        hintText: 'Beef burgers',
+                        helperText:
+                            'Sold by weight? Put it in the name — '
+                            '"Mince (500 g packs)" — and count the packs.',
+                        helperMaxLines: 3,
                         border: OutlineInputBorder(),
                       ),
                       onChanged: (_) => _markDirty(),
                       validator: (text) => _validateName(text, nameIndex),
                     ),
                     const SizedBox(height: 24),
-                    Semantics(
-                      label: locked
-                          ? 'Unit is locked after the first movement'
-                          : null,
-                      child: DropdownMenu<ItemUnit>(
-                        enabled: !locked,
-                        initialSelection: _unit,
-                        requestFocusOnTap: false,
-                        expandedInsets: EdgeInsets.zero,
-                        label: const Text('Unit'),
-                        helperText: locked
-                            ? unitLockedExplanation
-                            : 'One unit per item — no conversions.',
-                        dropdownMenuEntries: [
-                          for (final unit in ItemUnit.values)
-                            DropdownMenuEntry(value: unit, label: unit.label),
-                        ],
-                        onSelected: (unit) {
-                          if (unit != null) {
-                            setState(() {
-                              _unit = unit;
-                              _dirty = true;
-                            });
-                          }
-                        },
+                    if (_isEdit)
+                      _CurrentCount(
+                        itemId: widget.itemId!,
+                        onHandMicros: detail!.onHandMicros,
+                        unit: detail.item.unit,
+                        archived: detail.item.isArchived,
+                      )
+                    else
+                      CountFormField(
+                        controller: _count,
+                        labelText: 'How many do you have?',
+                        hintText: '0',
+                        helperText: 'Leave blank if you have none yet.',
+                        textInputAction: TextInputAction.next,
+                        onChanged: (_) => _markDirty(),
                       ),
-                    ),
                     const SizedBox(height: 24),
-                    QuantityFormField(
-                      controller: _packSize,
-                      labelText: 'Pack size',
-                      requiredMessage: 'Enter a pack size',
-                      unitLabel: _unit.dbValue,
+                    CountFormField(
+                      controller: _serves,
+                      labelText: 'How many people does one serve?',
+                      hintText: '4',
+                      minValue: 1,
+                      maxValue: maxServesPerUnit,
                       helperText:
-                          'How many ${_unit.dbValue} per pack you buy or '
-                          'load — used for rounding',
+                          'Optional. Leave blank if it varies — a forecast '
+                          'can still learn from what you actually use.',
+                      textInputAction: TextInputAction.next,
                       onChanged: (_) => _markDirty(),
                     ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 32),
+                    Text('Optional details', style: theme.textTheme.titleSmall),
+                    const SizedBox(height: 12),
                     Autocomplete<String>(
                       initialValue: TextEditingValue(text: _category),
                       optionsBuilder: (value) {
@@ -285,9 +310,11 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
                                 focusNode: focusNode,
                                 textInputAction: TextInputAction.next,
                                 decoration: const InputDecoration(
-                                  labelText: 'Category',
+                                  labelText: 'Group',
                                   helperText:
-                                      'Optional — groups the item list.',
+                                      'Groups the item list — "Drinks", '
+                                      '"Dry goods".',
+                                  helperMaxLines: 2,
                                   border: OutlineInputBorder(),
                                 ),
                                 onChanged: (value) {
@@ -300,6 +327,7 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
                     TextFormField(
                       controller: _notes,
                       maxLines: 3,
+                      textCapitalization: TextCapitalization.sentences,
                       decoration: const InputDecoration(
                         labelText: 'Notes',
                         border: OutlineInputBorder(),
@@ -315,7 +343,7 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
         ),
         bottomNavigationBar: FormActionBar(
           child: FilledButton(
-            onPressed: _submitting ? null : () => _save(detail),
+            onPressed: _submitting ? null : _save,
             style: FilledButton.styleFrom(minimumSize: primaryButtonMinSize),
             child: _submitting
                 ? const SizedBox(
@@ -323,7 +351,7 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
                     width: 24,
                     child: CircularProgressIndicator(strokeWidth: 2.5),
                   )
-                : const Text('Save item'),
+                : Text(_isEdit ? 'Save changes' : 'Add item'),
           ),
         ),
       ),
@@ -345,5 +373,62 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
       return 'A live item with this name already exists.';
     }
     return null;
+  }
+}
+
+/// Edit mode's read-only count. On-hand is derived from the append-only
+/// ledger, so it is never editable here — the way to change it is to record
+/// what happened.
+class _CurrentCount extends StatelessWidget {
+  const _CurrentCount({
+    required this.itemId,
+    required this.onHandMicros,
+    required this.unit,
+    required this.archived,
+  });
+
+  final String itemId;
+  final int onHandMicros;
+  final ItemUnit unit;
+  final bool archived;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final negative = onHandMicros < 0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        InputDecorator(
+          decoration: const InputDecoration(
+            labelText: 'How many you have now',
+            helperText:
+                'Counted from everything you have recorded. To change it, '
+                'record what happened.',
+            helperMaxLines: 3,
+            border: OutlineInputBorder(),
+            enabled: false,
+          ),
+          child: Text(
+            formatCount(onHandMicros, unit),
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: negative ? theme.colorScheme.error : null,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            onPressed: archived
+                ? null
+                : () =>
+                      context.push('/movements/new?kind=count&itemId=$itemId'),
+            icon: const Icon(Icons.fact_check_outlined),
+            label: const Text('Record a count'),
+          ),
+        ),
+      ],
+    );
   }
 }

@@ -60,7 +60,21 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
     };
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Activity')),
+      appBar: AppBar(
+        title: const Text('Activity'),
+        // `/activity` is a root-level route with no tab bar, and
+        // CorrectionScreen lands here with `go` (not `push`) when it has
+        // nothing to pop back to — which leaves no automatic back button
+        // either. Offer the way out explicitly rather than stranding the
+        // owner in the log.
+        leading: context.canPop()
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.home_outlined),
+                tooltip: 'Home',
+                onPressed: () => context.go('/home'),
+              ),
+      ),
       body: Column(
         children: [
           _filterRow(),

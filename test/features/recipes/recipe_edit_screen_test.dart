@@ -33,7 +33,7 @@ void main() {
     await pickFromDropdown(
       tester,
       find.byKey(const Key('output-item-picker')),
-      'Taco kit · each',
+      'Taco kit',
     );
     await tester.enterText(
       find.byKey(const Key('recipe-name')),
@@ -115,7 +115,7 @@ void main() {
     await pickFromDropdown(
       tester,
       find.byKey(const Key('output-item-picker')),
-      'Taco kit · each',
+      'Taco kit',
     );
     await tester.enterText(find.byKey(const Key('recipe-name')), 'Build');
     await tester.enterText(find.byKey(const Key('recipe-yield')), '10');
@@ -166,7 +166,7 @@ void main() {
     await pickFromDropdown(
       tester,
       find.byKey(const Key('output-item-picker')),
-      'Salsa · each',
+      'Salsa',
     );
     await tester.enterText(
       find.byKey(const Key('recipe-name')),
@@ -218,7 +218,7 @@ void main() {
     await pickFromDropdown(
       tester,
       find.byKey(const Key('output-item-picker')),
-      'Taco kit · each',
+      'Taco kit',
     );
     await tester.enterText(find.byKey(const Key('recipe-name')), 'Kit build');
     await tester.enterText(find.byKey(const Key('recipe-yield')), '1');

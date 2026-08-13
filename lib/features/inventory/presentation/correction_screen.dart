@@ -12,6 +12,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/providers.dart';
 import '../../../app/theme.dart';
+import '../../../app/unit_display.dart';
 import '../../../app/widgets/content_column.dart';
 import '../../../app/widgets/quantity_form_field.dart';
 import '../../../core/quantity.dart';
@@ -181,7 +182,7 @@ class _CorrectionScreenState extends ConsumerState<CorrectionScreen> {
                 helperText:
                     'Replaces the original '
                     '${movementKindLabel(movement.kind).toLowerCase()} entry',
-                unitLabel: view.itemUnit.dbValue,
+                unitLabel: unitFieldLabel(view.itemUnit),
                 onChanged: (_) => setState(() {}),
               ),
               if (movement.kind == MovementKind.adjust) ...[

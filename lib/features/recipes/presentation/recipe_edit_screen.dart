@@ -17,6 +17,7 @@ import 'package:go_router/go_router.dart';
 import '../../../app/providers.dart';
 import '../../../app/theme.dart';
 import '../../../app/widgets/content_column.dart';
+import '../../../app/widgets/empty_state.dart';
 import '../../../app/widgets/quantity_form_field.dart';
 import '../../../core/errors.dart';
 import '../../../core/quantity.dart';
@@ -173,6 +174,27 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
       for (final summary in items.value!)
         if (!summary.item.isArchived) summary.item,
     ];
+    // THE reported dead end: every picker on this form is built from the
+    // catalog, so an empty catalog turns the whole form into dropdowns that
+    // open onto nothing and explain nothing. Say what a recipe is made of
+    // and offer the way to get there instead.
+    if (!_isRevise && liveItems.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(title: title),
+        body: SafeArea(
+          child: EmptyState(
+            icon: Icons.menu_book_outlined,
+            title: 'Add an item first',
+            message:
+                'A recipe is built from your items, and you have none yet. '
+                'Add what it makes and what goes into it — each one is just '
+                'a name and how many you have.',
+            actionLabel: 'Add an item',
+            onAction: () => context.push('/items/new'),
+          ),
+        ),
+      );
+    }
     final outputItem = _outputItemId == null ? null : itemsById[_outputItemId];
     final theme = Theme.of(context);
     return PopScope(
@@ -235,7 +257,7 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
                           DropdownMenuItem(
                             value: item.id.value,
                             child: Text(
-                              '${item.name} · ${item.unit.dbValue}',
+                              item.name,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
@@ -271,9 +293,8 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
                         child: QuantityFormField(
                           key: const Key('recipe-yield'),
                           controller: _yieldController,
-                          labelText: 'Yield per batch',
-                          unitLabel: outputItem?.unit.dbValue,
-                          requiredMessage: 'Enter the yield',
+                          labelText: 'How many one batch makes',
+                          requiredMessage: 'Enter how many one batch makes',
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -282,7 +303,7 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
                           key: const Key('recipe-yield-label'),
                           controller: _yieldLabelController,
                           decoration: const InputDecoration(
-                            labelText: 'Yield label (optional)',
+                            labelText: 'What a batch is called (optional)',
                             hintText: 'e.g. 12 tacos',
                             border: OutlineInputBorder(),
                           ),
@@ -427,7 +448,44 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
       final item = itemsById[current];
       if (item != null) options.add(item);
     }
-    final selected = current == null ? null : itemsById[current];
+    // Another empty picker: the only live item is this recipe's output, so
+    // there is nothing left to pick as an ingredient. A FormField (not a
+    // bare message) keeps the row inside validation, so the form cannot be
+    // submitted with a line that was never filled in.
+    if (options.isEmpty) {
+      return Padding(
+        key: ValueKey('ingredient-row-${row.uid}'),
+        padding: const EdgeInsets.only(bottom: 12),
+        child: FormField<String>(
+          key: ValueKey('ingredient-empty-${row.uid}'),
+          initialValue: current,
+          validator: (_) => 'Add another item to use as an ingredient',
+          builder: (state) => InputDecorator(
+            decoration: InputDecoration(
+              labelText: 'Ingredient',
+              errorText: state.errorText,
+              border: const OutlineInputBorder(),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'The only item you have is what this recipe makes. Add '
+                  'the things that go into it.',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: () => context.push('/items/new'),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Add an item'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     return Padding(
       key: ValueKey('ingredient-row-${row.uid}'),
       padding: const EdgeInsets.only(bottom: 12),
@@ -492,7 +550,6 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
               key: ValueKey('ingredient-qty-${row.uid}'),
               controller: row.quantityController,
               labelText: 'Per batch',
-              unitLabel: selected?.unit.dbValue,
             ),
           ),
           IconButton(

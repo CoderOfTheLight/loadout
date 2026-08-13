@@ -103,9 +103,9 @@ void main() {
     await h.pumpApp(tester);
     await h.go(tester, '/movements/new?kind=count&itemId=$itemId');
 
-    expect(find.text('On hand now (derived): 12 kg'), findsOneWidget);
+    expect(find.text('Loadout has 12 kg'), findsOneWidget);
     await _enterQuantity(tester, '10.5');
-    expect(find.text('Will record −1.5 kg adjustment'), findsOneWidget);
+    expect(find.text('Will record a change of −1.5 kg'), findsOneWidget);
 
     await tester.tap(find.text('Record'));
     await tester.pumpAndSettle();

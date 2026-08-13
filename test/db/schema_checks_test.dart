@@ -76,6 +76,25 @@ void main() {
         [tid('I2')],
       );
     });
+
+    test('serves per unit is NULL or inside [1, 1e10] (v2)', () async {
+      Future<void> serves(String id, Object? micros) => db.customStatement(
+        'INSERT INTO items (id, name, unit, pack_size_micros, '
+        'serves_per_unit_micros, created_at_micros, updated_at_micros) '
+        "VALUES (?, ?, 'each', 1, ?, 1, 1)",
+        [tid(id), 'X$id', micros],
+      );
+      // "I don't know" is the honest default and must stay legal.
+      await serves('I3', null);
+      await serves('I4', 1);
+      await serves('I5', 10000000000);
+      for (final micros in [0, -1, 10000000001]) {
+        await expectLater(
+          serves('I6X${micros.toString().replaceAll('-', 'N')}', micros),
+          throwsA(isA<SqliteException>()),
+        );
+      }
+    });
   });
 
   group('events', () {
@@ -493,6 +512,35 @@ void main() {
         await badLine(grade: 'observed_range', expectedUse: null);
       },
     );
+
+    test('baseline columns are nonnegative and range-checked (v2)', () async {
+      // A stored baseline lives beside the engine outputs, not inside them:
+      // grade stays insufficient_data and expected_use stays NULL.
+      await insertForecastLine(
+        db,
+        snapshotId: tid('S1'),
+        itemId: tid('I1'),
+        baselineServesPerUnitMicros: 4000000,
+        baselineExpectedUseMicros: 25000000,
+        baselinePlannedMicros: 27500000,
+        baselineLoadMicros: 28000000,
+        baselineAcquireMicros: 0,
+      );
+      var seq = 0;
+      Future<void> badBaseline(String column, int value) => bad(
+        'INSERT INTO forecast_lines '
+        '(snapshot_id, item_id, pack_size_micros, on_hand_micros, '
+        'evidence_grade, $column) '
+        "VALUES (?, ?, 1, 0, 'insufficient_data', ?)",
+        [tid('S2'), tid('IB${seq++}'), value],
+      );
+      await badBaseline('baseline_serves_per_unit_micros', 0);
+      await badBaseline('baseline_serves_per_unit_micros', 10000000001);
+      await badBaseline('baseline_expected_use_micros', -1);
+      await badBaseline('baseline_planned_micros', -1);
+      await badBaseline('baseline_load_micros', -1);
+      await badBaseline('baseline_acquire_micros', -1);
+    });
   });
 
   group('forecast_evidence', () {

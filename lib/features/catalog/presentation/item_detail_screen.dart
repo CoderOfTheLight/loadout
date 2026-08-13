@@ -1,8 +1,8 @@
 /// `/items/:itemId` (design §9 ItemDetailScreen): derived truth for one
 /// item.
 ///
-/// Header (name/category/unit/pack); **On hand** stat from
-/// `stockPositionProvider` (signed, warning badge when negative); quick
+/// Header (name, optional group and "one serves N people"); **You have**
+/// stat from `stockPositionProvider` (signed, warning badge when negative); quick
 /// actions "Record movement" → `/movements/new?itemId=…` and "Count" →
 /// `?kind=count`; day-grouped movement history preview with reversed rows
 /// struck-through and labeled "Corrected" (history never hidden); menu:
@@ -15,6 +15,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/providers.dart';
 import '../../../app/theme.dart';
+import '../../../app/unit_display.dart';
 import '../../../app/widgets/content_column.dart';
 import '../../../app/widgets/empty_state.dart';
 import '../../../app/widgets/warning_banner.dart';
@@ -83,8 +84,8 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
     final theme = Theme.of(context);
     final headerCaption = [
       if (item.category != null) item.category!,
-      item.unit.label,
-      'Pack of ${formatMicros(item.packSize.micros)} ${item.unit.dbValue}',
+      if (item.servesPerUnit != null)
+        'One serves ${formatMicros(item.servesPerUnit!.micros)} people',
     ].join(' · ');
 
     return Scaffold(
@@ -117,8 +118,10 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(headerCaption, style: theme.textTheme.bodyMedium),
-                const SizedBox(height: 16),
+                if (headerCaption.isNotEmpty) ...[
+                  Text(headerCaption, style: theme.textTheme.bodyMedium),
+                  const SizedBox(height: 16),
+                ],
                 if (item.isArchived) ...[
                   WarningBanner(
                     message:
@@ -212,13 +215,13 @@ class _OnHandCard extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: Semantics(
           label:
-              'On hand ${formatMicros(onHandMicros)} ${item.unit.label}'
+              'You have ${formatCount(onHandMicros, item.unit)}'
               '${negative ? ', negative' : ''}',
           excludeSemantics: true,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('On hand', style: theme.textTheme.labelLarge),
+              Text('You have', style: theme.textTheme.labelLarge),
               const SizedBox(height: 4),
               Row(
                 children: [
@@ -227,7 +230,7 @@ class _OnHandCard extends StatelessWidget {
                     const SizedBox(width: 8),
                   ],
                   Text(
-                    '${formatMicros(onHandMicros)} ${item.unit.dbValue}',
+                    formatCount(onHandMicros, item.unit),
                     style: theme.textTheme.headlineMedium?.copyWith(
                       color: negative ? scheme.error : null,
                     ),
@@ -262,8 +265,8 @@ class _MovementRow extends StatelessWidget {
     final movement = view.movement;
     final corrected = view.reversedByMovementId != null;
     final quantity =
-        '${formatSignedMicros(movement.deltaMicros)} '
-        '${view.itemUnit.dbValue}';
+        '${formatSignedMicros(movement.deltaMicros)}'
+        '${unitSuffix(view.itemUnit)}';
     final label = movementKindLabel(movement.kind);
     final struck = corrected
         ? const TextStyle(decoration: TextDecoration.lineThrough)

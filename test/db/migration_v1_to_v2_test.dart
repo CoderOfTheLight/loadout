@@ -4,8 +4,7 @@
 /// "every v1 row is still there, byte for byte, afterwards".
 library;
 
-import 'package:drift/drift.dart' hide isNull;
-import 'package:drift_dev/api/migrations.dart';
+import 'package:drift_dev/api/migrations_native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:loadout/data/db/app_database.dart';
 
@@ -69,38 +68,40 @@ void main() {
     expect(await db.ledgerDao.onHandMicros(item.id), 9000000);
     final movement = await (db.select(db.inventoryMovements)).getSingle();
     expect(movement.note, 'first load');
-    expect(await db.schemaVersion, 2);
+    expect(db.schemaVersion, 2);
   });
 
-  test('after upgrade the new columns accept and reject the right values',
-      () async {
-    final schema = await verifier.schemaAt(1);
-    final db = AppDatabase(schema.newConnection());
-    addTearDown(db.close);
-    await db.customStatement('PRAGMA foreign_keys = OFF');
+  test(
+    'after upgrade the new columns accept and reject the right values',
+    () async {
+      final schema = await verifier.schemaAt(1);
+      final db = AppDatabase(schema.newConnection());
+      addTearDown(db.close);
+      await db.customStatement('PRAGMA foreign_keys = OFF');
 
-    await insertItem(db, tid('IA'), name: 'Pizza');
-    await db.customStatement(
-      'UPDATE items SET serves_per_unit_micros = 4000000 WHERE id = ?',
-      [tid('IA')],
-    );
-    expect(
-      (await (db.select(db.items)
-                ..where((i) => i.id.equals(tid('IA'))))
-              .getSingle())
-          .servesPerUnitMicros,
-      4000000,
-    );
-    // The CHECK travelled with the ALTER TABLE.
-    for (final bad in [0, -1, 10000000001]) {
-      await expectLater(
-        db.customStatement(
-          'UPDATE items SET serves_per_unit_micros = ? WHERE id = ?',
-          [bad, tid('IA')],
-        ),
-        throwsA(anything),
-        reason: '$bad is outside the serves-per-unit range',
+      await insertItem(db, tid('IA'), name: 'Pizza');
+      await db.customStatement(
+        'UPDATE items SET serves_per_unit_micros = 4000000 WHERE id = ?',
+        [tid('IA')],
       );
-    }
-  });
+      expect(
+        (await (db.select(
+              db.items,
+            )..where((i) => i.id.equals(tid('IA')))).getSingle())
+            .servesPerUnitMicros,
+        4000000,
+      );
+      // The CHECK travelled with the ALTER TABLE.
+      for (final bad in [0, -1, 10000000001]) {
+        await expectLater(
+          db.customStatement(
+            'UPDATE items SET serves_per_unit_micros = ? WHERE id = ?',
+            [bad, tid('IA')],
+          ),
+          throwsA(anything),
+          reason: '$bad is outside the serves-per-unit range',
+        );
+      }
+    },
+  );
 }

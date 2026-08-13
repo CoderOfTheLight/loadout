@@ -13,6 +13,7 @@ import 'package:loadout/features/approval/domain/command_validator.dart';
 import 'package:loadout/features/approval/domain/commands.dart';
 import 'package:loadout/features/catalog/application/catalog_service.dart';
 import 'package:loadout/features/catalog/domain/item.dart';
+import 'package:sqlite3/sqlite3.dart' show SqliteException;
 
 import 'fixtures.dart';
 import 'write_path_harness.dart';
@@ -35,13 +36,18 @@ void main() {
 
   group('defaults (units left the product surface)', () {
     test('a name-only draft stores each / one unit / no serves', () async {
-      final itemId = (await catalog.createItem(const ItemDraft(name: 'Buns')))
-          .fold((id) => id, (e) => fail(e.message));
+      final itemId = (await catalog.createItem(
+        const ItemDraft(name: 'Buns'),
+      )).fold((id) => id, (e) => fail(e.message));
       final row = await h.itemRow(itemId);
       expect(row.unit, 'each');
       expect(row.packSizeMicros, Quantity.scale);
       expect(row.servesPerUnitMicros, isNull);
-      expect(await h.onHand(itemId), 0, reason: 'no opening count, no movement');
+      expect(
+        await h.onHand(itemId),
+        0,
+        reason: 'no opening count, no movement',
+      );
       expect(await h.count('inventory_movements'), 0);
     });
   });
@@ -54,23 +60,17 @@ void main() {
       expect((await h.itemRow(itemId)).servesPerUnitMicros, 4000000);
 
       // 1 pizza now serves 6 (bigger pizzas).
-      expect(
-        (await catalog.updateItem(
-          itemId: itemId,
-          draft: ItemDraft(name: 'Pizza', servesPerUnit: Quantity.whole(6)),
-        )).isOk,
-        isTrue,
-      );
+      (await catalog.updateItem(
+        itemId: itemId,
+        draft: ItemDraft(name: 'Pizza', servesPerUnit: Quantity.whole(6)),
+      )).fold((_) {}, (e) => fail(e.message));
       expect((await h.itemRow(itemId)).servesPerUnitMicros, 6000000);
 
       // A draft with no answer clears it: "I don't know" is a legal answer.
-      expect(
-        (await catalog.updateItem(
-          itemId: itemId,
-          draft: const ItemDraft(name: 'Pizza'),
-        )).isOk,
-        isTrue,
-      );
+      (await catalog.updateItem(
+        itemId: itemId,
+        draft: const ItemDraft(name: 'Pizza'),
+      )).fold((_) {}, (e) => fail(e.message));
       expect((await h.itemRow(itemId)).servesPerUnitMicros, isNull);
     });
 
@@ -101,8 +101,7 @@ void main() {
       );
     });
 
-    test('the cap is enforced by SQL too, not only by the validator',
-        () async {
+    test('the cap is enforced by SQL too, not only by the validator', () async {
       await expectLater(
         insertItem(
           h.db,
@@ -120,27 +119,29 @@ void main() {
   });
 
   group('opening count', () {
-    test('one command writes the item AND its opening adjust movement',
-        () async {
-      final receipt = await h.ok(
-        CreateItem(name: 'Buns', openingCount: Quantity.whole(48)),
-      );
-      final itemId = receipt.createdRecordIds.first;
-      expect(receipt.createdRecordIds, hasLength(2));
-      expect(await h.count('commands'), 1, reason: 'ONE logical operation');
-      expect(await h.onHand(itemId), 48000000);
+    test(
+      'one command writes the item AND its opening adjust movement',
+      () async {
+        final receipt = await h.ok(
+          CreateItem(name: 'Buns', openingCount: Quantity.whole(48)),
+        );
+        final itemId = receipt.createdRecordIds.first;
+        expect(receipt.createdRecordIds, hasLength(2));
+        expect(await h.count('commands'), 1, reason: 'ONE logical operation');
+        expect(await h.onHand(itemId), 48000000);
 
-      final movement = await h.movementRow(receipt.createdRecordIds[1]);
-      expect(movement.itemId, itemId);
-      expect(movement.kind, 'adjust');
-      expect(movement.deltaMicros, 48000000);
-      expect(movement.note, 'Opening count');
-      expect(
-        movement.sourceCommandId,
-        receipt.commandId as String,
-        reason: 'the movement is audited to the same command as the item',
-      );
-    });
+        final movement = await h.movementRow(receipt.createdRecordIds[1]);
+        expect(movement.itemId, itemId);
+        expect(movement.kind, 'adjust');
+        expect(movement.deltaMicros, 48000000);
+        expect(movement.note, 'Opening count');
+        expect(
+          movement.sourceCommandId,
+          receipt.commandId as String,
+          reason: 'the movement is audited to the same command as the item',
+        );
+      },
+    );
 
     test('zero (or absent) records no movement at all', () async {
       final zero = await h.ok(
@@ -166,29 +167,29 @@ void main() {
       );
     });
 
-    test('a movement that SQL refuses takes the item down with it', () async {
-      // 1e15 micros + 1 breaks the ledger magnitude CHECK. The item insert
-      // has already run inside this transaction; nothing may survive.
-      final overflow = Quantity.fromMicros(Quantity.maxMicros);
-      await expectLater(
-        h.applier.submit(
-          proposalFor(
-            h,
-            CreateItem(
-              name: 'Silly',
-              // Quantity caps at maxMicros, so drive the CHECK from two
-              // legal-looking halves: the cap itself is legal, one more is
-              // not — recorded as a pack of the cap plus an adjust.
-              openingCount: overflow,
-            ),
-          ),
-        ),
-        completes,
-      );
-      // The cap is legal: this one lands.
-      expect(await h.count('items'), 1);
-      expect(await h.count('inventory_movements'), 1);
-    });
+    test(
+      'a movement the database refuses takes the item down with it',
+      () async {
+        // Fault injection at the only layer that can still fail after
+        // validation passes: SQL itself. If the opening movement cannot be
+        // written, the item it belongs to must not exist either.
+        await h.db.customStatement(
+          'CREATE TRIGGER trg_test_block BEFORE INSERT ON inventory_movements '
+          "BEGIN SELECT RAISE(ABORT, 'injected'); END",
+        );
+        await expectLater(
+          h.submit(CreateItem(name: 'Buns', openingCount: Quantity.whole(48))),
+          throwsA(isA<SqliteException>()),
+        );
+        expect(await h.count('items'), 0, reason: 'no item without its count');
+        expect(await h.count('inventory_movements'), 0);
+        expect(
+          await h.count('commands'),
+          0,
+          reason: 'the audit row rolled back',
+        );
+      },
+    );
 
     test('replaying the same commandId does not double the count', () async {
       final command = CreateItem(
@@ -203,15 +204,17 @@ void main() {
       expect(await h.onHand(first.createdRecordIds.first), 48000000);
     });
 
-    test('CatalogService.createItem threads it and returns the ITEM id',
-        () async {
-      final itemId = (await catalog.createItem(
-        const ItemDraft(name: 'Buns'),
-        openingCount: Quantity.whole(12),
-      )).fold((id) => id, (e) => fail(e.message));
-      expect((await h.itemRow(itemId)).name, 'Buns');
-      expect(await h.onHand(itemId), 12000000);
-    });
+    test(
+      'CatalogService.createItem threads it and returns the ITEM id',
+      () async {
+        final itemId = (await catalog.createItem(
+          const ItemDraft(name: 'Buns'),
+          openingCount: Quantity.whole(12),
+        )).fold((id) => id, (e) => fail(e.message));
+        expect((await h.itemRow(itemId)).name, 'Buns');
+        expect(await h.onHand(itemId), 12000000);
+      },
+    );
 
     test('the opening movement is a normal correctable ledger row', () async {
       final receipt = await h.ok(

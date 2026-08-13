@@ -3,13 +3,18 @@
 /// Reads the LIVE catalog via [itemListProvider]; returns the new selection
 /// (existing order preserved, additions appended in catalog order), or null
 /// when dismissed.
+///
+/// With an empty catalog the sheet explains what to do and offers the way
+/// to `/items/new` — a checklist with nothing on it is a dead end.
 library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../app/providers.dart';
 import '../../../app/theme.dart';
+import '../../../app/widgets/empty_state.dart';
 import '../../catalog/application/catalog_service.dart';
 
 Future<List<String>?> showPlannedItemsPicker(
@@ -33,10 +38,19 @@ class PlannedItemsSheet extends ConsumerStatefulWidget {
 class _PlannedItemsSheetState extends ConsumerState<PlannedItemsSheet> {
   late final Set<String> _selected = {...widget.initialSelection};
 
+  /// Closes the sheet and opens the new-item form. The router is resolved
+  /// BEFORE the pop: afterwards this context is defunct.
+  void _addItem() {
+    final router = GoRouter.maybeOf(context);
+    Navigator.of(context).pop();
+    router?.push('/items/new');
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final items = ref.watch(itemListProvider(const ItemFilter()));
+    final catalogIsEmpty = items.valueOrNull?.isEmpty ?? false;
     return SafeArea(
       child: ConstrainedBox(
         constraints: BoxConstraints(
@@ -59,12 +73,13 @@ class _PlannedItemsSheetState extends ConsumerState<PlannedItemsSheet> {
                     child: Text('Items could not be loaded.'),
                   ),
                   data: (summaries) => summaries.isEmpty
-                      ? const Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Text(
-                            'No items yet. Add what you sell or bring under '
-                            'the Items tab first.',
-                          ),
+                      ? EmptyState(
+                          title: 'Nothing to plan yet',
+                          message:
+                              'Add what you will bring — its name and how '
+                              'many you have — then pick it here.',
+                          actionLabel: 'Add an item',
+                          onAction: _addItem,
                         )
                       : ListView(
                           shrinkWrap: true,
@@ -75,7 +90,9 @@ class _PlannedItemsSheetState extends ConsumerState<PlannedItemsSheet> {
                                   summary.item.id as String,
                                 ),
                                 title: Text(summary.item.name),
-                                subtitle: Text(summary.item.unit.label),
+                                subtitle: summary.item.category == null
+                                    ? null
+                                    : Text(summary.item.category!),
                                 onChanged: (checked) => setState(() {
                                   final id = summary.item.id as String;
                                   if (checked ?? false) {
@@ -89,29 +106,32 @@ class _PlannedItemsSheetState extends ConsumerState<PlannedItemsSheet> {
                         ),
                 ),
               ),
-              const SizedBox(height: 8),
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  minimumSize: primaryButtonMinSize,
+              if (!catalogIsEmpty) ...[
+                const SizedBox(height: 8),
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                    minimumSize: primaryButtonMinSize,
+                  ),
+                  onPressed: () {
+                    // Preserve the existing order; append additions in
+                    // catalog order (event_items.position follows list
+                    // order).
+                    final kept = [
+                      for (final id in widget.initialSelection)
+                        if (_selected.contains(id)) id,
+                    ];
+                    final added = [
+                      for (final summary
+                          in items.valueOrNull ?? const <ItemSummary>[])
+                        if (_selected.contains(summary.item.id as String) &&
+                            !kept.contains(summary.item.id as String))
+                          summary.item.id as String,
+                    ];
+                    Navigator.of(context).pop([...kept, ...added]);
+                  },
+                  child: const Text('Done'),
                 ),
-                onPressed: () {
-                  // Preserve the existing order; append additions in catalog
-                  // order (event_items.position follows list order).
-                  final kept = [
-                    for (final id in widget.initialSelection)
-                      if (_selected.contains(id)) id,
-                  ];
-                  final added = [
-                    for (final summary
-                        in items.valueOrNull ?? const <ItemSummary>[])
-                      if (_selected.contains(summary.item.id as String) &&
-                          !kept.contains(summary.item.id as String))
-                        summary.item.id as String,
-                  ];
-                  Navigator.of(context).pop([...kept, ...added]);
-                },
-                child: const Text('Done'),
-              ),
+              ],
             ],
           ),
         ),

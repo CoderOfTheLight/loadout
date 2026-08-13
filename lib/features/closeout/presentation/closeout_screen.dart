@@ -20,6 +20,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
 import '../../../app/theme.dart';
+import '../../../app/unit_display.dart';
 import '../../../app/widgets/content_column.dart';
 import '../../../app/widgets/empty_state.dart';
 import '../../../core/quantity.dart';
@@ -129,7 +130,7 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
             CloseoutLineController(
               itemId: line.itemId,
               itemName: line.itemName,
-              unitLabel: line.unit.dbValue,
+              unitLabel: unitFieldLabel(line.unit),
               plannedLoadMicros: line.plannedLoadMicros,
             ),
         ];

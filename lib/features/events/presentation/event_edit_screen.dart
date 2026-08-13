@@ -203,6 +203,9 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
   Widget build(BuildContext context) {
     final exposureLabel =
         ref.watch(workspaceProvider).valueOrNull?.exposureLabel ?? 'attendance';
+    final catalogIsEmpty =
+        ref.watch(itemListProvider(const ItemFilter())).valueOrNull?.isEmpty ??
+        false;
     final title = _isEdit ? 'Edit event' : 'New event';
     if (_loading) {
       return Scaffold(
@@ -312,22 +315,33 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                     const SizedBox(height: 8),
-                    _PlannedItemChips(
-                      plannedItemIds: _plannedItemIds,
-                      onRemove: (itemId) => setState(() {
-                        _plannedItemIds = [
-                          for (final id in _plannedItemIds)
-                            if (id != itemId) id,
-                        ];
-                        _dirty = true;
-                      }),
-                    ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: _pickPlannedItems,
-                      icon: const Icon(Icons.playlist_add),
-                      label: const Text('Add items'),
-                    ),
+                    // With nothing to pick, the picker would open onto an
+                    // empty checklist: this section explains itself instead.
+                    // The rest of the event stays answerable, and an event
+                    // that already has items keeps its chips (and the way to
+                    // remove them) even if every item was since archived.
+                    if (catalogIsEmpty && _plannedItemIds.isEmpty)
+                      _EmptyCatalogNote(
+                        onAddItem: () => context.push('/items/new'),
+                      )
+                    else ...[
+                      _PlannedItemChips(
+                        plannedItemIds: _plannedItemIds,
+                        onRemove: (itemId) => setState(() {
+                          _plannedItemIds = [
+                            for (final id in _plannedItemIds)
+                              if (id != itemId) id,
+                          ];
+                          _dirty = true;
+                        }),
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: _pickPlannedItems,
+                        icon: const Icon(Icons.playlist_add),
+                        label: const Text('Add items'),
+                      ),
+                    ],
                     const SizedBox(height: 24),
                     TextFormField(
                       controller: _notes,
@@ -357,6 +371,45 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
                   )
                 : const Text('Save event'),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Shown in place of the planned-items picker when the catalog is empty:
+/// the picker would open onto an empty checklist, which explains nothing.
+class _EmptyCatalogNote extends StatelessWidget {
+  const _EmptyCatalogNote({required this.onAddItem});
+
+  final VoidCallback onAddItem;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Material(
+      color: scheme.secondaryContainer,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'You have no items yet. Add what you will bring — its name '
+              'and how many you have — then plan it into this event.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: scheme.onSecondaryContainer,
+              ),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: onAddItem,
+              icon: const Icon(Icons.add),
+              label: const Text('Add an item'),
+            ),
+          ],
         ),
       ),
     );

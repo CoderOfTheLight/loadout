@@ -30,7 +30,12 @@ EvidenceGrade evidenceGradeFromDb(String value) => switch (value) {
 /// from the item's "1 serves N". It is stored as `insufficient_data` plus the
 /// `baseline_*` columns, so the §4.3 label query and every history/accuracy
 /// read stay exactly as blind to it as they are to any other prediction.
-enum ForecastBasis { insufficientData, servesBaseline, singleEvent, observedRange }
+enum ForecastBasis {
+  insufficientData,
+  servesBaseline,
+  singleEvent,
+  observedRange,
+}
 
 /// Fully-computed snapshot awaiting persistence (design §6.4
 /// SaveForecastSnapshot): header, lines, evidence, inputsHash. The applier
@@ -128,8 +133,6 @@ final class ForecastSnapshotLineDraft {
 
   /// Value-copies in label-query order.
   final List<EvidenceInput> evidence;
-
-  bool get hasBaseline => baselineLoadMicros != null;
 }
 
 // ---------------------------------------------------------------- views
@@ -216,13 +219,19 @@ final class ForecastLineView {
   /// What the numbers rest on — switch on this, not on [evidenceGrade].
   ForecastBasis get basis => switch (evidenceGrade) {
     EvidenceGrade.insufficientData =>
-      isBaseline ? ForecastBasis.servesBaseline : ForecastBasis.insufficientData,
+      isBaseline
+          ? ForecastBasis.servesBaseline
+          : ForecastBasis.insufficientData,
     EvidenceGrade.singleEvent => ForecastBasis.singleEvent,
     EvidenceGrade.observedRange => ForecastBasis.observedRange,
   };
 
   /// Expected use to show: the engine's, else the baseline's estimate.
-  int? get plannedExpectedUseMicros => expectedUseMicros ?? baselineExpectedUseMicros;
+  int? get plannedExpectedUseMicros =>
+      expectedUseMicros ?? baselineExpectedUseMicros;
+
+  /// Planned quantity to show: the engine's, else the baseline's estimate.
+  int? get suggestedPlannedMicros => plannedMicros ?? baselinePlannedMicros;
 
   /// Load to show before overrides: the engine's, else the baseline's.
   int? get suggestedLoadMicros => loadMicros ?? baselineLoadMicros;

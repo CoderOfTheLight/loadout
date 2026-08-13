@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:loadout/app/providers.dart';
 import 'package:loadout/features/backup/presentation/restore_screen.dart';
+import 'package:loadout/features/forecasting/domain/forecast_engine.dart';
 import 'package:loadout/features/home/presentation/home_screen.dart';
 import 'package:loadout/features/onboarding/presentation/create_workspace_screen.dart';
 import 'package:loadout/features/onboarding/presentation/recovery_screen.dart';
@@ -48,6 +49,18 @@ void main() {
     expect(h.boot.state, isA<StartupWorkspaceOpen>());
     expect(find.byType(HomeScreen), findsOneWidget);
     expect(find.byType(NavigationBar), findsOneWidget);
+    // The five tab names are part of the product's vocabulary: "Items" is
+    // the owner's own word, so none of them were renamed. Pin them.
+    for (final tab in ['Home', 'Events', 'Items', 'Recipes', 'Settings']) {
+      expect(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.text(tab),
+        ),
+        findsOneWidget,
+        reason: 'tab $tab should be labelled',
+      );
+    }
     // Onboarding is closed once a workspace exists.
     await h.go(tester, '/welcome');
     expect(find.byType(HomeScreen), findsOneWidget);
@@ -97,18 +110,32 @@ void main() {
   testWidgets('create-workspace flow lands on /home with a named workspace', (
     tester,
   ) async {
+    // The 800x600 default surface is shorter than any phone: the setup form
+    // would sit half below the fold, and a tap aimed at a row down the page
+    // would land on the pinned action bar instead.
+    tester.view.physicalSize = const Size(1000, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
     final h = await _start(tester, AppHarnessState.fresh);
     await h.pumpApp(tester);
 
-    await tester.tap(find.text('Create workspace'));
+    await tester.tap(find.text('Get started'));
     await tester.pumpAndSettle();
     expect(find.byType(CreateWorkspaceScreen), findsOneWidget);
 
     await tester.enterText(
-      find.widgetWithText(TextField, 'My workspace'),
+      find.widgetWithText(TextField, defaultWorkspaceName),
       'Taco cart',
     );
-    await tester.tap(find.widgetWithText(FilledButton, 'Create workspace'));
+    // The policy is chosen from plain-language rows, not a segmented
+    // control of stacked percentages.
+    final cautious = find.text('Take plenty spare — running out is the worst.');
+    await tester.ensureVisible(cautious);
+    await tester.pumpAndSettle();
+    await tester.tap(cautious);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Start'));
     await tester.pumpAndSettle();
 
     expect(find.byType(HomeScreen), findsOneWidget);
@@ -116,6 +143,7 @@ void main() {
       () => h.read(settingsServiceProvider).watchWorkspace().first,
     );
     expect(workspace!.displayName, 'Taco cart');
+    expect(workspace.defaultPolicy, PlanningPolicy.cautious);
     expect(h.startup.isOpen, isTrue);
   });
 

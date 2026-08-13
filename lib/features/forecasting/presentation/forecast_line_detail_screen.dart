@@ -11,12 +11,14 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/providers.dart';
 import '../../../app/theme.dart';
+import '../../../app/unit_display.dart';
 import '../../../app/widgets/content_column.dart';
 import '../../../app/widgets/empty_state.dart';
 import '../../../app/widgets/quantity_form_field.dart';
+import '../../../core/quantity.dart';
+import '../../../core/units.dart';
 import '../../catalog/domain/item.dart';
 import '../../events/domain/event.dart';
-import '../domain/forecast_engine.dart';
 import '../domain/snapshot.dart';
 import 'forecast_presentation_support.dart';
 
@@ -159,7 +161,7 @@ class _ForecastLineDetailScreenState
     final item = ref
         .watch(forecastItemIndexProvider)
         .valueOrNull?[widget.itemId];
-    final unit = item?.unit.dbValue ?? '';
+    final unit = item?.unit;
     final status = ref
         .watch(eventDetailProvider(widget.eventId))
         .valueOrNull
@@ -168,10 +170,11 @@ class _ForecastLineDetailScreenState
     final editable =
         status == EventStatus.planned || status == EventStatus.active;
     // "Set a baseline" entry (§9): prefill the reason once for lines with
-    // no history and no override yet.
+    // no number at all and no override yet. A "1 serves N" line already has
+    // a plan, so it is not a baseline-setting exercise.
     if (!_reasonPrefilled &&
         editable &&
-        line.evidenceGrade == EvidenceGrade.insufficientData &&
+        line.basis == ForecastBasis.insufficientData &&
         line.override == null &&
         _reason.text.isEmpty) {
       _reason.text = 'baseline';
@@ -249,7 +252,7 @@ class _ForecastLineDetailScreenState
     ForecastSnapshotView snapshot,
     ForecastLineView line,
     Item? item,
-    String unit,
+    ItemUnit? unit,
     String exposureLabel,
   ) {
     final overridden = line.isOverridden;
@@ -269,28 +272,31 @@ class _ForecastLineDetailScreenState
               spacing: 24,
               runSpacing: 12,
               children: [
+                // `suggested*` / `plannedExpectedUse*`, not the raw engine
+                // fields: those are null on a "1 serves N" line and would
+                // print four em-dashes beside a usable estimate.
                 _figure(
                   theme,
                   'Expected',
-                  formatQuantity(line.expectedUseMicros, unit),
+                  formatQuantity(line.plannedExpectedUseMicros, unit),
                 ),
                 _figure(
                   theme,
                   'Planned',
-                  formatQuantity(line.plannedMicros, unit),
+                  formatQuantity(line.suggestedPlannedMicros, unit),
                 ),
                 _figure(
                   theme,
                   'Load',
                   formatQuantity(line.effectiveLoadMicros, unit),
                   struck: overridden
-                      ? formatQuantity(line.loadMicros, unit)
+                      ? formatQuantity(line.suggestedLoadMicros, unit)
                       : null,
                 ),
                 _figure(
                   theme,
                   'Acquire',
-                  formatQuantity(line.acquireMicros, unit),
+                  formatQuantity(line.suggestedAcquireMicros, unit),
                 ),
               ],
             ),
@@ -355,22 +361,44 @@ class _ForecastLineDetailScreenState
   String _narration(
     ForecastSnapshotView snapshot,
     ForecastLineView line,
-    String unit,
+    ItemUnit? unit,
     String exposureLabel,
   ) {
-    if (line.evidenceGrade == EvidenceGrade.insufficientData) {
-      return 'No comparable confirmed outcomes — set a baseline load below '
-          'to plan this item.';
-    }
-    final count = line.evidence.length;
     final usableOnHand = line.onHandMicros < 0 ? 0 : line.onHandMicros;
     final available = usableOnHand + line.confirmedInboundMicros;
-    return 'Median of $count observed rate${count == 1 ? '' : 's'} × '
-        '${snapshot.upcomingExposure} $exposureLabel, '
-        '+${snapshot.policy.reservePercent} % reserve, rounded up to packs '
-        'of ${formatMicros(line.packSizeMicros)} $unit, minus '
-        '${formatMicros(available)} $unit on hand.';
+    final onHandClause =
+        'minus ${formatQuantity(available, unit)} you already have.';
+    switch (line.basis) {
+      case ForecastBasis.insufficientData:
+        return 'No comparable confirmed outcomes — set a baseline load below '
+            'to plan this item.';
+      case ForecastBasis.servesBaseline:
+        // The owner's own words for the arithmetic she supplied: this is
+        // NOT history, and the warning beneath says so verbatim.
+        final serves = formatMicros(line.baselineServesPerUnitMicros ?? 0);
+        return 'One serves $serves × ${snapshot.upcomingExposure} '
+            '$exposureLabel, +${snapshot.policy.reservePercent} % spare, '
+            '${_packClause(line)}$onHandClause';
+      case ForecastBasis.singleEvent:
+      case ForecastBasis.observedRange:
+        final count = line.evidence.length;
+        return 'Median of $count observed rate${count == 1 ? '' : 's'} × '
+            '${snapshot.upcomingExposure} $exposureLabel, '
+            '+${snapshot.policy.reservePercent} % reserve, '
+            '${_packClause(line)}$onHandClause';
+    }
   }
+
+  /// Pack-rounding clause, present only when rounding actually happens.
+  ///
+  /// Pack size left the product surface in schema v2: everything created
+  /// since is one unit per pack, so the clause would read "rounded up to
+  /// packs of 1" — jargon describing a no-op. Legacy measured rows still
+  /// round to a real pack and still need the explanation.
+  String _packClause(ForecastLineView line) =>
+      line.packSizeMicros == Quantity.one.micros
+      ? ''
+      : 'rounded up to packs of ${formatMicros(line.packSizeMicros)}, ';
 
   // -------------------------------------------------------- assumptions
 
@@ -378,7 +406,7 @@ class _ForecastLineDetailScreenState
     ThemeData theme,
     ForecastSnapshotView snapshot,
     ForecastLineView line,
-    String unit,
+    ItemUnit? unit,
     String exposureLabel,
   ) {
     Widget row(String label, String value) => Padding(
@@ -414,18 +442,25 @@ class _ForecastLineDetailScreenState
           children: [
             row('Exposure', '${snapshot.upcomingExposure} $exposureLabel'),
             row('Policy', '${policyChipLabel(snapshot.policy)} reserve'),
+            if (line.baselineServesPerUnitMicros != null)
+              row(
+                'One serves',
+                '${formatMicros(line.baselineServesPerUnitMicros!)} people',
+              ),
+            // Only when rounding actually happens — see [_packClause].
+            if (line.packSizeMicros != Quantity.one.micros)
+              row(
+                'Pack rounding',
+                '${formatQuantity(line.packSizeMicros, unit)} per pack',
+              ),
             row(
-              'Pack rounding',
-              '${formatMicros(line.packSizeMicros)} $unit per pack',
-            ),
-            row(
-              'On hand at generation',
-              '${formatMicros(line.onHandMicros)} $unit · '
+              'You had at generation',
+              '${formatQuantity(line.onHandMicros, unit)} · '
                   '${absoluteTimeLabel(snapshot.createdAt)}',
             ),
             row(
               'Confirmed inbound',
-              '${formatMicros(line.confirmedInboundMicros)} $unit',
+              formatQuantity(line.confirmedInboundMicros, unit),
             ),
             row(
               'History window',
@@ -444,7 +479,7 @@ class _ForecastLineDetailScreenState
     ThemeData theme,
     ForecastSnapshotView snapshot,
     ForecastLineView line,
-    String unit,
+    ItemUnit? unit,
   ) {
     final snapshotId = snapshot.id as String;
     return Form(
@@ -464,7 +499,7 @@ class _ForecastLineDetailScreenState
             key: const ValueKey('override-load'),
             controller: _load,
             labelText: 'New load',
-            unitLabel: unit.isEmpty ? null : unit,
+            unitLabel: unitFieldLabel(unit ?? ItemUnit.each),
             allowZero: true,
             requiredMessage: 'Enter the load to plan instead',
           ),
@@ -507,7 +542,7 @@ class _ForecastLineDetailScreenState
   Widget _overrideHistory(
     ThemeData theme,
     ForecastSnapshotView snapshot,
-    String unit,
+    ItemUnit? unit,
   ) {
     final history = ref.watch(
       overrideHistoryProvider((
@@ -558,7 +593,7 @@ class _EvidenceRow extends ConsumerWidget {
   });
 
   final EvidenceView evidence;
-  final String unit;
+  final ItemUnit? unit;
   final String exposureLabel;
 
   @override

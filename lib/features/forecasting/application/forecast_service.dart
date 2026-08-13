@@ -251,7 +251,14 @@ final class DriftForecastService implements ForecastService {
         // forecast. If the item says "1 serves N" we can still hand the
         // owner a starting number — clearly labelled, in its own columns,
         // and never mistakable for history.
-        final baseline = engineLine.evidenceGrade == EvidenceGrade.insufficientData
+        // `evidence.isEmpty` is belt-and-braces next to the grade check: SQL
+        // caps every stored exposure at >= 1, so the engine only ever grades
+        // an empty history as insufficient — but a baseline beside real
+        // evidence would be rejected by the validator, and generation must
+        // not be able to build a snapshot its own write path refuses.
+        final baseline =
+            engineLine.evidenceGrade == EvidenceGrade.insufficientData &&
+                input.evidence.isEmpty
             ? estimateFromServesPerUnit(
                 expectedAttendance: inputs.upcomingExposure,
                 servesPerUnitMicros: input.servesPerUnitMicros,

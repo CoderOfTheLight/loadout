@@ -5,17 +5,34 @@
 /// runs [SettingsService.createWorkspace]; the router redirect flips to
 /// `/home` when the workspace becomes visible. Errors surface as a
 /// content-free full-width card with retry.
+///
+/// Owner feedback ("make the starting menus easier to handle") shaped what
+/// this screen asks:
+///
+///  * two questions, both in plain words, both with a working default —
+///    a name, and how much spare to take;
+///  * the exposure label ("What do you plan against?") moved out entirely.
+///    It is jargon at minute zero, it already has a sensible default, and
+///    it is still editable in Settings the day she wants it;
+///  * the policy control is three tappable rows instead of a
+///    `SegmentedButton` of stacked two-line captions — those captions
+///    crushed to two words per line on a narrow phone, and a row can carry
+///    the sentence that says what the percentage means.
 library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../app/policy_copy.dart';
 import '../../../app/providers.dart';
 import '../../../app/theme.dart';
 import '../../../app/widgets/content_column.dart';
+import '../../../app/widgets/form_action_bar.dart';
 import '../../../infrastructure/startup/startup_service.dart';
 import '../../forecasting/domain/forecast_engine.dart';
-import '../../../app/widgets/form_action_bar.dart';
+
+/// Prefilled name. Plain, and true for most of the people this is for.
+const String defaultWorkspaceName = 'My stall';
 
 class CreateWorkspaceScreen extends ConsumerStatefulWidget {
   const CreateWorkspaceScreen({super.key});
@@ -26,8 +43,7 @@ class CreateWorkspaceScreen extends ConsumerStatefulWidget {
 }
 
 class _CreateWorkspaceScreenState extends ConsumerState<CreateWorkspaceScreen> {
-  final _name = TextEditingController(text: 'My workspace');
-  final _exposureLabel = TextEditingController(text: 'attendance');
+  final _name = TextEditingController(text: defaultWorkspaceName);
   PlanningPolicy _policy = PlanningPolicy.balanced;
   bool _submitting = false;
   bool _failed = false;
@@ -35,7 +51,6 @@ class _CreateWorkspaceScreenState extends ConsumerState<CreateWorkspaceScreen> {
   @override
   void dispose() {
     _name.dispose();
-    _exposureLabel.dispose();
     super.dispose();
   }
 
@@ -53,13 +68,9 @@ class _CreateWorkspaceScreenState extends ConsumerState<CreateWorkspaceScreen> {
           : await startup.createFreshWorkspace();
       ref.read(startupStateProvider.notifier).state = StartupWorkspaceOpen(db);
       final settings = ref.read(settingsServiceProvider);
-      final label = _exposureLabel.text.trim();
-      if (label.isNotEmpty && label != 'attendance') {
-        await settings.updatePreferences(exposureLabel: label);
-      }
       final name = _name.text.trim();
       await settings.createWorkspace(
-        name: name.isEmpty ? 'My workspace' : name,
+        name: name.isEmpty ? defaultWorkspaceName : name,
         defaultPolicy: _policy,
       );
       // The workspaceProvider emission bumps the router's refreshListenable;
@@ -78,8 +89,9 @@ class _CreateWorkspaceScreenState extends ConsumerState<CreateWorkspaceScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('Create workspace')),
+      appBar: AppBar(title: const Text('Set up')),
       body: SafeArea(
         child: SingleChildScrollView(
           child: ContentColumn(
@@ -88,24 +100,26 @@ class _CreateWorkspaceScreenState extends ConsumerState<CreateWorkspaceScreen> {
               children: [
                 if (_failed) ...[
                   Card(
-                    color: theme.colorScheme.errorContainer,
+                    color: scheme.errorContainer,
                     child: Padding(
-                      padding: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.all(Space.l),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           Text(
-                            "The workspace couldn't be created. Nothing was "
-                            'saved.',
+                            "That didn't work. Nothing was saved — try again.",
                             style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onErrorContainer,
+                              color: scheme.onErrorContainer,
                             ),
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: Space.s),
                           Align(
-                            alignment: Alignment.centerRight,
+                            alignment: AlignmentDirectional.centerEnd,
                             child: TextButton(
                               onPressed: _submitting ? null : _create,
+                              style: TextButton.styleFrom(
+                                foregroundColor: scheme.onErrorContainer,
+                              ),
                               child: const Text('Try again'),
                             ),
                           ),
@@ -113,60 +127,68 @@ class _CreateWorkspaceScreenState extends ConsumerState<CreateWorkspaceScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: Space.l),
                 ],
+
+                Text(
+                  'What should we call this?',
+                  style: theme.textTheme.titleMedium,
+                ),
+                const SizedBox(height: Space.s),
                 TextField(
                   controller: _name,
+                  textCapitalization: TextCapitalization.sentences,
                   decoration: const InputDecoration(
-                    labelText: 'Workspace name',
-                    border: OutlineInputBorder(),
+                    hintText: defaultWorkspaceName,
+                    helperText: 'Only you see this. It names your backups too.',
                   ),
                 ),
-                const SizedBox(height: 24),
+
+                const SizedBox(height: Space.xl),
                 Text(
-                  'Default planning policy',
-                  style: theme.textTheme.titleSmall,
+                  'How much spare do you like to take?',
+                  style: theme.textTheme.titleMedium,
                 ),
-                const SizedBox(height: 8),
-                SegmentedButton<PlanningPolicy>(
-                  segments: [
-                    for (final policy in PlanningPolicy.values)
-                      ButtonSegment(
-                        value: policy,
-                        label: Text(
-                          '${_policyLabel(policy)}\n'
-                          '+${policy.reservePercent} % reserve',
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                  ],
-                  selected: {_policy},
-                  onSelectionChanged: (selection) =>
-                      setState(() => _policy = selection.first),
-                ),
-                const SizedBox(height: 24),
-                TextField(
-                  controller: _exposureLabel,
-                  decoration: const InputDecoration(
-                    labelText: 'What do you plan against?',
-                    helperText:
-                        'The word Loadout uses for expected crowd size — '
-                        '"attendance", "covers", "orders".',
-                    border: OutlineInputBorder(),
+                const SizedBox(height: Space.xs),
+                Text(
+                  'Loadout adds this on top of what it expects you to use. '
+                  'You can change it later, and per event.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: Space.m),
+                for (final policy in PlanningPolicy.values) ...[
+                  _PolicyOption(
+                    policy: policy,
+                    selected: policy == _policy,
+                    onSelected: () => setState(() => _policy = policy),
+                  ),
+                  const SizedBox(height: Space.s),
+                ],
+
+                const SizedBox(height: Space.l),
                 Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.lock_outline),
-                    title: const Text(
-                      "Loadout's data is encrypted on this device. Protect it "
-                      "with your phone's screen lock.",
+                  child: Padding(
+                    padding: const EdgeInsets.all(Space.l),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.lock_outline, color: scheme.primary),
+                        const SizedBox(width: Space.m),
+                        Expanded(
+                          child: Text(
+                            'Your data is encrypted on this phone and never '
+                            'uploaded. Keep a screen lock on and it stays '
+                            'yours.',
+                            style: theme.textTheme.bodyMedium,
+                          ),
+                        ),
+                      ],
                     ),
-                    subtitle: const Text('Nothing is uploaded, ever.'),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: Space.l),
               ],
             ),
           ),
@@ -182,15 +204,87 @@ class _CreateWorkspaceScreenState extends ConsumerState<CreateWorkspaceScreen> {
                   width: 24,
                   child: CircularProgressIndicator(strokeWidth: 2.5),
                 )
-              : const Text('Create workspace'),
+              : const Text('Start', textAlign: TextAlign.center),
         ),
       ),
     );
   }
+}
 
-  static String _policyLabel(PlanningPolicy policy) => switch (policy) {
-    PlanningPolicy.lean => 'Lean',
-    PlanningPolicy.balanced => 'Balanced',
-    PlanningPolicy.cautious => 'Cautious',
-  };
+/// One tappable policy row. Not a `Radio`: the framework's radio API is
+/// mid-migration to `RadioGroup`, and a row that carries a title, a
+/// sentence and a reserve badge reads better standing up anyway.
+class _PolicyOption extends StatelessWidget {
+  const _PolicyOption({
+    required this.policy,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final PlanningPolicy policy;
+  final bool selected;
+  final VoidCallback onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Semantics(
+      button: true,
+      inMutuallyExclusiveGroup: true,
+      selected: selected,
+      label:
+          '${policyName(policy)}, plus ${policy.reservePercent} per cent '
+          'reserve. ${policyBlurb(policy)}',
+      excludeSemantics: true,
+      child: Material(
+        color: selected ? scheme.secondaryContainer : scheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Radii.control),
+          side: BorderSide(
+            color: selected ? scheme.primary : scheme.outlineVariant,
+            width: selected ? 2 : 1,
+          ),
+        ),
+        child: InkWell(
+          onTap: onSelected,
+          borderRadius: BorderRadius.circular(Radii.control),
+          child: Padding(
+            padding: const EdgeInsets.all(Space.l),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  selected
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_unchecked,
+                  color: selected ? scheme.primary : scheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: Space.m),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${policyName(policy)}  ·  '
+                        '+${policy.reservePercent} %',
+                        style: theme.textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        policyBlurb(policy),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

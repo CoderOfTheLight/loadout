@@ -7,6 +7,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../../../app/unit_display.dart';
 import '../../../core/quantity.dart';
 import '../../../core/quantity_codec.dart';
 import '../../../core/time.dart';
@@ -32,16 +33,16 @@ IconData movementKindIcon(MovementKind kind) => switch (kind) {
   MovementKind.reversal => Icons.undo,
 };
 
-/// Signed micros -> `"-1.5 kg"` / `"12 each"`. Negative values keep their
-/// sign (U+2212); positives carry no sign. Never clamps.
+/// Signed micros -> `"12"` / `"−1.5 kg"` (legacy measured row). Negative
+/// values keep their sign (U+2212); positives carry no sign. Never clamps.
 String formatSignedMicros(int micros, ItemUnit unit) {
   final magnitude = QuantityCodec.format(Quantity.fromMicros(micros.abs()));
   final sign = micros < 0 ? '−' : '';
-  return '$sign$magnitude ${unit.dbValue}';
+  return '$sign$magnitude${unitSuffix(unit)}';
 }
 
-/// Ledger delta -> `"+12 kg"` / `"−1.5 kg"`: the sign is always
-/// explicit so movement rows read as ledger entries.
+/// Ledger delta -> `"+12"` / `"−1.5 kg"`: the sign is always explicit so
+/// movement rows read as ledger entries.
 String formatDeltaMicros(int micros, ItemUnit unit) => micros < 0
     ? formatSignedMicros(micros, unit)
     : '+${formatSignedMicros(micros, unit)}';
@@ -89,7 +90,7 @@ String dateTimeLabel(DateTime local) =>
     '${timeLabel(local)}';
 
 /// One movement list row (design §9 ActivityScreen / HomeScreen): kind icon
-/// + label, item, signed quantity + unit, optional event tag, time.
+/// + label, item, signed quantity, optional event tag, time.
 /// Reversed rows are struck through with a "Corrected" chip (history is
 /// never hidden); reversal rows read "Correction of an earlier entry".
 class MovementRow extends StatelessWidget {

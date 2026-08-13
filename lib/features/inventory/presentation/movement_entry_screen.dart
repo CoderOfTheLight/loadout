@@ -15,6 +15,7 @@ import 'package:go_router/go_router.dart';
 import '../../../app/providers.dart';
 import '../../../app/theme.dart';
 import '../../../app/widgets/content_column.dart';
+import '../../../app/widgets/empty_state.dart';
 import '../../../app/widgets/quantity_form_field.dart';
 import '../../catalog/application/catalog_service.dart';
 import '../../events/application/event_service.dart';
@@ -82,7 +83,26 @@ class _MovementEntryScreenState extends ConsumerState<MovementEntryScreen> {
   Widget build(BuildContext context) {
     _resolvePrefills();
     final item = _item;
-    final unitLabel = item?.item.unit.dbValue;
+
+    // An empty catalog makes every field on this screen unanswerable: there
+    // is nothing to record against. Explain that and offer the way out
+    // instead of an item picker that opens onto nothing.
+    final catalog = ref.watch(itemListProvider(const ItemFilter()));
+    if (catalog.valueOrNull?.isEmpty ?? false) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Record movement')),
+        body: SafeArea(
+          child: EmptyState(
+            title: 'Add an item first',
+            message:
+                'Purchases, waste and counts are all recorded against '
+                'something you have — its name and how many.',
+            actionLabel: 'Add an item',
+            onAction: () => context.push('/items/new'),
+          ),
+        ),
+      );
+    }
 
     return PopScope(
       canPop: !_dirty,
@@ -130,7 +150,7 @@ class _MovementEntryScreenState extends ConsumerState<MovementEntryScreen> {
                     child: item == null
                         ? null
                         : Text(
-                            '${item.item.name} · on hand '
+                            '${item.item.name} · you have '
                             '${_onHandLabel(item)}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -139,12 +159,11 @@ class _MovementEntryScreenState extends ConsumerState<MovementEntryScreen> {
                 ),
                 const SizedBox(height: 16),
                 if (_kind == MovementKind.adjust)
-                  ..._countFields(unitLabel)
+                  ..._countFields()
                 else
                   QuantityFormField(
                     controller: _quantityCtrl,
-                    labelText: 'Quantity',
-                    unitLabel: unitLabel,
+                    labelText: 'How many?',
                     onChanged: (_) => setState(() {}),
                   ),
                 if (_kind == MovementKind.waste) ...[
@@ -201,7 +220,7 @@ class _MovementEntryScreenState extends ConsumerState<MovementEntryScreen> {
     );
   }
 
-  List<Widget> _countFields(String? unitLabel) {
+  List<Widget> _countFields() {
     final item = _item;
     final position = item == null
         ? null
@@ -213,14 +232,13 @@ class _MovementEntryScreenState extends ConsumerState<MovementEntryScreen> {
         : formatSignedMicros(position.onHandMicros, item.item.unit);
     return [
       Text(
-        'On hand now (derived): $derivedLabel',
+        'Loadout has $derivedLabel',
         style: Theme.of(context).textTheme.bodyLarge,
       ),
       const SizedBox(height: 12),
       QuantityFormField(
         controller: _countedCtrl,
-        labelText: 'Counted',
-        unitLabel: unitLabel,
+        labelText: 'How many did you count?',
         allowZero: true,
         onChanged: (_) => setState(() {}),
       ),
@@ -232,18 +250,18 @@ class _MovementEntryScreenState extends ConsumerState<MovementEntryScreen> {
     ];
   }
 
-  /// Signed-adjustment preview ("will record −1.5 kg adjustment") — display
-  /// only; the service recomputes the delta at submit time.
+  /// Signed-adjustment preview ("will record a change of −1.5 kg") —
+  /// display only; the service recomputes the delta at submit time.
   String _adjustPreview(StockPosition? position) {
     final item = _item;
     final counted = QuantityFormField.tryParse(_countedCtrl.text);
     if (item == null || position == null || counted == null) {
-      return 'Enter the counted amount to preview the adjustment.';
+      return 'Enter what you counted to see the change.';
     }
     final delta = counted.micros - position.onHandMicros;
     if (delta == 0) return 'No change to record.';
-    return 'Will record '
-        '${formatDeltaMicros(delta, item.item.unit)} adjustment';
+    return 'Will record a change of '
+        '${formatDeltaMicros(delta, item.item.unit)}';
   }
 
   Widget _eventField() {

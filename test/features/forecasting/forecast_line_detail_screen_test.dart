@@ -35,15 +35,12 @@ void main() {
 
     // Result narrated from the persisted line.
     expect(find.textContaining('Median of 1 observed rate'), findsOneWidget);
-    expect(
-      find.textContaining('rounded up to packs of 12 each'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('rounded up to packs of 12,'), findsOneWidget);
 
     // Evidence: the stored value-copy with its source event and exposure.
     expect(find.textContaining('Past market · 2026-07-01'), findsOneWidget);
     expect(
-      find.textContaining('100 attendance · depletion 30 each'),
+      find.textContaining('100 attendance · depletion 30'),
       findsOneWidget,
     );
 
@@ -54,8 +51,8 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     expect(find.text('Balanced +10 % reserve'), findsOneWidget);
-    expect(find.text('12 each per pack'), findsOneWidget);
-    expect(find.text('0 each'), findsOneWidget); // confirmed inbound
+    expect(find.text('12 per pack'), findsOneWidget);
+    expect(find.text('0'), findsOneWidget); // confirmed inbound
     expect(find.textContaining('last 12 closed events'), findsOneWidget);
 
     // Warnings verbatim, then the method/version footer (assertions follow
@@ -137,7 +134,7 @@ void main() {
     expect(rows.length, 1);
     expect(rows.single.overrideLoadMicros, 72 * 1000000);
     await tester.scrollUntilVisible(
-      find.text('Load set to 72 each'),
+      find.text('Load set to 72'),
       200,
       scrollable: find.byType(Scrollable).first,
     );
@@ -210,5 +207,44 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     expect(find.text('baseline'), findsOneWidget);
+  });
+
+  testWidgets('a "1 serves N" line narrates the estimate and names no pack', (
+    tester,
+  ) async {
+    final h = (await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    ))!;
+    addTearDown(h.dispose);
+    final ids = (await tester.runAsync(() async {
+      final itemId = await seedServesItem(h, name: 'Pizzas', servesPerUnit: 4);
+      final eventId = await seedEvent(
+        h,
+        name: 'First outing',
+        date: '2026-09-07',
+        exposure: 150,
+        itemIds: [itemId],
+      );
+      unwrap(await h.read(forecastServiceProvider).generateSnapshot(eventId));
+      return (itemId: itemId, eventId: eventId);
+    }))!;
+
+    await h.pumpApp(tester);
+    await h.go(tester, '/events/${ids.eventId}/forecast/${ids.itemId}');
+
+    // Narrated in the owner's own terms, not the engine's.
+    expect(
+      find.textContaining('One serves 4 × 150 attendance'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Median of'), findsNothing);
+    expect(find.textContaining('set a baseline load below'), findsNothing);
+
+    // Pack size left the product surface: one thing per pack is a no-op and
+    // must not be narrated or listed.
+    expect(find.textContaining('rounded up to packs'), findsNothing);
+    expect(find.text('Pack rounding'), findsNothing);
+    expect(find.text('One serves'), findsOneWidget);
+    expect(find.textContaining('each'), findsNothing);
   });
 }

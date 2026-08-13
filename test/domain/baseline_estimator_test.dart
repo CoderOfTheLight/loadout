@@ -75,8 +75,7 @@ void main() {
     test('subtracts on-hand and confirmed inbound, floored at zero', () {
       expect(estimate(onHandMicros: 10000000)!.acquireMicros, 18000000);
       expect(
-        estimate(onHandMicros: 20000000, inboundMicros: 5000000)!
-            .acquireMicros,
+        estimate(onHandMicros: 20000000, inboundMicros: 5000000)!.acquireMicros,
         3000000,
       );
       expect(estimate(onHandMicros: 99000000)!.acquireMicros, 0);

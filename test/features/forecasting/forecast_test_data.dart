@@ -33,6 +33,21 @@ Future<String> seedItem(AppHarness h, {String name = 'Tortillas'}) async =>
           ),
     );
 
+/// Creates an item shaped the way the owner's model shapes one: a NAME, and
+/// how many people one serves. No unit, no pack size (both default), so
+/// nothing on screen may mention either.
+Future<String> seedServesItem(
+  AppHarness h, {
+  String name = 'Pizzas',
+  int servesPerUnit = 4,
+}) async => unwrap(
+  await h
+      .read(catalogServiceProvider)
+      .createItem(
+        ItemDraft(name: name, servesPerUnit: Quantity.whole(servesPerUnit)),
+      ),
+);
+
 Future<String> seedEvent(
   AppHarness h, {
   required String name,

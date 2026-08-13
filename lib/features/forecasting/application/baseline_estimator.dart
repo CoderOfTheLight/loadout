@@ -118,9 +118,9 @@ String formatServesPerUnit(int micros) {
   final whole = micros ~/ Quantity.scale;
   final fraction = micros % Quantity.scale;
   if (fraction == 0) return '$whole';
-  final digits = fraction.toString().padLeft(6, '0').replaceAll(
-    RegExp(r'0+$'),
-    '',
-  );
+  final digits = fraction
+      .toString()
+      .padLeft(6, '0')
+      .replaceAll(RegExp(r'0+$'), '');
   return '$whole.$digits';
 }

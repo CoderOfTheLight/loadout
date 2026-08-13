@@ -168,9 +168,7 @@ class _EventDetailBody extends ConsumerWidget {
                     runSpacing: 8,
                     children: [
                       for (final item in detail.plannedItems)
-                        Chip(
-                          label: Text('${item.name} · ${item.unit.dbValue}'),
-                        ),
+                        Chip(label: Text(item.name)),
                     ],
                   ),
                 if (event.status == EventStatus.closed) ...[
