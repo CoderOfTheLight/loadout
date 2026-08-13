@@ -6,7 +6,11 @@ plugins {
 
 android {
     namespace = "dev.coderofthelight.loadout"
-    compileSdk = flutter.compileSdkVersion
+    // Plugins (flutter_secure_storage) require API 37, and API 37 ships only
+    // as minor releases — there is no plain `android-37` platform, which is
+    // what Flutter's auto-bump asks for. Name the minor release explicitly.
+    compileSdk = 37
+    compileSdkMinor = 0
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

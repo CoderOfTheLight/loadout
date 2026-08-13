@@ -1691,9 +1691,30 @@ sha pre-check fails; wrong passphrase → key-check fails; every failure leaves 
 untouched); restore rollback (injected failure → `.pre-restore` restored and openable); Argon2id
 pinned against RFC 9106 vectors; Diag line format regex + `DiagEvent` exhaustiveness.
 
-Tier 3 (`integration_test/`, emulator/simulator): end-to-end proof that the SQLCipher hook holds
-on device builds; plaintext-magic assertion on a real app DB; release-manifest INTERNET
-assertion (also in CI per §10).
+Tier 3 (`integration_test/device_encryption_test.dart`, emulator/simulator or a physical
+device): the proofs a host test cannot give, because they are about what the OS actually loads
+and stores. Four assertions — the sqlite3 in the app bundle answers `PRAGMA cipher_version`;
+the workspace file the app writes carries neither the plain SQLite header nor a canary written
+into it (sidecars included); the platform keystore hands the key back to a second service
+instance, as after a restart; a rekeyed store yields `StartupRecovery(wrongKey)` with the
+ciphertext still on disk. Run with a device attached:
+
+```sh
+fvm flutter test integration_test/device_encryption_test.dart -d <device-id>
+```
+
+Two environment facts this depends on. **Debug and profile builds carry the INTERNET
+permission** (`android/app/src/{debug,profile}/AndroidManifest.xml`): the Dart VM service binds
+a local socket, and without it hot reload, DevTools, and this whole tier fail with
+`Connection closed before test suite loaded`. Those variants are never shipped, and the release
+artifact is what the §10 `aapt` gate inspects. **`compileSdk` is pinned to 37.0**: the plugins
+require API 37, which now ships only as minor releases (`android-37.0`, `android-37.1`), while
+Flutter's auto-bump asks for a plain `android-37` platform that no longer exists.
+
+What this tier does NOT establish, and a physical device must: latency and memory (an emulator
+runs on host CPU), hardware-backed key storage (emulator Keystore is software-backed, and the
+iOS Simulator has no Secure Enclave), and iOS Data Protection (the Simulator does not enforce
+file protection classes at all).
 
 ### 11.3 Gate 3 widget tests (one per workflow)
 
