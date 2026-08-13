@@ -32,6 +32,7 @@ final class SnapshotLineInput {
     required this.packSizeMicros,
     required this.onHandMicros,
     this.confirmedInboundMicros = 0,
+    this.servesPerUnitMicros,
     required this.evidence,
   });
 
@@ -39,6 +40,11 @@ final class SnapshotLineInput {
   final int packSizeMicros;
   final int onHandMicros;
   final int confirmedInboundMicros;
+
+  /// The item's "1 serves N" at generation time. Material to the outputs
+  /// (it drives the no-history baseline), so it is hashed — see
+  /// [canonicalInputs].
+  final int? servesPerUnitMicros;
 
   /// Label-query order — NOT re-sorted by the encoding.
   final List<EvidenceInput> evidence;
@@ -64,6 +70,12 @@ final class SnapshotInputs {
 /// The normative canonical input encoding (design §6.6, verbatim contract).
 /// Lines are ordered by itemId bytewise ascending regardless of construction
 /// order; evidence keeps label-query order.
+///
+/// v2 extension: an item's serves-per-unit changes the no-history baseline,
+/// so it is material and must be hashed. It is appended as `|s=<micros>`
+/// ONLY when non-null, which leaves the encoding byte-identical for every
+/// item that has no serves-per-unit — so schema-v1 snapshots keep the exact
+/// hash they were stored with and do not all read as stale after upgrade.
 String canonicalInputs(SnapshotInputs s) {
   final lines = s.lines.toList()..sort((a, b) => a.itemId.compareTo(b.itemId));
   final b = StringBuffer()
@@ -76,6 +88,9 @@ String canonicalInputs(SnapshotInputs s) {
       '\n${line.itemId}|${line.packSizeMicros}'
       '|${line.onHandMicros}|${line.confirmedInboundMicros}',
     );
+    if (line.servesPerUnitMicros != null) {
+      b.write('|s=${line.servesPerUnitMicros}');
+    }
     for (final e in line.evidence) {
       b.write(
         ';${e.closeoutId}:${e.exposure}:${e.depletionMicros}'

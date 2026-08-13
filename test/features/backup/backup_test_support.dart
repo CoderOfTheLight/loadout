@@ -17,6 +17,7 @@ import 'package:loadout/features/backup/presentation/file_gateway.dart';
 import 'package:loadout/infrastructure/backup/backup_service_impl.dart';
 
 import '../../support/app_harness.dart';
+import '../../support/schema_version.dart';
 
 /// One captured save-dialog interaction. Bytes are copied synchronously at
 /// save time because the source (a scratch session) is disposed right after.
@@ -65,7 +66,7 @@ BackupFacade fastBackupFacade(AppHarness h) => DefaultBackupFacade(
     keyManager: h.keyManager,
     scratch: h.read(scratchSpaceProvider),
     databaseFile: h.paths.databaseFile,
-    appSchemaVersion: 1,
+    appSchemaVersion: appSchemaVersionUnderTest,
     kdfCost: fastKdfCost,
   ),
 );

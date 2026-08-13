@@ -21,15 +21,30 @@ sealed class WorkspaceCommand {
 final class CreateItem extends WorkspaceCommand {
   const CreateItem({
     required this.name,
-    required this.unit,
-    required this.packSize,
+    this.unit = ItemUnit.each,
+    this.packSize = Quantity.one,
+    this.servesPerUnit,
+    this.openingCount,
     this.category,
     this.notes = '',
   });
 
   final String name;
+
+  /// Defaulted, not asked: units left the product surface in v2.
   final ItemUnit unit;
+
+  /// Defaulted to one whole unit — "round to whole things".
   final Quantity packSize;
+
+  /// How many people one unit serves; null when unknown.
+  final Quantity? servesPerUnit;
+
+  /// How many the owner has right now. Written as an `adjust` movement in
+  /// the SAME transaction as the item row, so an item can never exist
+  /// without its opening movement nor a movement without its item. Null or
+  /// zero records nothing (on-hand stays the ledger's derived 0).
+  final Quantity? openingCount;
   final String? category;
   final String notes;
 }
@@ -40,6 +55,8 @@ final class UpdateItem extends WorkspaceCommand {
     this.name,
     this.unit,
     this.packSize,
+    this.servesPerUnit,
+    this.clearServesPerUnit = false,
     this.category,
     this.notes,
   });
@@ -51,6 +68,12 @@ final class UpdateItem extends WorkspaceCommand {
   /// validator enforces the §4 unit lock (escape hatch: archive+recreate).
   final ItemUnit? unit;
   final Quantity? packSize;
+
+  /// Null means "leave alone"; use [clearServesPerUnit] to erase it.
+  final Quantity? servesPerUnit;
+
+  /// Erases `serves_per_unit_micros`. Ignored when [servesPerUnit] is set.
+  final bool clearServesPerUnit;
   final String? category;
   final String? notes;
 }

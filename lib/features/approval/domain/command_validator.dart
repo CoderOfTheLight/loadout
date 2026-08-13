@@ -3,6 +3,7 @@ import '../../../core/quantity.dart';
 import '../../../core/result.dart';
 import '../../events/domain/event.dart';
 import '../../forecasting/domain/forecast_engine.dart';
+import '../../forecasting/domain/snapshot.dart';
 import '../../forecasting/domain/snapshot_inputs.dart';
 import '../../inventory/domain/inventory_ledger.dart';
 import '../../inventory/domain/movement.dart';
@@ -17,6 +18,12 @@ const int maxExposure = 1000000;
 /// Closeout depletion cap (design §3): 1e12 micros — the frozen engine's
 /// safe envelope.
 const int maxDepletionMicros = 1000000000000;
+
+/// Cap for `items.serves_per_unit_micros`: 10 000 people served by one unit.
+/// Mirrors `servesPerUnitCapMicros` in the §4 schema exactly as
+/// [maxExposure] and [maxDepletionMicros] mirror their CHECKs — SQL stays
+/// authoritative, this is the Dart-side message.
+const int maxServesPerUnitMicros = 10000000000;
 
 /// Proof token: only [CommandValidator] can construct one, so a
 /// CommandApplier can require validated input by type.
@@ -63,11 +70,25 @@ final class CommandValidator {
 
   // ------------------------------------------------------------ catalog
 
-  DomainError? _createItem(CreateItem c, WorkspaceReadModel state) =>
-      _itemFields(name: c.name, packSize: c.packSize, category: c.category) ??
-      (state.isItemNameTakenLive(c.name.trim())
-          ? const ValidationError('a live item with this name already exists')
-          : null);
+  DomainError? _createItem(CreateItem c, WorkspaceReadModel state) {
+    final fields = _itemFields(
+      name: c.name,
+      packSize: c.packSize,
+      servesPerUnit: c.servesPerUnit,
+      category: c.category,
+    );
+    if (fields != null) return fields;
+    if (state.isItemNameTakenLive(c.name.trim())) {
+      return const ValidationError('a live item with this name already exists');
+    }
+    // The opening count rides along as one `adjust` movement in the same
+    // transaction, so it answers to the same envelope the ledger does.
+    final opening = c.openingCount;
+    if (opening != null && opening.micros > Quantity.maxMicros) {
+      return const DomainOverflowError('opening count exceeds the cap');
+    }
+    return null;
+  }
 
   DomainError? _updateItem(UpdateItem c, WorkspaceReadModel state) {
     final item = state.item(c.itemId as String);
@@ -78,6 +99,7 @@ final class CommandValidator {
     final fields = _itemFields(
       name: c.name,
       packSize: c.packSize,
+      servesPerUnit: c.servesPerUnit,
       category: c.category,
     );
     if (fields != null) return fields;
@@ -110,6 +132,7 @@ final class CommandValidator {
   DomainError? _itemFields({
     String? name,
     Quantity? packSize,
+    Quantity? servesPerUnit,
     String? category,
   }) {
     if (name != null && (name.trim().isEmpty || name.trim().length > 120)) {
@@ -117,6 +140,19 @@ final class CommandValidator {
     }
     if (packSize != null && packSize.micros <= 0) {
       return const ValidationError('pack size must be positive');
+    }
+    if (servesPerUnit != null) {
+      if (servesPerUnit.micros <= 0) {
+        return const ValidationError(
+          'how many people one serves must be greater than zero',
+        );
+      }
+      if (servesPerUnit.micros > maxServesPerUnitMicros) {
+        return const ValidationError(
+          'how many people one serves must be at most '
+          '${maxServesPerUnitMicros ~/ Quantity.scale}',
+        );
+      }
     }
     if (category != null &&
         (category.trim().isEmpty || category.trim().length > 60)) {
@@ -553,6 +589,8 @@ final class CommandValidator {
           'insufficient_data lines must have null outputs and vice versa',
         );
       }
+      final baseline = _baselineFields(line, insufficient: insufficient);
+      if (baseline != null) return baseline;
       for (final evidence in line.evidence) {
         if (!state.closeoutExists(evidence.closeoutId)) {
           return const NotFoundError('evidence closeout not found');
@@ -575,6 +613,50 @@ final class CommandValidator {
         'inputs hash mismatch: snapshot inputs were tampered with or are '
         'stale',
       );
+    }
+    return null;
+  }
+
+  /// The no-history baseline is all-or-nothing, nonnegative, and legal ONLY
+  /// on a line the engine could not forecast — a line with confirmed
+  /// evidence must never carry a guess alongside it.
+  DomainError? _baselineFields(
+    ForecastSnapshotLineDraft line, {
+    required bool insufficient,
+  }) {
+    final parts = [
+      line.baselineServesPerUnitMicros,
+      line.baselineExpectedUseMicros,
+      line.baselinePlannedMicros,
+      line.baselineLoadMicros,
+      line.baselineAcquireMicros,
+    ];
+    final present = parts.where((v) => v != null).length;
+    if (present == 0) return null;
+    if (present != parts.length) {
+      return const ValidationError(
+        'a baseline estimate must set every baseline field or none',
+      );
+    }
+    if (!insufficient) {
+      return const ValidationError(
+        'a baseline estimate is only legal on a line with no confirmed '
+        'evidence',
+      );
+    }
+    if (line.evidence.isNotEmpty) {
+      return const ValidationError(
+        'a baseline estimate cannot carry confirmed evidence',
+      );
+    }
+    final serves = line.baselineServesPerUnitMicros!;
+    if (serves <= 0 || serves > maxServesPerUnitMicros) {
+      return const ValidationError('baseline serves-per-unit is out of range');
+    }
+    for (final value in parts.skip(1)) {
+      if (value! < 0) {
+        return const ValidationError('baseline outputs must be nonnegative');
+      }
     }
     return null;
   }

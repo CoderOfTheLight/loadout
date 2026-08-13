@@ -46,3 +46,8 @@ app.*.map.json
 
 # FVM Version Cache
 .fvm/
+
+# Android release signing — key material never enters the repo.
+/android/key.properties
+*.jks
+*.keystore

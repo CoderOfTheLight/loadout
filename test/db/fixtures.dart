@@ -33,13 +33,21 @@ Future<void> insertItem(
   String? name,
   String unit = 'each',
   int packSizeMicros = 1000000,
+  int? servesPerUnitMicros,
   int? archivedAtMicros,
 }) => db.customStatement(
   'INSERT INTO items '
-  '(id, name, unit, pack_size_micros, archived_at_micros, '
-  'created_at_micros, updated_at_micros) '
-  'VALUES (?, ?, ?, ?, ?, 1, 1)',
-  [id, name ?? 'Item $id', unit, packSizeMicros, archivedAtMicros],
+  '(id, name, unit, pack_size_micros, serves_per_unit_micros, '
+  'archived_at_micros, created_at_micros, updated_at_micros) '
+  'VALUES (?, ?, ?, ?, ?, ?, 1, 1)',
+  [
+    id,
+    name ?? 'Item $id',
+    unit,
+    packSizeMicros,
+    servesPerUnitMicros,
+    archivedAtMicros,
+  ],
 );
 
 Future<void> insertEvent(
@@ -220,11 +228,18 @@ Future<void> insertForecastLine(
   int onHandMicros = 0,
   int? expectedUseMicros,
   String evidenceGrade = 'insufficient_data',
+  int? baselineServesPerUnitMicros,
+  int? baselineExpectedUseMicros,
+  int? baselinePlannedMicros,
+  int? baselineLoadMicros,
+  int? baselineAcquireMicros,
 }) => db.customStatement(
   'INSERT INTO forecast_lines '
   '(snapshot_id, item_id, pack_size_micros, on_hand_micros, '
-  'expected_use_micros, evidence_grade) '
-  'VALUES (?, ?, ?, ?, ?, ?)',
+  'expected_use_micros, evidence_grade, baseline_serves_per_unit_micros, '
+  'baseline_expected_use_micros, baseline_planned_micros, '
+  'baseline_load_micros, baseline_acquire_micros) '
+  'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
   [
     snapshotId,
     itemId,
@@ -232,6 +247,11 @@ Future<void> insertForecastLine(
     onHandMicros,
     expectedUseMicros,
     evidenceGrade,
+    baselineServesPerUnitMicros,
+    baselineExpectedUseMicros,
+    baselinePlannedMicros,
+    baselineLoadMicros,
+    baselineAcquireMicros,
   ],
 );
 

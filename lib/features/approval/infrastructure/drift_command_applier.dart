@@ -214,6 +214,12 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
               ..where((m) => m.sourceCommandId.equals(existing.id))
               ..orderBy([(m) => OrderingTerm.asc(m.id)]))
             .get();
+    if (existing.kind == 'CreateItem' && movements.isNotEmpty) {
+      // `items` carries no source_command_id, so a created item is normally
+      // unreconstructible — but an opening count leaves exactly one movement
+      // that names the item it opened, and callers expect the item id first.
+      created.add(movements.first.itemId);
+    }
     created.addAll(movements.map((m) => m.id));
     final snapshots =
         await (_db.select(_db.forecastSnapshots)
@@ -272,7 +278,7 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
         );
     final now = appliedAt.epochMicrosUtc;
     final effects = switch (command) {
-      CreateItem() => await _createItem(command, now),
+      CreateItem() => await _createItem(command, commandId, now),
       UpdateItem() => await _updateItem(command, now),
       SetItemArchived() => await _setItemArchived(command, now, state),
       CreateEvent() => await _createEvent(command, now),
@@ -316,7 +322,11 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
 
   // ------------------------------------------------------------- catalog
 
-  Future<_Effects> _createItem(CreateItem c, int now) async {
+  /// The item row and — when the owner said how many she has — its opening
+  /// `adjust` movement, in this one transaction. Either both land or
+  /// neither does: no item without its opening count, no movement without
+  /// its item.
+  Future<_Effects> _createItem(CreateItem c, String commandId, int now) async {
     final id = _ids.newId();
     await _db
         .into(_db.items)
@@ -326,13 +336,23 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
             name: c.name.trim(),
             unit: c.unit.dbValue,
             packSizeMicros: c.packSize.micros,
+            servesPerUnitMicros: Value(c.servesPerUnit?.micros),
             category: Value(c.category?.trim()),
             notes: Value(c.notes),
             createdAtMicros: now,
             updatedAtMicros: now,
           ),
         );
-    return _Effects([id]);
+    final opening = c.openingCount?.micros ?? 0;
+    if (opening == 0) return _Effects([id]);
+    final movementId = await _insertMovement(
+      itemId: id,
+      kind: MovementKind.adjust,
+      deltaMicros: opening,
+      note: 'Opening count',
+      commandId: commandId,
+    );
+    return _Effects([id, movementId], touchedItemIds: {id});
   }
 
   Future<_Effects> _updateItem(UpdateItem c, int now) async {
@@ -345,6 +365,11 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
         packSizeMicros: c.packSize == null
             ? const Value.absent()
             : Value(c.packSize!.micros),
+        servesPerUnitMicros: switch (c) {
+          UpdateItem(servesPerUnit: final serves?) => Value(serves.micros),
+          UpdateItem(clearServesPerUnit: true) => const Value(null),
+          _ => const Value.absent(),
+        },
         category: c.category == null
             ? const Value.absent()
             : Value(c.category!.trim()),
@@ -845,6 +870,13 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
               plannedMicros: Value(line.plannedMicros),
               loadMicros: Value(line.loadMicros),
               acquireMicros: Value(line.acquireMicros),
+              baselineServesPerUnitMicros: Value(
+                line.baselineServesPerUnitMicros,
+              ),
+              baselineExpectedUseMicros: Value(line.baselineExpectedUseMicros),
+              baselinePlannedMicros: Value(line.baselinePlannedMicros),
+              baselineLoadMicros: Value(line.baselineLoadMicros),
+              baselineAcquireMicros: Value(line.baselineAcquireMicros),
               evidenceGrade: evidenceGradeToDb(line.evidenceGrade),
               warningsJson: Value(jsonEncode(line.warnings)),
             ),

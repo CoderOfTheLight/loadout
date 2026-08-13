@@ -49,8 +49,22 @@ class Commands extends Table {
 
 // ---------------------------------------------------------------- items
 
-/// One unit per item, closed list, no conversions. Unit is locked after the
-/// item's first movement (validator-enforced; escape hatch: archive+recreate).
+/// Hard cap for `items.serves_per_unit_micros`: 10 000 people served by one
+/// unit. Anything larger is a typo, not a product ("1 urn serves 200" is the
+/// realistic top end). Mirrored by [maxServesPerUnitMicros] in the validator.
+const int servesPerUnitCapMicros = 10000000000;
+
+/// An item is a NAME + HOW MANY YOU HAVE (derived from the ledger) +
+/// optionally HOW MANY PEOPLE ONE SERVES. `unit` and `pack_size_micros`
+/// survive from v1 but are no longer part of the product surface: every item
+/// created from v2 on is 'each' with a pack size of one unit, which means
+/// "round to whole things" — exactly what counted goods want, and exactly
+/// what the frozen engine's packSize parameter needs. Goods bought by weight
+/// live in the name ("Mince (500g packs)") and are counted as whole packs;
+/// the app never does weight arithmetic.
+///
+/// Unit is locked after the item's first movement (validator-enforced;
+/// escape hatch: archive+recreate).
 class Items extends Table {
   TextColumn get id => text().withLength(min: 26, max: 26)();
   TextColumn get name => text().withLength(min: 1, max: 120)();
@@ -60,6 +74,15 @@ class Items extends Table {
   /// Purchase/load rounding increment in micros of [unit]. Engine packSize.
   IntColumn get packSizeMicros =>
       integer().check(packSizeMicros.isBiggerThanValue(0))();
+
+  /// v2. How many people ONE unit of this item serves ("1 pizza serves 4"),
+  /// in micros of people. NULL when the owner never said — the honest
+  /// default, and the reason the column is nullable. It is a PLANNING
+  /// assumption and never a forecasting label: the §4.3 label query cannot
+  /// reach it.
+  IntColumn get servesPerUnitMicros => integer().nullable().check(
+    servesPerUnitMicros.isBetweenValues(1, servesPerUnitCapMicros),
+  )();
   TextColumn get category => text().nullable().withLength(min: 1, max: 60)();
   TextColumn get notes => text().withDefault(const Constant(''))();
   IntColumn get archivedAtMicros => integer().nullable()();
@@ -356,6 +379,34 @@ class ForecastLines extends Table {
     evidenceGrade.isIn(['insufficient_data', 'single_event', 'observed_range']),
   )();
   TextColumn get warningsJson => text().withDefault(const Constant('[]'))();
+
+  // ------------------------------------------------- v2 serves baseline
+  // A first-ever event has no confirmed outcomes, so the frozen engine
+  // returns insufficient_data and the owner gets no number at all. When the
+  // item says "1 serves N" the application layer computes a BASELINE plan
+  // (attendance ÷ serves, then the same reserve percent and pack rounding)
+  // and stores it here.
+  //
+  // These columns are deliberately separate from the engine outputs above:
+  // expected_use_micros stays NULL and evidence_grade stays
+  // 'insufficient_data' because the confirmed evidence really is zero — the
+  // §4 CHECK keeps that pairing honest and no append-only table had to be
+  // rewritten to add this. All five are written together or all NULL.
+  // Nothing here is ever a label.
+  IntColumn get baselineServesPerUnitMicros => integer().nullable().check(
+    baselineServesPerUnitMicros.isBetweenValues(1, servesPerUnitCapMicros),
+  )();
+  IntColumn get baselineExpectedUseMicros => integer()
+      .nullable()
+      .check(baselineExpectedUseMicros.isBiggerOrEqualValue(0))();
+  IntColumn get baselinePlannedMicros =>
+      integer().nullable().check(baselinePlannedMicros.isBiggerOrEqualValue(0))();
+  IntColumn get baselineLoadMicros =>
+      integer().nullable().check(baselineLoadMicros.isBiggerOrEqualValue(0))();
+  IntColumn get baselineAcquireMicros => integer()
+      .nullable()
+      .check(baselineAcquireMicros.isBiggerOrEqualValue(0))();
+
   @override
   Set<Column> get primaryKey => {snapshotId, itemId};
   @override

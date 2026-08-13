@@ -47,8 +47,17 @@ final class ItemDetail {
 /// Screen-facing catalog surface (design §6.5). Master data updates are
 /// plain in-place updates through the command path; no revision log in v1.
 abstract interface class CatalogService {
-  /// Returns the created itemId.
-  Future<Result<String>> createItem(ItemDraft draft);
+  /// Creates the item and, when [openingCount] is greater than zero, its
+  /// opening `adjust` movement — ONE command, ONE transaction, so the new
+  /// item can never exist without the count the owner just typed. Returns
+  /// the created itemId.
+  Future<Result<String>> createItem(
+    ItemDraft draft, {
+    Quantity openingCount = Quantity.zero,
+  });
+
+  /// Applies the whole draft. A null `draft.servesPerUnit` CLEARS the stored
+  /// value — the form always submits its complete state.
   Future<Result<void>> updateItem({
     required String itemId,
     required ItemDraft draft,
@@ -78,16 +87,22 @@ final class DriftCatalogService implements CatalogService {
   final Clock _clock;
 
   @override
-  Future<Result<String>> createItem(ItemDraft draft) async {
+  Future<Result<String>> createItem(
+    ItemDraft draft, {
+    Quantity openingCount = Quantity.zero,
+  }) async {
     final result = await _submit(
       CreateItem(
         name: draft.name,
         unit: draft.unit,
         packSize: draft.packSize,
+        servesPerUnit: draft.servesPerUnit,
+        openingCount: openingCount.micros == 0 ? null : openingCount,
         category: draft.category,
         notes: draft.notes,
       ),
     );
+    // createdRecordIds is [itemId] or [itemId, openingMovementId].
     return result.fold(
       (receipt) => Ok(receipt.createdRecordIds.first),
       Err.new,
@@ -105,6 +120,8 @@ final class DriftCatalogService implements CatalogService {
         name: draft.name,
         unit: draft.unit,
         packSize: draft.packSize,
+        servesPerUnit: draft.servesPerUnit,
+        clearServesPerUnit: draft.servesPerUnit == null,
         category: draft.category,
         notes: draft.notes,
       ),
@@ -192,6 +209,10 @@ final class DriftCatalogService implements CatalogService {
     name: row.read<String>('name'),
     unit: ItemUnit.fromDb(row.read<String>('unit')),
     packSize: Quantity.fromMicros(row.read<int>('pack_size_micros')),
+    servesPerUnit: switch (row.read<int?>('serves_per_unit_micros')) {
+      final micros? => Quantity.fromMicros(micros),
+      null => null,
+    },
     category: row.read<String?>('category'),
     notes: row.read<String>('notes'),
     archivedAt: row.read<int?>('archived_at_micros') == null

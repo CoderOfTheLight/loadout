@@ -16,6 +16,7 @@ import 'package:loadout/features/backup/presentation/restore_screen.dart';
 import 'package:path/path.dart' as p;
 
 import '../../support/app_harness.dart';
+import '../../support/schema_version.dart';
 import 'backup_test_support.dart';
 
 void main() {
@@ -106,7 +107,10 @@ void main() {
         () => visible(find.text('Verified backup contents')),
         reason: 'verified preview',
       );
-      expect(find.text('Schema version: 1'), findsOneWidget);
+      expect(
+        find.text('Schema version: $appSchemaVersionUnderTest'),
+        findsOneWidget,
+      );
 
       // Stage 4: typed REPLACE gates the destructive button.
       expect(replaceButton(tester).onPressed, isNull);

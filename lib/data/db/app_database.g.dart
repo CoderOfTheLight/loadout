@@ -1250,6 +1250,19 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
     type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _servesPerUnitMicrosMeta =
+      const VerificationMeta('servesPerUnitMicros');
+  @override
+  late final GeneratedColumn<int> servesPerUnitMicros = GeneratedColumn<int>(
+    'serves_per_unit_micros',
+    aliasedName,
+    true,
+    check: () => ComparableExpr(
+      servesPerUnitMicros,
+    ).isBetweenValues(1, servesPerUnitCapMicros),
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _categoryMeta = const VerificationMeta(
     'category',
   );
@@ -1314,6 +1327,7 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
     name,
     unit,
     packSizeMicros,
+    servesPerUnitMicros,
     category,
     notes,
     archivedAtMicros,
@@ -1363,6 +1377,15 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
       );
     } else if (isInserting) {
       context.missing(_packSizeMicrosMeta);
+    }
+    if (data.containsKey('serves_per_unit_micros')) {
+      context.handle(
+        _servesPerUnitMicrosMeta,
+        servesPerUnitMicros.isAcceptableOrUnknown(
+          data['serves_per_unit_micros']!,
+          _servesPerUnitMicrosMeta,
+        ),
+      );
     }
     if (data.containsKey('category')) {
       context.handle(
@@ -1432,6 +1455,10 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
         DriftSqlType.int,
         data['${effectivePrefix}pack_size_micros'],
       )!,
+      servesPerUnitMicros: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}serves_per_unit_micros'],
+      ),
       category: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}category'],
@@ -1468,6 +1495,13 @@ class Item extends DataClass implements Insertable<Item> {
 
   /// Purchase/load rounding increment in micros of [unit]. Engine packSize.
   final int packSizeMicros;
+
+  /// v2. How many people ONE unit of this item serves ("1 pizza serves 4"),
+  /// in micros of people. NULL when the owner never said — the honest
+  /// default, and the reason the column is nullable. It is a PLANNING
+  /// assumption and never a forecasting label: the §4.3 label query cannot
+  /// reach it.
+  final int? servesPerUnitMicros;
   final String? category;
   final String notes;
   final int? archivedAtMicros;
@@ -1478,6 +1512,7 @@ class Item extends DataClass implements Insertable<Item> {
     required this.name,
     required this.unit,
     required this.packSizeMicros,
+    this.servesPerUnitMicros,
     this.category,
     required this.notes,
     this.archivedAtMicros,
@@ -1491,6 +1526,9 @@ class Item extends DataClass implements Insertable<Item> {
     map['name'] = Variable<String>(name);
     map['unit'] = Variable<String>(unit);
     map['pack_size_micros'] = Variable<int>(packSizeMicros);
+    if (!nullToAbsent || servesPerUnitMicros != null) {
+      map['serves_per_unit_micros'] = Variable<int>(servesPerUnitMicros);
+    }
     if (!nullToAbsent || category != null) {
       map['category'] = Variable<String>(category);
     }
@@ -1509,6 +1547,9 @@ class Item extends DataClass implements Insertable<Item> {
       name: Value(name),
       unit: Value(unit),
       packSizeMicros: Value(packSizeMicros),
+      servesPerUnitMicros: servesPerUnitMicros == null && nullToAbsent
+          ? const Value.absent()
+          : Value(servesPerUnitMicros),
       category: category == null && nullToAbsent
           ? const Value.absent()
           : Value(category),
@@ -1531,6 +1572,9 @@ class Item extends DataClass implements Insertable<Item> {
       name: serializer.fromJson<String>(json['name']),
       unit: serializer.fromJson<String>(json['unit']),
       packSizeMicros: serializer.fromJson<int>(json['packSizeMicros']),
+      servesPerUnitMicros: serializer.fromJson<int?>(
+        json['servesPerUnitMicros'],
+      ),
       category: serializer.fromJson<String?>(json['category']),
       notes: serializer.fromJson<String>(json['notes']),
       archivedAtMicros: serializer.fromJson<int?>(json['archivedAtMicros']),
@@ -1546,6 +1590,7 @@ class Item extends DataClass implements Insertable<Item> {
       'name': serializer.toJson<String>(name),
       'unit': serializer.toJson<String>(unit),
       'packSizeMicros': serializer.toJson<int>(packSizeMicros),
+      'servesPerUnitMicros': serializer.toJson<int?>(servesPerUnitMicros),
       'category': serializer.toJson<String?>(category),
       'notes': serializer.toJson<String>(notes),
       'archivedAtMicros': serializer.toJson<int?>(archivedAtMicros),
@@ -1559,6 +1604,7 @@ class Item extends DataClass implements Insertable<Item> {
     String? name,
     String? unit,
     int? packSizeMicros,
+    Value<int?> servesPerUnitMicros = const Value.absent(),
     Value<String?> category = const Value.absent(),
     String? notes,
     Value<int?> archivedAtMicros = const Value.absent(),
@@ -1569,6 +1615,9 @@ class Item extends DataClass implements Insertable<Item> {
     name: name ?? this.name,
     unit: unit ?? this.unit,
     packSizeMicros: packSizeMicros ?? this.packSizeMicros,
+    servesPerUnitMicros: servesPerUnitMicros.present
+        ? servesPerUnitMicros.value
+        : this.servesPerUnitMicros,
     category: category.present ? category.value : this.category,
     notes: notes ?? this.notes,
     archivedAtMicros: archivedAtMicros.present
@@ -1585,6 +1634,9 @@ class Item extends DataClass implements Insertable<Item> {
       packSizeMicros: data.packSizeMicros.present
           ? data.packSizeMicros.value
           : this.packSizeMicros,
+      servesPerUnitMicros: data.servesPerUnitMicros.present
+          ? data.servesPerUnitMicros.value
+          : this.servesPerUnitMicros,
       category: data.category.present ? data.category.value : this.category,
       notes: data.notes.present ? data.notes.value : this.notes,
       archivedAtMicros: data.archivedAtMicros.present
@@ -1606,6 +1658,7 @@ class Item extends DataClass implements Insertable<Item> {
           ..write('name: $name, ')
           ..write('unit: $unit, ')
           ..write('packSizeMicros: $packSizeMicros, ')
+          ..write('servesPerUnitMicros: $servesPerUnitMicros, ')
           ..write('category: $category, ')
           ..write('notes: $notes, ')
           ..write('archivedAtMicros: $archivedAtMicros, ')
@@ -1621,6 +1674,7 @@ class Item extends DataClass implements Insertable<Item> {
     name,
     unit,
     packSizeMicros,
+    servesPerUnitMicros,
     category,
     notes,
     archivedAtMicros,
@@ -1635,6 +1689,7 @@ class Item extends DataClass implements Insertable<Item> {
           other.name == this.name &&
           other.unit == this.unit &&
           other.packSizeMicros == this.packSizeMicros &&
+          other.servesPerUnitMicros == this.servesPerUnitMicros &&
           other.category == this.category &&
           other.notes == this.notes &&
           other.archivedAtMicros == this.archivedAtMicros &&
@@ -1647,6 +1702,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
   final Value<String> name;
   final Value<String> unit;
   final Value<int> packSizeMicros;
+  final Value<int?> servesPerUnitMicros;
   final Value<String?> category;
   final Value<String> notes;
   final Value<int?> archivedAtMicros;
@@ -1658,6 +1714,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     this.name = const Value.absent(),
     this.unit = const Value.absent(),
     this.packSizeMicros = const Value.absent(),
+    this.servesPerUnitMicros = const Value.absent(),
     this.category = const Value.absent(),
     this.notes = const Value.absent(),
     this.archivedAtMicros = const Value.absent(),
@@ -1670,6 +1727,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     required String name,
     required String unit,
     required int packSizeMicros,
+    this.servesPerUnitMicros = const Value.absent(),
     this.category = const Value.absent(),
     this.notes = const Value.absent(),
     this.archivedAtMicros = const Value.absent(),
@@ -1687,6 +1745,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     Expression<String>? name,
     Expression<String>? unit,
     Expression<int>? packSizeMicros,
+    Expression<int>? servesPerUnitMicros,
     Expression<String>? category,
     Expression<String>? notes,
     Expression<int>? archivedAtMicros,
@@ -1699,6 +1758,8 @@ class ItemsCompanion extends UpdateCompanion<Item> {
       if (name != null) 'name': name,
       if (unit != null) 'unit': unit,
       if (packSizeMicros != null) 'pack_size_micros': packSizeMicros,
+      if (servesPerUnitMicros != null)
+        'serves_per_unit_micros': servesPerUnitMicros,
       if (category != null) 'category': category,
       if (notes != null) 'notes': notes,
       if (archivedAtMicros != null) 'archived_at_micros': archivedAtMicros,
@@ -1713,6 +1774,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     Value<String>? name,
     Value<String>? unit,
     Value<int>? packSizeMicros,
+    Value<int?>? servesPerUnitMicros,
     Value<String?>? category,
     Value<String>? notes,
     Value<int?>? archivedAtMicros,
@@ -1725,6 +1787,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
       name: name ?? this.name,
       unit: unit ?? this.unit,
       packSizeMicros: packSizeMicros ?? this.packSizeMicros,
+      servesPerUnitMicros: servesPerUnitMicros ?? this.servesPerUnitMicros,
       category: category ?? this.category,
       notes: notes ?? this.notes,
       archivedAtMicros: archivedAtMicros ?? this.archivedAtMicros,
@@ -1748,6 +1811,9 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     }
     if (packSizeMicros.present) {
       map['pack_size_micros'] = Variable<int>(packSizeMicros.value);
+    }
+    if (servesPerUnitMicros.present) {
+      map['serves_per_unit_micros'] = Variable<int>(servesPerUnitMicros.value);
     }
     if (category.present) {
       map['category'] = Variable<String>(category.value);
@@ -1777,6 +1843,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
           ..write('name: $name, ')
           ..write('unit: $unit, ')
           ..write('packSizeMicros: $packSizeMicros, ')
+          ..write('servesPerUnitMicros: $servesPerUnitMicros, ')
           ..write('category: $category, ')
           ..write('notes: $notes, ')
           ..write('archivedAtMicros: $archivedAtMicros, ')
@@ -7107,6 +7174,66 @@ class $ForecastLinesTable extends ForecastLines
     requiredDuringInsert: false,
     defaultValue: const Constant('[]'),
   );
+  static const VerificationMeta _baselineServesPerUnitMicrosMeta =
+      const VerificationMeta('baselineServesPerUnitMicros');
+  @override
+  late final GeneratedColumn<int> baselineServesPerUnitMicros =
+      GeneratedColumn<int>(
+        'baseline_serves_per_unit_micros',
+        aliasedName,
+        true,
+        check: () => ComparableExpr(
+          baselineServesPerUnitMicros,
+        ).isBetweenValues(1, servesPerUnitCapMicros),
+        type: DriftSqlType.int,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _baselineExpectedUseMicrosMeta =
+      const VerificationMeta('baselineExpectedUseMicros');
+  @override
+  late final GeneratedColumn<int> baselineExpectedUseMicros =
+      GeneratedColumn<int>(
+        'baseline_expected_use_micros',
+        aliasedName,
+        true,
+        check: () =>
+            ComparableExpr(baselineExpectedUseMicros).isBiggerOrEqualValue(0),
+        type: DriftSqlType.int,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _baselinePlannedMicrosMeta =
+      const VerificationMeta('baselinePlannedMicros');
+  @override
+  late final GeneratedColumn<int> baselinePlannedMicros = GeneratedColumn<int>(
+    'baseline_planned_micros',
+    aliasedName,
+    true,
+    check: () => ComparableExpr(baselinePlannedMicros).isBiggerOrEqualValue(0),
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _baselineLoadMicrosMeta =
+      const VerificationMeta('baselineLoadMicros');
+  @override
+  late final GeneratedColumn<int> baselineLoadMicros = GeneratedColumn<int>(
+    'baseline_load_micros',
+    aliasedName,
+    true,
+    check: () => ComparableExpr(baselineLoadMicros).isBiggerOrEqualValue(0),
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _baselineAcquireMicrosMeta =
+      const VerificationMeta('baselineAcquireMicros');
+  @override
+  late final GeneratedColumn<int> baselineAcquireMicros = GeneratedColumn<int>(
+    'baseline_acquire_micros',
+    aliasedName,
+    true,
+    check: () => ComparableExpr(baselineAcquireMicros).isBiggerOrEqualValue(0),
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     snapshotId,
@@ -7120,6 +7247,11 @@ class $ForecastLinesTable extends ForecastLines
     acquireMicros,
     evidenceGrade,
     warningsJson,
+    baselineServesPerUnitMicros,
+    baselineExpectedUseMicros,
+    baselinePlannedMicros,
+    baselineLoadMicros,
+    baselineAcquireMicros,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -7233,6 +7365,51 @@ class $ForecastLinesTable extends ForecastLines
         ),
       );
     }
+    if (data.containsKey('baseline_serves_per_unit_micros')) {
+      context.handle(
+        _baselineServesPerUnitMicrosMeta,
+        baselineServesPerUnitMicros.isAcceptableOrUnknown(
+          data['baseline_serves_per_unit_micros']!,
+          _baselineServesPerUnitMicrosMeta,
+        ),
+      );
+    }
+    if (data.containsKey('baseline_expected_use_micros')) {
+      context.handle(
+        _baselineExpectedUseMicrosMeta,
+        baselineExpectedUseMicros.isAcceptableOrUnknown(
+          data['baseline_expected_use_micros']!,
+          _baselineExpectedUseMicrosMeta,
+        ),
+      );
+    }
+    if (data.containsKey('baseline_planned_micros')) {
+      context.handle(
+        _baselinePlannedMicrosMeta,
+        baselinePlannedMicros.isAcceptableOrUnknown(
+          data['baseline_planned_micros']!,
+          _baselinePlannedMicrosMeta,
+        ),
+      );
+    }
+    if (data.containsKey('baseline_load_micros')) {
+      context.handle(
+        _baselineLoadMicrosMeta,
+        baselineLoadMicros.isAcceptableOrUnknown(
+          data['baseline_load_micros']!,
+          _baselineLoadMicrosMeta,
+        ),
+      );
+    }
+    if (data.containsKey('baseline_acquire_micros')) {
+      context.handle(
+        _baselineAcquireMicrosMeta,
+        baselineAcquireMicros.isAcceptableOrUnknown(
+          data['baseline_acquire_micros']!,
+          _baselineAcquireMicrosMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -7286,6 +7463,26 @@ class $ForecastLinesTable extends ForecastLines
         DriftSqlType.string,
         data['${effectivePrefix}warnings_json'],
       )!,
+      baselineServesPerUnitMicros: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}baseline_serves_per_unit_micros'],
+      ),
+      baselineExpectedUseMicros: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}baseline_expected_use_micros'],
+      ),
+      baselinePlannedMicros: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}baseline_planned_micros'],
+      ),
+      baselineLoadMicros: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}baseline_load_micros'],
+      ),
+      baselineAcquireMicros: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}baseline_acquire_micros'],
+      ),
     );
   }
 
@@ -7307,6 +7504,11 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
   final int? acquireMicros;
   final String evidenceGrade;
   final String warningsJson;
+  final int? baselineServesPerUnitMicros;
+  final int? baselineExpectedUseMicros;
+  final int? baselinePlannedMicros;
+  final int? baselineLoadMicros;
+  final int? baselineAcquireMicros;
   const ForecastLine({
     required this.snapshotId,
     required this.itemId,
@@ -7319,6 +7521,11 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
     this.acquireMicros,
     required this.evidenceGrade,
     required this.warningsJson,
+    this.baselineServesPerUnitMicros,
+    this.baselineExpectedUseMicros,
+    this.baselinePlannedMicros,
+    this.baselineLoadMicros,
+    this.baselineAcquireMicros,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -7342,6 +7549,25 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
     }
     map['evidence_grade'] = Variable<String>(evidenceGrade);
     map['warnings_json'] = Variable<String>(warningsJson);
+    if (!nullToAbsent || baselineServesPerUnitMicros != null) {
+      map['baseline_serves_per_unit_micros'] = Variable<int>(
+        baselineServesPerUnitMicros,
+      );
+    }
+    if (!nullToAbsent || baselineExpectedUseMicros != null) {
+      map['baseline_expected_use_micros'] = Variable<int>(
+        baselineExpectedUseMicros,
+      );
+    }
+    if (!nullToAbsent || baselinePlannedMicros != null) {
+      map['baseline_planned_micros'] = Variable<int>(baselinePlannedMicros);
+    }
+    if (!nullToAbsent || baselineLoadMicros != null) {
+      map['baseline_load_micros'] = Variable<int>(baselineLoadMicros);
+    }
+    if (!nullToAbsent || baselineAcquireMicros != null) {
+      map['baseline_acquire_micros'] = Variable<int>(baselineAcquireMicros);
+    }
     return map;
   }
 
@@ -7366,6 +7592,23 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
           : Value(acquireMicros),
       evidenceGrade: Value(evidenceGrade),
       warningsJson: Value(warningsJson),
+      baselineServesPerUnitMicros:
+          baselineServesPerUnitMicros == null && nullToAbsent
+          ? const Value.absent()
+          : Value(baselineServesPerUnitMicros),
+      baselineExpectedUseMicros:
+          baselineExpectedUseMicros == null && nullToAbsent
+          ? const Value.absent()
+          : Value(baselineExpectedUseMicros),
+      baselinePlannedMicros: baselinePlannedMicros == null && nullToAbsent
+          ? const Value.absent()
+          : Value(baselinePlannedMicros),
+      baselineLoadMicros: baselineLoadMicros == null && nullToAbsent
+          ? const Value.absent()
+          : Value(baselineLoadMicros),
+      baselineAcquireMicros: baselineAcquireMicros == null && nullToAbsent
+          ? const Value.absent()
+          : Value(baselineAcquireMicros),
     );
   }
 
@@ -7388,6 +7631,19 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
       acquireMicros: serializer.fromJson<int?>(json['acquireMicros']),
       evidenceGrade: serializer.fromJson<String>(json['evidenceGrade']),
       warningsJson: serializer.fromJson<String>(json['warningsJson']),
+      baselineServesPerUnitMicros: serializer.fromJson<int?>(
+        json['baselineServesPerUnitMicros'],
+      ),
+      baselineExpectedUseMicros: serializer.fromJson<int?>(
+        json['baselineExpectedUseMicros'],
+      ),
+      baselinePlannedMicros: serializer.fromJson<int?>(
+        json['baselinePlannedMicros'],
+      ),
+      baselineLoadMicros: serializer.fromJson<int?>(json['baselineLoadMicros']),
+      baselineAcquireMicros: serializer.fromJson<int?>(
+        json['baselineAcquireMicros'],
+      ),
     );
   }
   @override
@@ -7405,6 +7661,15 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
       'acquireMicros': serializer.toJson<int?>(acquireMicros),
       'evidenceGrade': serializer.toJson<String>(evidenceGrade),
       'warningsJson': serializer.toJson<String>(warningsJson),
+      'baselineServesPerUnitMicros': serializer.toJson<int?>(
+        baselineServesPerUnitMicros,
+      ),
+      'baselineExpectedUseMicros': serializer.toJson<int?>(
+        baselineExpectedUseMicros,
+      ),
+      'baselinePlannedMicros': serializer.toJson<int?>(baselinePlannedMicros),
+      'baselineLoadMicros': serializer.toJson<int?>(baselineLoadMicros),
+      'baselineAcquireMicros': serializer.toJson<int?>(baselineAcquireMicros),
     };
   }
 
@@ -7420,6 +7685,11 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
     Value<int?> acquireMicros = const Value.absent(),
     String? evidenceGrade,
     String? warningsJson,
+    Value<int?> baselineServesPerUnitMicros = const Value.absent(),
+    Value<int?> baselineExpectedUseMicros = const Value.absent(),
+    Value<int?> baselinePlannedMicros = const Value.absent(),
+    Value<int?> baselineLoadMicros = const Value.absent(),
+    Value<int?> baselineAcquireMicros = const Value.absent(),
   }) => ForecastLine(
     snapshotId: snapshotId ?? this.snapshotId,
     itemId: itemId ?? this.itemId,
@@ -7439,6 +7709,21 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
         : this.acquireMicros,
     evidenceGrade: evidenceGrade ?? this.evidenceGrade,
     warningsJson: warningsJson ?? this.warningsJson,
+    baselineServesPerUnitMicros: baselineServesPerUnitMicros.present
+        ? baselineServesPerUnitMicros.value
+        : this.baselineServesPerUnitMicros,
+    baselineExpectedUseMicros: baselineExpectedUseMicros.present
+        ? baselineExpectedUseMicros.value
+        : this.baselineExpectedUseMicros,
+    baselinePlannedMicros: baselinePlannedMicros.present
+        ? baselinePlannedMicros.value
+        : this.baselinePlannedMicros,
+    baselineLoadMicros: baselineLoadMicros.present
+        ? baselineLoadMicros.value
+        : this.baselineLoadMicros,
+    baselineAcquireMicros: baselineAcquireMicros.present
+        ? baselineAcquireMicros.value
+        : this.baselineAcquireMicros,
   );
   ForecastLine copyWithCompanion(ForecastLinesCompanion data) {
     return ForecastLine(
@@ -7473,6 +7758,21 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
       warningsJson: data.warningsJson.present
           ? data.warningsJson.value
           : this.warningsJson,
+      baselineServesPerUnitMicros: data.baselineServesPerUnitMicros.present
+          ? data.baselineServesPerUnitMicros.value
+          : this.baselineServesPerUnitMicros,
+      baselineExpectedUseMicros: data.baselineExpectedUseMicros.present
+          ? data.baselineExpectedUseMicros.value
+          : this.baselineExpectedUseMicros,
+      baselinePlannedMicros: data.baselinePlannedMicros.present
+          ? data.baselinePlannedMicros.value
+          : this.baselinePlannedMicros,
+      baselineLoadMicros: data.baselineLoadMicros.present
+          ? data.baselineLoadMicros.value
+          : this.baselineLoadMicros,
+      baselineAcquireMicros: data.baselineAcquireMicros.present
+          ? data.baselineAcquireMicros.value
+          : this.baselineAcquireMicros,
     );
   }
 
@@ -7489,7 +7789,12 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
           ..write('loadMicros: $loadMicros, ')
           ..write('acquireMicros: $acquireMicros, ')
           ..write('evidenceGrade: $evidenceGrade, ')
-          ..write('warningsJson: $warningsJson')
+          ..write('warningsJson: $warningsJson, ')
+          ..write('baselineServesPerUnitMicros: $baselineServesPerUnitMicros, ')
+          ..write('baselineExpectedUseMicros: $baselineExpectedUseMicros, ')
+          ..write('baselinePlannedMicros: $baselinePlannedMicros, ')
+          ..write('baselineLoadMicros: $baselineLoadMicros, ')
+          ..write('baselineAcquireMicros: $baselineAcquireMicros')
           ..write(')'))
         .toString();
   }
@@ -7507,6 +7812,11 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
     acquireMicros,
     evidenceGrade,
     warningsJson,
+    baselineServesPerUnitMicros,
+    baselineExpectedUseMicros,
+    baselinePlannedMicros,
+    baselineLoadMicros,
+    baselineAcquireMicros,
   );
   @override
   bool operator ==(Object other) =>
@@ -7522,7 +7832,13 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
           other.loadMicros == this.loadMicros &&
           other.acquireMicros == this.acquireMicros &&
           other.evidenceGrade == this.evidenceGrade &&
-          other.warningsJson == this.warningsJson);
+          other.warningsJson == this.warningsJson &&
+          other.baselineServesPerUnitMicros ==
+              this.baselineServesPerUnitMicros &&
+          other.baselineExpectedUseMicros == this.baselineExpectedUseMicros &&
+          other.baselinePlannedMicros == this.baselinePlannedMicros &&
+          other.baselineLoadMicros == this.baselineLoadMicros &&
+          other.baselineAcquireMicros == this.baselineAcquireMicros);
 }
 
 class ForecastLinesCompanion extends UpdateCompanion<ForecastLine> {
@@ -7537,6 +7853,11 @@ class ForecastLinesCompanion extends UpdateCompanion<ForecastLine> {
   final Value<int?> acquireMicros;
   final Value<String> evidenceGrade;
   final Value<String> warningsJson;
+  final Value<int?> baselineServesPerUnitMicros;
+  final Value<int?> baselineExpectedUseMicros;
+  final Value<int?> baselinePlannedMicros;
+  final Value<int?> baselineLoadMicros;
+  final Value<int?> baselineAcquireMicros;
   final Value<int> rowid;
   const ForecastLinesCompanion({
     this.snapshotId = const Value.absent(),
@@ -7550,6 +7871,11 @@ class ForecastLinesCompanion extends UpdateCompanion<ForecastLine> {
     this.acquireMicros = const Value.absent(),
     this.evidenceGrade = const Value.absent(),
     this.warningsJson = const Value.absent(),
+    this.baselineServesPerUnitMicros = const Value.absent(),
+    this.baselineExpectedUseMicros = const Value.absent(),
+    this.baselinePlannedMicros = const Value.absent(),
+    this.baselineLoadMicros = const Value.absent(),
+    this.baselineAcquireMicros = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ForecastLinesCompanion.insert({
@@ -7564,6 +7890,11 @@ class ForecastLinesCompanion extends UpdateCompanion<ForecastLine> {
     this.acquireMicros = const Value.absent(),
     required String evidenceGrade,
     this.warningsJson = const Value.absent(),
+    this.baselineServesPerUnitMicros = const Value.absent(),
+    this.baselineExpectedUseMicros = const Value.absent(),
+    this.baselinePlannedMicros = const Value.absent(),
+    this.baselineLoadMicros = const Value.absent(),
+    this.baselineAcquireMicros = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : snapshotId = Value(snapshotId),
        itemId = Value(itemId),
@@ -7582,6 +7913,11 @@ class ForecastLinesCompanion extends UpdateCompanion<ForecastLine> {
     Expression<int>? acquireMicros,
     Expression<String>? evidenceGrade,
     Expression<String>? warningsJson,
+    Expression<int>? baselineServesPerUnitMicros,
+    Expression<int>? baselineExpectedUseMicros,
+    Expression<int>? baselinePlannedMicros,
+    Expression<int>? baselineLoadMicros,
+    Expression<int>? baselineAcquireMicros,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -7597,6 +7933,16 @@ class ForecastLinesCompanion extends UpdateCompanion<ForecastLine> {
       if (acquireMicros != null) 'acquire_micros': acquireMicros,
       if (evidenceGrade != null) 'evidence_grade': evidenceGrade,
       if (warningsJson != null) 'warnings_json': warningsJson,
+      if (baselineServesPerUnitMicros != null)
+        'baseline_serves_per_unit_micros': baselineServesPerUnitMicros,
+      if (baselineExpectedUseMicros != null)
+        'baseline_expected_use_micros': baselineExpectedUseMicros,
+      if (baselinePlannedMicros != null)
+        'baseline_planned_micros': baselinePlannedMicros,
+      if (baselineLoadMicros != null)
+        'baseline_load_micros': baselineLoadMicros,
+      if (baselineAcquireMicros != null)
+        'baseline_acquire_micros': baselineAcquireMicros,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -7613,6 +7959,11 @@ class ForecastLinesCompanion extends UpdateCompanion<ForecastLine> {
     Value<int?>? acquireMicros,
     Value<String>? evidenceGrade,
     Value<String>? warningsJson,
+    Value<int?>? baselineServesPerUnitMicros,
+    Value<int?>? baselineExpectedUseMicros,
+    Value<int?>? baselinePlannedMicros,
+    Value<int?>? baselineLoadMicros,
+    Value<int?>? baselineAcquireMicros,
     Value<int>? rowid,
   }) {
     return ForecastLinesCompanion(
@@ -7628,6 +7979,15 @@ class ForecastLinesCompanion extends UpdateCompanion<ForecastLine> {
       acquireMicros: acquireMicros ?? this.acquireMicros,
       evidenceGrade: evidenceGrade ?? this.evidenceGrade,
       warningsJson: warningsJson ?? this.warningsJson,
+      baselineServesPerUnitMicros:
+          baselineServesPerUnitMicros ?? this.baselineServesPerUnitMicros,
+      baselineExpectedUseMicros:
+          baselineExpectedUseMicros ?? this.baselineExpectedUseMicros,
+      baselinePlannedMicros:
+          baselinePlannedMicros ?? this.baselinePlannedMicros,
+      baselineLoadMicros: baselineLoadMicros ?? this.baselineLoadMicros,
+      baselineAcquireMicros:
+          baselineAcquireMicros ?? this.baselineAcquireMicros,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -7670,6 +8030,29 @@ class ForecastLinesCompanion extends UpdateCompanion<ForecastLine> {
     if (warningsJson.present) {
       map['warnings_json'] = Variable<String>(warningsJson.value);
     }
+    if (baselineServesPerUnitMicros.present) {
+      map['baseline_serves_per_unit_micros'] = Variable<int>(
+        baselineServesPerUnitMicros.value,
+      );
+    }
+    if (baselineExpectedUseMicros.present) {
+      map['baseline_expected_use_micros'] = Variable<int>(
+        baselineExpectedUseMicros.value,
+      );
+    }
+    if (baselinePlannedMicros.present) {
+      map['baseline_planned_micros'] = Variable<int>(
+        baselinePlannedMicros.value,
+      );
+    }
+    if (baselineLoadMicros.present) {
+      map['baseline_load_micros'] = Variable<int>(baselineLoadMicros.value);
+    }
+    if (baselineAcquireMicros.present) {
+      map['baseline_acquire_micros'] = Variable<int>(
+        baselineAcquireMicros.value,
+      );
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -7690,6 +8073,11 @@ class ForecastLinesCompanion extends UpdateCompanion<ForecastLine> {
           ..write('acquireMicros: $acquireMicros, ')
           ..write('evidenceGrade: $evidenceGrade, ')
           ..write('warningsJson: $warningsJson, ')
+          ..write('baselineServesPerUnitMicros: $baselineServesPerUnitMicros, ')
+          ..write('baselineExpectedUseMicros: $baselineExpectedUseMicros, ')
+          ..write('baselinePlannedMicros: $baselinePlannedMicros, ')
+          ..write('baselineLoadMicros: $baselineLoadMicros, ')
+          ..write('baselineAcquireMicros: $baselineAcquireMicros, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -9751,6 +10139,7 @@ typedef $$ItemsTableCreateCompanionBuilder =
       required String name,
       required String unit,
       required int packSizeMicros,
+      Value<int?> servesPerUnitMicros,
       Value<String?> category,
       Value<String> notes,
       Value<int?> archivedAtMicros,
@@ -9764,6 +10153,7 @@ typedef $$ItemsTableUpdateCompanionBuilder =
       Value<String> name,
       Value<String> unit,
       Value<int> packSizeMicros,
+      Value<int?> servesPerUnitMicros,
       Value<String?> category,
       Value<String> notes,
       Value<int?> archivedAtMicros,
@@ -9955,6 +10345,11 @@ class $$ItemsTableFilterComposer extends Composer<_$AppDatabase, $ItemsTable> {
 
   ColumnFilters<int> get packSizeMicros => $composableBuilder(
     column: $table.packSizeMicros,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get servesPerUnitMicros => $composableBuilder(
+    column: $table.servesPerUnitMicros,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -10213,6 +10608,11 @@ class $$ItemsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get servesPerUnitMicros => $composableBuilder(
+    column: $table.servesPerUnitMicros,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get category => $composableBuilder(
     column: $table.category,
     builder: (column) => ColumnOrderings(column),
@@ -10259,6 +10659,11 @@ class $$ItemsTableAnnotationComposer
 
   GeneratedColumn<int> get packSizeMicros => $composableBuilder(
     column: $table.packSizeMicros,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get servesPerUnitMicros => $composableBuilder(
+    column: $table.servesPerUnitMicros,
     builder: (column) => column,
   );
 
@@ -10527,6 +10932,7 @@ class $$ItemsTableTableManager
                 Value<String> name = const Value.absent(),
                 Value<String> unit = const Value.absent(),
                 Value<int> packSizeMicros = const Value.absent(),
+                Value<int?> servesPerUnitMicros = const Value.absent(),
                 Value<String?> category = const Value.absent(),
                 Value<String> notes = const Value.absent(),
                 Value<int?> archivedAtMicros = const Value.absent(),
@@ -10538,6 +10944,7 @@ class $$ItemsTableTableManager
                 name: name,
                 unit: unit,
                 packSizeMicros: packSizeMicros,
+                servesPerUnitMicros: servesPerUnitMicros,
                 category: category,
                 notes: notes,
                 archivedAtMicros: archivedAtMicros,
@@ -10551,6 +10958,7 @@ class $$ItemsTableTableManager
                 required String name,
                 required String unit,
                 required int packSizeMicros,
+                Value<int?> servesPerUnitMicros = const Value.absent(),
                 Value<String?> category = const Value.absent(),
                 Value<String> notes = const Value.absent(),
                 Value<int?> archivedAtMicros = const Value.absent(),
@@ -10562,6 +10970,7 @@ class $$ItemsTableTableManager
                 name: name,
                 unit: unit,
                 packSizeMicros: packSizeMicros,
+                servesPerUnitMicros: servesPerUnitMicros,
                 category: category,
                 notes: notes,
                 archivedAtMicros: archivedAtMicros,
@@ -16723,6 +17132,11 @@ typedef $$ForecastLinesTableCreateCompanionBuilder =
       Value<int?> acquireMicros,
       required String evidenceGrade,
       Value<String> warningsJson,
+      Value<int?> baselineServesPerUnitMicros,
+      Value<int?> baselineExpectedUseMicros,
+      Value<int?> baselinePlannedMicros,
+      Value<int?> baselineLoadMicros,
+      Value<int?> baselineAcquireMicros,
       Value<int> rowid,
     });
 typedef $$ForecastLinesTableUpdateCompanionBuilder =
@@ -16738,6 +17152,11 @@ typedef $$ForecastLinesTableUpdateCompanionBuilder =
       Value<int?> acquireMicros,
       Value<String> evidenceGrade,
       Value<String> warningsJson,
+      Value<int?> baselineServesPerUnitMicros,
+      Value<int?> baselineExpectedUseMicros,
+      Value<int?> baselinePlannedMicros,
+      Value<int?> baselineLoadMicros,
+      Value<int?> baselineAcquireMicros,
       Value<int> rowid,
     });
 
@@ -16836,6 +17255,31 @@ class $$ForecastLinesTableFilterComposer
 
   ColumnFilters<String> get warningsJson => $composableBuilder(
     column: $table.warningsJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get baselineServesPerUnitMicros => $composableBuilder(
+    column: $table.baselineServesPerUnitMicros,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get baselineExpectedUseMicros => $composableBuilder(
+    column: $table.baselineExpectedUseMicros,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get baselinePlannedMicros => $composableBuilder(
+    column: $table.baselinePlannedMicros,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get baselineLoadMicros => $composableBuilder(
+    column: $table.baselineLoadMicros,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get baselineAcquireMicros => $composableBuilder(
+    column: $table.baselineAcquireMicros,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -16940,6 +17384,31 @@ class $$ForecastLinesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get baselineServesPerUnitMicros => $composableBuilder(
+    column: $table.baselineServesPerUnitMicros,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get baselineExpectedUseMicros => $composableBuilder(
+    column: $table.baselineExpectedUseMicros,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get baselinePlannedMicros => $composableBuilder(
+    column: $table.baselinePlannedMicros,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get baselineLoadMicros => $composableBuilder(
+    column: $table.baselineLoadMicros,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get baselineAcquireMicros => $composableBuilder(
+    column: $table.baselineAcquireMicros,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   $$ForecastSnapshotsTableOrderingComposer get snapshotId {
     final $$ForecastSnapshotsTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -17041,6 +17510,31 @@ class $$ForecastLinesTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<int> get baselineServesPerUnitMicros => $composableBuilder(
+    column: $table.baselineServesPerUnitMicros,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get baselineExpectedUseMicros => $composableBuilder(
+    column: $table.baselineExpectedUseMicros,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get baselinePlannedMicros => $composableBuilder(
+    column: $table.baselinePlannedMicros,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get baselineLoadMicros => $composableBuilder(
+    column: $table.baselineLoadMicros,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get baselineAcquireMicros => $composableBuilder(
+    column: $table.baselineAcquireMicros,
+    builder: (column) => column,
+  );
+
   $$ForecastSnapshotsTableAnnotationComposer get snapshotId {
     final $$ForecastSnapshotsTableAnnotationComposer composer =
         $composerBuilder(
@@ -17128,6 +17622,11 @@ class $$ForecastLinesTableTableManager
                 Value<int?> acquireMicros = const Value.absent(),
                 Value<String> evidenceGrade = const Value.absent(),
                 Value<String> warningsJson = const Value.absent(),
+                Value<int?> baselineServesPerUnitMicros = const Value.absent(),
+                Value<int?> baselineExpectedUseMicros = const Value.absent(),
+                Value<int?> baselinePlannedMicros = const Value.absent(),
+                Value<int?> baselineLoadMicros = const Value.absent(),
+                Value<int?> baselineAcquireMicros = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ForecastLinesCompanion(
                 snapshotId: snapshotId,
@@ -17141,6 +17640,11 @@ class $$ForecastLinesTableTableManager
                 acquireMicros: acquireMicros,
                 evidenceGrade: evidenceGrade,
                 warningsJson: warningsJson,
+                baselineServesPerUnitMicros: baselineServesPerUnitMicros,
+                baselineExpectedUseMicros: baselineExpectedUseMicros,
+                baselinePlannedMicros: baselinePlannedMicros,
+                baselineLoadMicros: baselineLoadMicros,
+                baselineAcquireMicros: baselineAcquireMicros,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -17156,6 +17660,11 @@ class $$ForecastLinesTableTableManager
                 Value<int?> acquireMicros = const Value.absent(),
                 required String evidenceGrade,
                 Value<String> warningsJson = const Value.absent(),
+                Value<int?> baselineServesPerUnitMicros = const Value.absent(),
+                Value<int?> baselineExpectedUseMicros = const Value.absent(),
+                Value<int?> baselinePlannedMicros = const Value.absent(),
+                Value<int?> baselineLoadMicros = const Value.absent(),
+                Value<int?> baselineAcquireMicros = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ForecastLinesCompanion.insert(
                 snapshotId: snapshotId,
@@ -17169,6 +17678,11 @@ class $$ForecastLinesTableTableManager
                 acquireMicros: acquireMicros,
                 evidenceGrade: evidenceGrade,
                 warningsJson: warningsJson,
+                baselineServesPerUnitMicros: baselineServesPerUnitMicros,
+                baselineExpectedUseMicros: baselineExpectedUseMicros,
+                baselinePlannedMicros: baselinePlannedMicros,
+                baselineLoadMicros: baselineLoadMicros,
+                baselineAcquireMicros: baselineAcquireMicros,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

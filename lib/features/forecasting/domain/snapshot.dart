@@ -21,6 +21,17 @@ EvidenceGrade evidenceGradeFromDb(String value) => switch (value) {
   _ => throw ArgumentError.value(value, 'value', 'not an evidence grade'),
 };
 
+/// What a snapshot line's numbers actually rest on — the single field a
+/// screen should switch on.
+///
+/// [EvidenceGrade] is the frozen engine's vocabulary and only ever describes
+/// CONFIRMED outcomes; [servesBaseline] is the strictly weaker fourth state
+/// the engine cannot express: no confirmed outcomes at all, numbers derived
+/// from the item's "1 serves N". It is stored as `insufficient_data` plus the
+/// `baseline_*` columns, so the §4.3 label query and every history/accuracy
+/// read stay exactly as blind to it as they are to any other prediction.
+enum ForecastBasis { insufficientData, servesBaseline, singleEvent, observedRange }
+
 /// Fully-computed snapshot awaiting persistence (design §6.4
 /// SaveForecastSnapshot): header, lines, evidence, inputsHash. The applier
 /// recomputes the hash from [inputs] and rejects on mismatch.
@@ -57,6 +68,7 @@ final class ForecastSnapshotDraft {
           packSizeMicros: line.packSizeMicros,
           onHandMicros: line.onHandMicros,
           confirmedInboundMicros: line.confirmedInboundMicros,
+          servesPerUnitMicros: line.servesPerUnitMicros,
           evidence: line.evidence,
         ),
     ],
@@ -70,10 +82,16 @@ final class ForecastSnapshotLineDraft {
     required this.packSizeMicros,
     required this.onHandMicros,
     this.confirmedInboundMicros = 0,
+    this.servesPerUnitMicros,
     this.expectedUseMicros,
     this.plannedMicros,
     this.loadMicros,
     this.acquireMicros,
+    this.baselineServesPerUnitMicros,
+    this.baselineExpectedUseMicros,
+    this.baselinePlannedMicros,
+    this.baselineLoadMicros,
+    this.baselineAcquireMicros,
     required this.evidenceGrade,
     this.warnings = const [],
     this.evidence = const [],
@@ -85,17 +103,33 @@ final class ForecastSnapshotLineDraft {
   /// SIGNED derived on-hand at generation time.
   final int onHandMicros;
   final int confirmedInboundMicros;
+
+  /// The item's "1 serves N" at generation time — a hashed input, because it
+  /// changes the baseline outputs. Not persisted on the line itself; the
+  /// value that produced a baseline is in [baselineServesPerUnitMicros].
+  final int? servesPerUnitMicros;
   final int? expectedUseMicros;
   final int? plannedMicros;
   final int? loadMicros;
   final int? acquireMicros;
+
+  /// The no-history "1 serves N" baseline plan. All five are set together or
+  /// all null, and only ever on a line with no confirmed evidence.
+  final int? baselineServesPerUnitMicros;
+  final int? baselineExpectedUseMicros;
+  final int? baselinePlannedMicros;
+  final int? baselineLoadMicros;
+  final int? baselineAcquireMicros;
   final EvidenceGrade evidenceGrade;
 
-  /// The frozen engine's strings, verbatim.
+  /// The frozen engine's strings verbatim, plus the baseline's own
+  /// plain-language warning when one was computed.
   final List<String> warnings;
 
   /// Value-copies in label-query order.
   final List<EvidenceInput> evidence;
+
+  bool get hasBaseline => baselineLoadMicros != null;
 }
 
 // ---------------------------------------------------------------- views
@@ -142,6 +176,11 @@ final class ForecastLineView {
     this.plannedMicros,
     this.loadMicros,
     this.acquireMicros,
+    this.baselineServesPerUnitMicros,
+    this.baselineExpectedUseMicros,
+    this.baselinePlannedMicros,
+    this.baselineLoadMicros,
+    this.baselineAcquireMicros,
     required this.evidenceGrade,
     this.warnings = const [],
     this.evidence = const [],
@@ -156,6 +195,13 @@ final class ForecastLineView {
   final int? plannedMicros;
   final int? loadMicros;
   final int? acquireMicros;
+
+  /// The stored no-history baseline, or all null. See [basis].
+  final int? baselineServesPerUnitMicros;
+  final int? baselineExpectedUseMicros;
+  final int? baselinePlannedMicros;
+  final int? baselineLoadMicros;
+  final int? baselineAcquireMicros;
   final EvidenceGrade evidenceGrade;
   final List<String> warnings;
   final List<EvidenceView> evidence;
@@ -163,9 +209,31 @@ final class ForecastLineView {
   /// Latest override row, or null when none was ever recorded.
   final OverrideView? override;
 
+  /// True when this line's numbers are a "1 serves N" estimate rather than
+  /// anything confirmed.
+  bool get isBaseline => baselineLoadMicros != null;
+
+  /// What the numbers rest on — switch on this, not on [evidenceGrade].
+  ForecastBasis get basis => switch (evidenceGrade) {
+    EvidenceGrade.insufficientData =>
+      isBaseline ? ForecastBasis.servesBaseline : ForecastBasis.insufficientData,
+    EvidenceGrade.singleEvent => ForecastBasis.singleEvent,
+    EvidenceGrade.observedRange => ForecastBasis.observedRange,
+  };
+
+  /// Expected use to show: the engine's, else the baseline's estimate.
+  int? get plannedExpectedUseMicros => expectedUseMicros ?? baselineExpectedUseMicros;
+
+  /// Load to show before overrides: the engine's, else the baseline's.
+  int? get suggestedLoadMicros => loadMicros ?? baselineLoadMicros;
+
+  /// Quantity to acquire: the engine's, else the baseline's.
+  int? get suggestedAcquireMicros => acquireMicros ?? baselineAcquireMicros;
+
   /// Display load: the live override wins; a NULL-load override reverts to
-  /// the engine value (design §4 forecast_overrides).
-  int? get effectiveLoadMicros => override?.overrideLoadMicros ?? loadMicros;
+  /// the suggested value (design §4 forecast_overrides).
+  int? get effectiveLoadMicros =>
+      override?.overrideLoadMicros ?? suggestedLoadMicros;
 
   /// True when a non-null override is currently in force.
   bool get isOverridden => override?.overrideLoadMicros != null;
@@ -238,6 +306,7 @@ final class AccuracyLine {
     required this.itemId,
     this.expectedUseMicros,
     this.loadMicros,
+    this.basis = ForecastBasis.insufficientData,
     this.override,
     this.actualDepletionMicros,
     this.varianceMicros,
@@ -246,8 +315,13 @@ final class AccuracyLine {
   });
 
   final ItemId itemId;
+
+  /// What was expected: the engine's number, or the "1 serves N" baseline
+  /// when that is all there was. [basis] says which — never present a
+  /// baseline variance as if it came from confirmed history.
   final int? expectedUseMicros;
   final int? loadMicros;
+  final ForecastBasis basis;
   final OverrideView? override;
 
   /// Null when the closeout skipped this item.

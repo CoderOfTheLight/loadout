@@ -15,6 +15,7 @@ import '../domain/forecast_engine.dart';
 import '../domain/snapshot.dart';
 import '../domain/snapshot_inputs.dart';
 import '../../../data/db/table_watch.dart';
+import 'baseline_estimator.dart';
 
 /// Screen-facing forecasting surface (design §6.5). Snapshots are appended,
 /// never rewritten; the frozen engine is the only arithmetic source.
@@ -180,12 +181,13 @@ final class DriftForecastService implements ForecastService {
     ForecastLineView? forecast,
     db.CloseoutLine? actual,
   ) {
-    final expected = forecast?.expectedUseMicros;
+    final expected = forecast?.plannedExpectedUseMicros;
     final actualDepletion = actual?.depletionMicros;
     return AccuracyLine(
       itemId: ItemId(itemId),
       expectedUseMicros: expected,
-      loadMicros: forecast?.loadMicros,
+      loadMicros: forecast?.suggestedLoadMicros,
+      basis: forecast?.basis ?? ForecastBasis.insufficientData,
       override: forecast?.override,
       actualDepletionMicros: actualDepletion,
       varianceMicros: expected == null || actualDepletion == null
@@ -215,6 +217,7 @@ final class DriftForecastService implements ForecastService {
               packSizeMicros: input.packSizeMicros,
               onHandMicros: input.onHandMicros,
               confirmedInboundMicros: input.confirmedInboundMicros,
+              servesPerUnitMicros: input.servesPerUnitMicros,
               expectedUseMicros: null,
               plannedMicros: null,
               loadMicros: null,
@@ -244,18 +247,40 @@ final class DriftForecastService implements ForecastService {
           packSize: Quantity.fromMicros(input.packSizeMicros),
           usableOnHand: Quantity.fromMicros(max(0, input.onHandMicros)),
         );
+        // No confirmed outcomes yet? The engine correctly refuses to
+        // forecast. If the item says "1 serves N" we can still hand the
+        // owner a starting number — clearly labelled, in its own columns,
+        // and never mistakable for history.
+        final baseline = engineLine.evidenceGrade == EvidenceGrade.insufficientData
+            ? estimateFromServesPerUnit(
+                expectedAttendance: inputs.upcomingExposure,
+                servesPerUnitMicros: input.servesPerUnitMicros,
+                policy: inputs.policy,
+                packSizeMicros: input.packSizeMicros,
+                usableOnHandMicros: max(0, input.onHandMicros),
+                confirmedInboundMicros: input.confirmedInboundMicros,
+              )
+            : null;
         lines.add(
           ForecastSnapshotLineDraft(
             itemId: ItemId(input.itemId),
             packSizeMicros: input.packSizeMicros,
             onHandMicros: input.onHandMicros,
             confirmedInboundMicros: input.confirmedInboundMicros,
+            servesPerUnitMicros: input.servesPerUnitMicros,
             expectedUseMicros: engineLine.expectedUse?.micros,
             plannedMicros: engineLine.plannedQuantity?.micros,
             loadMicros: engineLine.roundedLoadQuantity?.micros,
             acquireMicros: engineLine.acquireQuantity?.micros,
+            baselineServesPerUnitMicros: baseline?.servesPerUnitMicros,
+            baselineExpectedUseMicros: baseline?.expectedUseMicros,
+            baselinePlannedMicros: baseline?.plannedMicros,
+            baselineLoadMicros: baseline?.loadMicros,
+            baselineAcquireMicros: baseline?.acquireMicros,
             evidenceGrade: engineLine.evidenceGrade,
-            warnings: engineLine.warnings,
+            warnings: baseline == null
+                ? engineLine.warnings
+                : [...engineLine.warnings, baseline.warning],
             evidence: input.evidence,
           ),
         );
@@ -316,6 +341,7 @@ final class DriftForecastService implements ForecastService {
           itemId: item.id,
           packSizeMicros: item.packSizeMicros,
           onHandMicros: onHand,
+          servesPerUnitMicros: item.servesPerUnitMicros,
           evidence: [
             for (final row in history)
               EvidenceInput(
@@ -395,6 +421,11 @@ final class DriftForecastService implements ForecastService {
             plannedMicros: line.plannedMicros,
             loadMicros: line.loadMicros,
             acquireMicros: line.acquireMicros,
+            baselineServesPerUnitMicros: line.baselineServesPerUnitMicros,
+            baselineExpectedUseMicros: line.baselineExpectedUseMicros,
+            baselinePlannedMicros: line.baselinePlannedMicros,
+            baselineLoadMicros: line.baselineLoadMicros,
+            baselineAcquireMicros: line.baselineAcquireMicros,
             evidenceGrade: evidenceGradeFromDb(line.evidenceGrade),
             warnings: [
               for (final warning in jsonDecode(line.warningsJson) as List)

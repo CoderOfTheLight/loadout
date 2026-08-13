@@ -21,6 +21,8 @@ import 'package:loadout/infrastructure/security/key_manager.dart';
 import 'package:loadout/infrastructure/startup/startup_service.dart';
 import 'package:sqlite3/sqlite3.dart';
 
+import '../support/schema_version.dart';
+
 /// Plaintext canary; must never appear in ciphertext files.
 const String secretMarker = 'LOADOUT_SECRET_MARKER_7f3a9c';
 
@@ -67,7 +69,7 @@ final class SecurityHarness {
       keyManager: keyManager,
       scratch: scratch,
       databaseFile: paths.databaseFile,
-      appSchemaVersion: 1,
+      appSchemaVersion: appSchemaVersionUnderTest,
       diag: diag,
       kdfCost: testKdfCost,
       saltSource: Random(7),
@@ -101,7 +103,7 @@ final class SecurityHarness {
     keyManager: keyManager,
     scratch: scratch,
     databaseFile: paths.databaseFile,
-    appSchemaVersion: 1,
+    appSchemaVersion: appSchemaVersionUnderTest,
     diag: diag,
     kdfCost: testKdfCost,
     restoreFaultInjector: injector,

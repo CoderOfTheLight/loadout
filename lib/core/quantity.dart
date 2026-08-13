@@ -24,6 +24,11 @@ final class Quantity implements Comparable<Quantity> {
   static const int maxMicros = 1000000000000000;
 
   static const zero = Quantity._(0);
+
+  /// Exactly one whole unit. The pack size every item gets now that packs
+  /// are off the product surface: rounding up to 1 means "round to whole
+  /// things", which is what counted goods want.
+  static const one = Quantity._(scale);
   final int micros;
 
   /// Checked add: throws [QuantityOverflowError] above [maxMicros].

@@ -12,6 +12,7 @@ import 'package:loadout/features/backup/domain/backup_service.dart';
 import 'package:path/path.dart' as p;
 
 import '../infrastructure/harness.dart';
+import '../support/schema_version.dart';
 
 void main() {
   late SecurityHarness h;
@@ -55,7 +56,7 @@ void main() {
     final description = await h.backup.describeBackup(kept);
     expect(description.formatVersion, 1);
     expect(description.cipher, 'sqlcipher4-rawkey');
-    expect(description.schemaVersion, 1);
+    expect(description.schemaVersion, appSchemaVersionUnderTest);
     expect(description.counts.movements, 3);
     expect(description.counts.items, 2);
     expect(description.counts.events, 1);
@@ -86,7 +87,7 @@ void main() {
     expect(preview.verifiedCounts.movements, 3);
     expect(preview.verifiedCounts.items, 2);
     expect(preview.verifiedCounts.events, 1);
-    expect(preview.payloadUserVersion, 1);
+    expect(preview.payloadUserVersion, appSchemaVersionUnderTest);
     expect(preview.stagingDir.existsSync(), isTrue);
 
     // restore, then compare the canonical dump.

@@ -77,6 +77,8 @@ final class WritePathHarness {
     required String name,
     ItemUnit unit = ItemUnit.each,
     int packMicros = 1000000,
+    int? servesPerUnitMicros,
+    int openingMicros = 0,
     String? category,
   }) async {
     final receipt = await ok(
@@ -84,6 +86,12 @@ final class WritePathHarness {
         name: name,
         unit: unit,
         packSize: Quantity.fromMicros(packMicros),
+        servesPerUnit: servesPerUnitMicros == null
+            ? null
+            : Quantity.fromMicros(servesPerUnitMicros),
+        openingCount: openingMicros == 0
+            ? null
+            : Quantity.fromMicros(openingMicros),
         category: category,
       ),
     );
