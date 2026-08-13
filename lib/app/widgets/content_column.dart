@@ -22,7 +22,17 @@ class ContentColumn extends StatelessWidget {
     alignment: Alignment.topCenter,
     child: ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: contentMaxWidth),
-      child: Padding(padding: padding, child: child),
+      child: Padding(
+        // Reserve the software keyboard's height at the bottom so whatever
+        // sits at the end of a form — nearly always the button that saves
+        // it — can still be scrolled into view while typing. Without this
+        // the keyboard simply covers it and there is nothing left to
+        // scroll.
+        padding: padding.add(
+          EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+        ),
+        child: child,
+      ),
     ),
   );
 }

@@ -21,6 +21,7 @@ import '../../catalog/application/catalog_service.dart';
 import '../domain/event.dart';
 import 'event_ui.dart';
 import 'planned_items_picker.dart';
+import '../../../app/widgets/form_action_bar.dart';
 
 class EventEditScreen extends ConsumerStatefulWidget {
   const EventEditScreen({super.key, this.eventId});
@@ -344,25 +345,17 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
             ),
           ),
         ),
-        bottomNavigationBar: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: contentMaxWidth),
-              child: FilledButton(
-                onPressed: _submitting ? null : _save,
-                style: FilledButton.styleFrom(
-                  minimumSize: primaryButtonMinSize,
-                ),
-                child: _submitting
-                    ? const SizedBox(
-                        height: 24,
-                        width: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2.5),
-                      )
-                    : const Text('Save event'),
-              ),
-            ),
+        bottomNavigationBar: FormActionBar(
+          child: FilledButton(
+            onPressed: _submitting ? null : _save,
+            style: FilledButton.styleFrom(minimumSize: primaryButtonMinSize),
+            child: _submitting
+                ? const SizedBox(
+                    height: 24,
+                    width: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2.5),
+                  )
+                : const Text('Save event'),
           ),
         ),
       ),

@@ -15,6 +15,7 @@ import '../../../app/theme.dart';
 import '../../../app/widgets/content_column.dart';
 import '../../../infrastructure/startup/startup_service.dart';
 import '../../forecasting/domain/forecast_engine.dart';
+import '../../../app/widgets/form_action_bar.dart';
 
 class CreateWorkspaceScreen extends ConsumerStatefulWidget {
   const CreateWorkspaceScreen({super.key});
@@ -171,23 +172,17 @@ class _CreateWorkspaceScreenState extends ConsumerState<CreateWorkspaceScreen> {
           ),
         ),
       ),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: contentMaxWidth),
-            child: FilledButton(
-              onPressed: _submitting ? null : _create,
-              style: FilledButton.styleFrom(minimumSize: primaryButtonMinSize),
-              child: _submitting
-                  ? const SizedBox(
-                      height: 24,
-                      width: 24,
-                      child: CircularProgressIndicator(strokeWidth: 2.5),
-                    )
-                  : const Text('Create workspace'),
-            ),
-          ),
+      bottomNavigationBar: FormActionBar(
+        child: FilledButton(
+          onPressed: _submitting ? null : _create,
+          style: FilledButton.styleFrom(minimumSize: primaryButtonMinSize),
+          child: _submitting
+              ? const SizedBox(
+                  height: 24,
+                  width: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                )
+              : const Text('Create workspace'),
         ),
       ),
     );

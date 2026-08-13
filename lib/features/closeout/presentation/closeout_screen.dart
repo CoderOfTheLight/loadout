@@ -30,6 +30,7 @@ import '../application/closeout_service.dart';
 import '../domain/closeout.dart';
 import '../domain/closeout_form.dart';
 import 'closeout_line_card.dart';
+import '../../../app/widgets/form_action_bar.dart';
 
 class CloseoutScreen extends ConsumerStatefulWidget {
   const CloseoutScreen({super.key, required this.eventId});
@@ -452,41 +453,29 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
           ),
         ),
       ),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: contentMaxWidth),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  '$_confirmedCount of ${_lines.length} items confirmed',
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 8),
-                FilledButton(
-                  style: FilledButton.styleFrom(
-                    minimumSize: primaryButtonMinSize,
-                  ),
-                  onPressed: _canConfirm
-                      ? () => _confirmFlow(exposureLabel)
-                      : null,
-                  child: _submitting
-                      ? const SizedBox(
-                          height: 24,
-                          width: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2.5),
-                        )
-                      : Text(
-                          _revising ? 'Confirm revision' : 'Confirm closeout',
-                        ),
-                ),
-              ],
+      bottomNavigationBar: FormActionBar(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              '$_confirmedCount of ${_lines.length} items confirmed',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium,
             ),
-          ),
+            const SizedBox(height: 8),
+            FilledButton(
+              style: FilledButton.styleFrom(minimumSize: primaryButtonMinSize),
+              onPressed: _canConfirm ? () => _confirmFlow(exposureLabel) : null,
+              child: _submitting
+                  ? const SizedBox(
+                      height: 24,
+                      width: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                    )
+                  : Text(_revising ? 'Confirm revision' : 'Confirm closeout'),
+            ),
+          ],
         ),
       ),
     );

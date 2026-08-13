@@ -26,6 +26,7 @@ import '../../../core/units.dart';
 import '../application/catalog_service.dart';
 import '../domain/item.dart';
 import 'catalog_providers.dart';
+import '../../../app/widgets/form_action_bar.dart';
 
 /// The §9 unit-lock explanation, shown as dropdown helper text when locked
 /// and as the IMMUTABLE_RECORD snackbar (content-free by design).
@@ -312,25 +313,17 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
             ),
           ),
         ),
-        bottomNavigationBar: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: contentMaxWidth),
-              child: FilledButton(
-                onPressed: _submitting ? null : () => _save(detail),
-                style: FilledButton.styleFrom(
-                  minimumSize: primaryButtonMinSize,
-                ),
-                child: _submitting
-                    ? const SizedBox(
-                        height: 24,
-                        width: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2.5),
-                      )
-                    : const Text('Save item'),
-              ),
-            ),
+        bottomNavigationBar: FormActionBar(
+          child: FilledButton(
+            onPressed: _submitting ? null : () => _save(detail),
+            style: FilledButton.styleFrom(minimumSize: primaryButtonMinSize),
+            child: _submitting
+                ? const SizedBox(
+                    height: 24,
+                    width: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2.5),
+                  )
+                : const Text('Save item'),
           ),
         ),
       ),

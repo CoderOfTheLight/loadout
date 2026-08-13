@@ -23,6 +23,7 @@ import '../domain/ledger_math.dart';
 import '../domain/movement.dart';
 import 'item_picker_sheet.dart';
 import 'movement_display.dart';
+import '../../../app/widgets/form_action_bar.dart';
 
 class MovementEntryScreen extends ConsumerStatefulWidget {
   const MovementEntryScreen({super.key, this.kind, this.itemId});
@@ -174,31 +175,26 @@ class _MovementEntryScreenState extends ConsumerState<MovementEntryScreen> {
             ),
           ),
         ),
-        bottomNavigationBar: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                FilledButton(
-                  style: FilledButton.styleFrom(
-                    minimumSize: primaryButtonMinSize,
-                  ),
-                  onPressed: _submitting
-                      ? null
-                      : () => _submit(addAnother: false),
-                  child: const Text('Record'),
+        bottomNavigationBar: FormActionBar(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  minimumSize: primaryButtonMinSize,
                 ),
-                const SizedBox(height: 8),
-                OutlinedButton(
-                  onPressed: _submitting
-                      ? null
-                      : () => _submit(addAnother: true),
-                  child: const Text('Record & add another'),
-                ),
-              ],
-            ),
+                onPressed: _submitting
+                    ? null
+                    : () => _submit(addAnother: false),
+                child: const Text('Record'),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton(
+                onPressed: _submitting ? null : () => _submit(addAnother: true),
+                child: const Text('Record & add another'),
+              ),
+            ],
           ),
         ),
       ),
