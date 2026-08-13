@@ -1143,8 +1143,12 @@ encrypted backup (§8). The key never appears in logs, exports, or the DB.
 DB file: `getApplicationSupportDirectory()/db/loadout.db` — app-private on both platforms, never
 `Documents`, never external storage. iOS: exclude the `db/` and `scratch/` directories from
 backup via `NSURLIsExcludedFromBackupKey` (a ~10-line MethodChannel in `AppDelegate.swift`), and
-ship the Data Protection entitlement `NSFileProtectionCompleteUntilFirstUserAuthentication`
-(matches the Keychain class; `Complete` would revoke handles mid-WAL-write).
+hold every file at `NSFileProtectionCompleteUntilFirstUserAuthentication` (matches the Keychain
+class; `Complete` would revoke handles mid-WAL-write). That is the platform default, so it needs
+NO entitlement — `com.apple.developer.default-data-protection` exists to RAISE the default to
+`Complete`, and requesting the weaker value makes the entitlement unprovisionable, failing the
+device build outright. The class is proven instead against the real file on a real device by
+`integration_test/device_encryption_test.dart`, which reads back what iOS actually applied.
 
 ```dart
 // lib/infrastructure/db/open_database.dart
@@ -1577,8 +1581,10 @@ abstract interface class ScratchSpace {
 **Platform hardening (asserted in CI/review):** Android `android:allowBackup="false"`,
 `android:fullBackupContent="false"`,
 `android:dataExtractionRules="@xml/data_extraction_rules"` with cloud-backup and device-transfer
-excludes on root; no `usesCleartextTraffic`. iOS: Data Protection entitlement
-`NSFileProtectionCompleteUntilFirstUserAuthentication`; `NSURLIsExcludedFromBackupKey` on `db/`
+excludes on root; no `usesCleartextTraffic`. iOS: data protection at
+`NSFileProtectionCompleteUntilFirstUserAuthentication` (platform default, verified on device —
+see above, and note `Runner.entitlements` is deliberately empty);
+`NSURLIsExcludedFromBackupKey` on `db/`
 and `scratch/`; no `NSAppTransportSecurity` exceptions; no `UIFileSharingEnabled`;
 `FlutterDeepLinkingEnabled = false`.
 

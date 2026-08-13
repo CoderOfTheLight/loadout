@@ -14,6 +14,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:loadout/core/diagnostics/diag.dart';
+import 'package:loadout/infrastructure/files/ios_backup_exclusion.dart';
 import 'package:loadout/infrastructure/files/loadout_paths.dart';
 import 'package:loadout/infrastructure/files/scratch_space.dart';
 import 'package:loadout/infrastructure/security/key_manager.dart';
@@ -96,6 +97,31 @@ void main() {
         );
       }
     }
+  });
+
+  testWidgets('iOS applies the intended data-protection class', (tester) async {
+    if (!Platform.isIOS) {
+      return; // Android's equivalent is full-disk/file-based encryption.
+    }
+    const exclusion = IosBackupExclusion();
+    if (await exclusion.isSimulator()) {
+      // The Simulator does not implement Data Protection at all — it reports
+      // no class whatever the app asks for. Only a real device can answer
+      // this, which is the whole reason the check exists.
+      return;
+    }
+    await startup.createFreshWorkspace();
+    await startup.close();
+
+    // §10 wants CompleteUntilFirstUserAuthentication: unreadable on a
+    // powered-off device that was never unlocked, but it does not yank an
+    // open handle mid-WAL-write the way Complete would. That is the platform
+    // default, so no entitlement declares it — which makes checking the real
+    // file the only honest proof.
+    expect(
+      await exclusion.fileProtection(paths.databaseFile),
+      'NSFileProtectionCompleteUntilFirstUserAuthentication',
+    );
   });
 
   testWidgets('the platform keystore persists the key across a reopen', (

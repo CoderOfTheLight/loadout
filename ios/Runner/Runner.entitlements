@@ -2,9 +2,23 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Design §10: matches the Keychain class first_unlock_this_device;
-	     `Complete` would revoke file handles mid-WAL-write. -->
-	<key>com.apple.developer.default-data-protection</key>
-	<string>NSFileProtectionCompleteUntilFirstUserAuthentication</string>
+	<!-- Deliberately empty.
+
+	     Design §10 wants every file this app writes to sit at
+	     NSFileProtectionCompleteUntilFirstUserAuthentication: strong enough
+	     that a powered-off, never-unlocked device gives nothing up, but not
+	     NSFileProtectionComplete, which revokes open file handles when the
+	     screen locks and would break a WAL write mid-transaction.
+
+	     That IS the iOS default for app-container files on a passcode-locked
+	     device, so it needs no entitlement. Declaring
+	     com.apple.developer.default-data-protection is for RAISING the
+	     default to NSFileProtectionComplete; asking for the weaker value
+	     makes the entitlement unprovisionable ("doesn't match the
+	     entitlements file's value"), which is what it did here.
+
+	     The class is verified where it counts — on the real file at runtime,
+	     by integration_test/device_encryption_test.dart, rather than asserted
+	     in a build setting. -->
 </dict>
 </plist>

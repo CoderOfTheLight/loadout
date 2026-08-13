@@ -23,18 +23,43 @@ import UIKit
     let channel = FlutterMethodChannel(
       name: "loadout/backup_exclusion", binaryMessenger: registrar.messenger())
     channel.setMethodCallHandler { call, result in
-      guard call.method == "excludeFromBackup", let path = call.arguments as? String else {
+      if call.method == "isSimulator" {
+        // The Simulator implements neither Data Protection nor the Secure
+        // Enclave, so device tests must know the difference.
+        #if targetEnvironment(simulator)
+          result(true)
+        #else
+          result(false)
+        #endif
+        return
+      }
+      guard let path = call.arguments as? String else {
         result(FlutterMethodNotImplemented)
         return
       }
-      var url = URL(fileURLWithPath: path, isDirectory: true)
-      do {
-        var values = URLResourceValues()
-        values.isExcludedFromBackup = true
-        try url.setResourceValues(values)
-        result(true)
-      } catch {
-        result(FlutterError(code: "backup_exclusion_failed", message: nil, details: nil))
+      switch call.method {
+      case "excludeFromBackup":
+        var url = URL(fileURLWithPath: path, isDirectory: true)
+        do {
+          var values = URLResourceValues()
+          values.isExcludedFromBackup = true
+          try url.setResourceValues(values)
+          result(true)
+        } catch {
+          result(FlutterError(code: "backup_exclusion_failed", message: nil, details: nil))
+        }
+      case "fileProtection":
+        // Reports the class iOS actually applied, so the device tests can
+        // check the real file rather than trust a build setting.
+        do {
+          let attrs = try FileManager.default.attributesOfItem(atPath: path)
+          let value = attrs[.protectionKey] as? FileProtectionType
+          result(value?.rawValue)
+        } catch {
+          result(FlutterError(code: "file_protection_failed", message: nil, details: nil))
+        }
+      default:
+        result(FlutterMethodNotImplemented)
       }
     }
   }
