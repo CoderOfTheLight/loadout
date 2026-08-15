@@ -19,7 +19,9 @@ import '../../../core/quantity_codec.dart';
 import '../../../core/time.dart';
 import '../../../core/units.dart';
 import '../../catalog/application/catalog_service.dart';
+import '../../catalog/domain/demand_basis.dart';
 import '../../catalog/domain/item.dart';
+import '../application/baseline_estimator.dart';
 import '../domain/forecast_engine.dart';
 import '../domain/snapshot.dart';
 
@@ -115,9 +117,56 @@ String exposureLabelOf(ForecastSnapshotView snapshot) {
 String evidenceBadgeLabel(ForecastLineView line) => switch (line.basis) {
   ForecastBasis.insufficientData => 'No history',
   ForecastBasis.servesBaseline => 'Estimate',
+  ForecastBasis.perEventBaseline => 'Estimate',
   ForecastBasis.singleEvent => '1 event',
   ForecastBasis.observedRange => '${line.evidence.length} events',
 };
+
+/// The one-line plain-words statement of what a line's number rests on and
+/// which question it answered — "2 per event, from 5 events" vs
+/// "0.4 per person, from 5 events" — or the cold-start equivalent. Null only
+/// when there is nothing to explain (no number at all).
+///
+/// The per-person rate is derived from the STORED snapshot numbers
+/// (`expectedUse ÷ upcomingExposure`), so it always agrees with the number
+/// beside it — including after the sell-out adjustment, which a re-median of
+/// the raw evidence would not.
+String? basisExplanation(
+  ForecastLineView line, {
+  required int upcomingExposure,
+}) {
+  final n = line.evidence.length;
+  final events = n == 1 ? '1 event' : '$n events';
+  switch (line.basis) {
+    case ForecastBasis.singleEvent || ForecastBasis.observedRange:
+      final expected = line.expectedUseMicros;
+      if (expected == null) return null;
+      if (line.demandBasis == DemandBasis.perEvent) {
+        return '${formatMicros(expected)} per event, from $events';
+      }
+      if (upcomingExposure <= 0) return null;
+      return '${formatMicros(expected ~/ upcomingExposure)} per person, '
+          'from $events';
+    case ForecastBasis.perEventBaseline:
+      final usual = line.baselinePerEventMicros;
+      if (usual == null) return null;
+      return '${formatMicros(usual)} per event — your usual amount, '
+          'nothing confirmed yet';
+    case ForecastBasis.servesBaseline:
+      if (line.baselineServesPerUnitMicros case final serves?) {
+        return '1 serves ${formatServesPerUnit(serves)} — estimate, '
+            'nothing confirmed yet';
+      }
+      if ((line.baselinePerPersonNumerator, line.baselinePerPersonDenominator)
+          case (final numerator?, final denominator?)) {
+        return '${formatPerPersonRatio(numerator, denominator)} — estimate, '
+            'nothing confirmed yet';
+      }
+      return null;
+    case ForecastBasis.insufficientData:
+      return null;
+  }
+}
 
 /// How this line's sell-out days were treated, or null when none sold out.
 ///

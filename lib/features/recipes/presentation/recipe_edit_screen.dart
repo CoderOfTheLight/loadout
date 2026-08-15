@@ -8,6 +8,13 @@
 /// (`RecipeService.createRecipe` / `reviseRecipe`; the validator runs
 /// `assertFlat` / `detectCycles` and enforces one live recipe per output
 /// item).
+///
+/// Two proposal rules live here too: "Paste ingredients" opens the review
+/// sheet (`ingredient_paste_sheet.dart`) whose confirmed rows are appended
+/// as ordinary ingredient rows — nothing saves until this form is saved —
+/// and sales-table-folder items (`recipe_catalog_filters.dart`) never
+/// appear in the output or ingredient pickers: no recipe makes or consumes
+/// a CD.
 library;
 
 import 'package:flutter/material.dart';
@@ -27,6 +34,8 @@ import '../../catalog/application/catalog_service.dart';
 import '../../catalog/domain/item.dart';
 import '../application/recipe_service.dart';
 import '../domain/recipe_drafts.dart';
+import 'ingredient_paste_sheet.dart';
+import 'recipe_catalog_filters.dart';
 
 /// Canonical (const, so family-cached) picker filter. Archived items are
 /// included so a prefilled line whose ingredient was archived since stays
@@ -159,7 +168,10 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
       }
       _prefillFrom(value);
     }
-    if (items.valueOrNull == null) {
+    // Gated alongside the catalog so a late folder emission can never flash
+    // sales-table items into a picker.
+    final salesFolderIds = ref.watch(salesTableFolderIdsProvider);
+    if (items.valueOrNull == null || salesFolderIds == null) {
       return Scaffold(
         appBar: AppBar(title: title),
         body: items.hasError
@@ -170,9 +182,14 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
     final itemsById = <String, Item>{
       for (final summary in items.value!) summary.item.id.value: summary.item,
     };
+    // Sales-table-folder items are not offered at all — recipes never make
+    // or consume them. (A prefilled line referencing one stays renderable
+    // via the current-value fallback below and is flagged inline.)
     final liveItems = [
       for (final summary in items.value!)
-        if (!summary.item.isArchived) summary.item,
+        if (!summary.item.isArchived &&
+            !salesFolderIds.contains(summary.item.folderId?.value))
+          summary.item,
     ];
     // THE reported dead end: every picker on this form is built from the
     // catalog, so an empty catalog turns the whole form into dropdowns that
@@ -264,8 +281,17 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
                       ],
                       onChanged: (value) =>
                           setState(() => _outputItemId = value),
-                      validator: (value) =>
-                          value == null ? 'Choose the output item' : null,
+                      validator: (value) {
+                        if (value == null) return 'Choose the output item';
+                        // Unreachable through the picker (sales items are
+                        // not listed); defends a stale prefill.
+                        if (salesFolderIds.contains(
+                          itemsById[value]?.folderId?.value,
+                        )) {
+                          return 'This is on the sales table';
+                        }
+                        return null;
+                      },
                     ),
                   const SizedBox(height: 16),
                   TextFormField(
@@ -331,6 +357,7 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
                       index,
                       itemsById: itemsById,
                       liveItems: liveItems,
+                      salesFolderIds: salesFolderIds,
                     ),
                   ),
                   if (_showLinesError && _rows.isEmpty)
@@ -354,17 +381,26 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
                       ),
                     ),
                   const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: OutlinedButton.icon(
-                      key: const Key('add-ingredient'),
-                      onPressed: () => setState(() {
-                        _rows.add(_newRow());
-                        _showLinesError = false;
-                      }),
-                      icon: const Icon(Icons.add),
-                      label: const Text('Add ingredient'),
-                    ),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        key: const Key('add-ingredient'),
+                        onPressed: () => setState(() {
+                          _rows.add(_newRow());
+                          _showLinesError = false;
+                        }),
+                        icon: const Icon(Icons.add),
+                        label: const Text('Add ingredient'),
+                      ),
+                      OutlinedButton.icon(
+                        key: const Key('paste-ingredients'),
+                        onPressed: _pasteIngredients,
+                        icon: const Icon(Icons.content_paste_outlined),
+                        label: const Text('Paste ingredients'),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 24),
                   TextFormField(
@@ -429,11 +465,34 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
     }
   }
 
+  /// The confirmed rows from the paste sheet, appended as ordinary
+  /// ingredient rows. A single pristine empty starter row is replaced, not
+  /// kept as noise. New items were already created by the sheet on confirm;
+  /// the recipe itself still saves only via the Save button.
+  Future<void> _pasteIngredients() async {
+    final added = await showIngredientPasteSheet(context);
+    if (added == null || added.isEmpty || !mounted) return;
+    setState(() {
+      if (_rows.length == 1 &&
+          _rows.first.itemId == null &&
+          _rows.first.quantityController.text.trim().isEmpty) {
+        _rows.removeAt(0).dispose();
+      }
+      for (final entry in added) {
+        _rows.add(
+          _newRow(itemId: entry.itemId, quantity: entry.quantityPerBatch),
+        );
+      }
+      _showLinesError = false;
+    });
+  }
+
   Widget _buildIngredientRow(
     BuildContext context,
     int index, {
     required Map<String, Item> itemsById,
     required List<Item> liveItems,
+    required Set<String> salesFolderIds,
   }) {
     final row = _rows[index];
     // Options: live items except the output item — plus the row's current
@@ -535,6 +594,11 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
                     .take(_rows.indexOf(row))
                     .any((other) => other.itemId == value)) {
                   return 'Already in this recipe';
+                }
+                if (salesFolderIds.contains(
+                  itemsById[value]?.folderId?.value,
+                )) {
+                  return 'This is on the sales table';
                 }
                 if (itemsById[value]?.isArchived ?? false) {
                   return 'This item is archived';

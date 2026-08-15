@@ -294,7 +294,7 @@ void main() {
       );
       expect(
         canonicalInputs(withoutField),
-        'direct_median|2|balanced|100|12\nI1|1000000|0|0',
+        'direct_median|3|balanced|100|12\nI1|1000000|0|0',
       );
       const withField = SnapshotInputs(
         policy: PlanningPolicy.balanced,
@@ -312,7 +312,7 @@ void main() {
       );
       expect(
         canonicalInputs(withField),
-        'direct_median|2|balanced|100|12\nI1|1000000|0|0|s=4000000',
+        'direct_median|3|balanced|100|12\nI1|1000000|0|0|s=4000000',
       );
       expect(
         computeInputsHash(withField) == computeInputsHash(withoutField),

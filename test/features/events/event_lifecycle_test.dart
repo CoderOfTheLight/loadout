@@ -44,7 +44,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Tortillas'));
     await tester.pump();
-    await tester.tap(find.text('Done'));
+    // The rebuilt picker's pinned tally doubles as the Done button.
+    await tester.tap(find.text('1 item picked · Done'));
     await tester.pumpAndSettle();
     expect(find.widgetWithText(InputChip, 'Tortillas'), findsOneWidget);
 

@@ -6,6 +6,7 @@ library;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:loadout/core/ids.dart';
+import 'package:loadout/features/catalog/domain/demand_basis.dart';
 import 'package:loadout/features/forecasting/domain/forecast_engine.dart';
 import 'package:loadout/features/forecasting/domain/snapshot.dart';
 import 'package:loadout/features/forecasting/domain/snapshot_inputs.dart';
@@ -73,27 +74,58 @@ void main() {
     test('golden vector: fixed inputs → fixed 64-hex digest', () {
       // Recomputed independently (python hashlib) over the §6.6 encoding.
       // Moved with the method version: v2 treats sell-out days as a lower
-      // bound, so these inputs produce different outputs than v1 did and the
-      // hash has to say so.
+      // bound, v3 forecasts per_event items from per-event usage — each
+      // change produces different outputs from the same inputs and the hash
+      // has to say so.
       expect(
         computeInputsHash(inputs()),
-        'e38015c3f3ae5392a50a291f5b601f7e3cfb2c7e13afb5fc160155430fbf85e0',
+        '33b72f6caa68d613a5ab49b0ec2dfc11b1c2af88bc63183ed3211ede67a4ea48',
       );
     });
 
     test('the encoding is tagged with the current method version', () {
-      expect(forecastMethodVersion, 2);
-      expect(canonicalInputs(inputs()), startsWith('direct_median|2|'));
+      // v3: per_event items are forecast from the median of per-event usage.
+      expect(forecastMethodVersion, 3);
+      expect(canonicalInputs(inputs()), startsWith('direct_median|3|'));
     });
 
     test('canonical text matches the §6.6 contract exactly', () {
       expect(
         canonicalInputs(inputs()),
-        'direct_median|2|balanced|150|12'
+        'direct_median|3|balanced|150|12'
         '\n${pad('ITEMA')}|1000000|5000000|0'
         '\n${pad('ITEMB')}|12000000|-2500000|0'
         ';${pad('CLOSEB1')}:120:30000000:1:0'
         ';${pad('CLOSEB2')}:90:22000000:0:1',
+      );
+    });
+
+    test('v3 fields are appended only when material, in fixed order', () {
+      final line = SnapshotLineInput(
+        itemId: pad('ITEMA'),
+        packSizeMicros: 1000000,
+        onHandMicros: 0,
+        demandBasis: DemandBasis.perEvent,
+        perEventBaselineMicros: 2000000,
+        evidence: const [],
+      );
+      expect(
+        canonicalInputs(inputs(lines: [line])),
+        'direct_median|3|balanced|150|12'
+        '\n${pad('ITEMA')}|1000000|0|0|b=per_event|pe=2000000',
+      );
+      final ratioLine = SnapshotLineInput(
+        itemId: pad('ITEMA'),
+        packSizeMicros: 1000000,
+        onHandMicros: 0,
+        perPersonNumerator: 3,
+        perPersonDenominator: 1,
+        evidence: const [],
+      );
+      expect(
+        canonicalInputs(inputs(lines: [ratioLine])),
+        'direct_median|3|balanced|150|12'
+        '\n${pad('ITEMA')}|1000000|0|0|r=3/1',
       );
     });
 
@@ -162,6 +194,44 @@ void main() {
           lines: [
             lineA(),
             lineB(evidenceRows: [evidence(approximate: true)]),
+          ],
+        ),
+        'demand basis (v3)': inputs(
+          lines: [
+            SnapshotLineInput(
+              itemId: pad('ITEMA'),
+              packSizeMicros: 1000000,
+              onHandMicros: 5000000,
+              demandBasis: DemandBasis.perEvent,
+              evidence: const [],
+            ),
+            lineB(),
+          ],
+        ),
+        'per-event baseline (v3)': inputs(
+          lines: [
+            SnapshotLineInput(
+              itemId: pad('ITEMA'),
+              packSizeMicros: 1000000,
+              onHandMicros: 5000000,
+              demandBasis: DemandBasis.perEvent,
+              perEventBaselineMicros: 2000000,
+              evidence: const [],
+            ),
+            lineB(),
+          ],
+        ),
+        'per-person ratio (v3)': inputs(
+          lines: [
+            SnapshotLineInput(
+              itemId: pad('ITEMA'),
+              packSizeMicros: 1000000,
+              onHandMicros: 5000000,
+              perPersonNumerator: 3,
+              perPersonDenominator: 1,
+              evidence: const [],
+            ),
+            lineB(),
           ],
         ),
       };

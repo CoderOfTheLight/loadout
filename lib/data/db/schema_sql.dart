@@ -16,8 +16,20 @@ const schemaV1Indices = <String>[
   'CREATE INDEX idx_overrides_snapshot ON forecast_overrides (snapshot_id, item_id, id)',
 ];
 
+/// v3 (folders): run by onCreate on fresh databases and by the `from < 3`
+/// onUpgrade block on migrated ones — the same statements either way, so a
+/// migrated phone ends up with exactly the fresh-install indices.
+const schemaV3Indices = <String>[
+  'CREATE UNIQUE INDEX uidx_folders_name_live ON folders (lower(name)) '
+      'WHERE archived_at_micros IS NULL',
+  'CREATE INDEX idx_items_folder ON items (folder_id) '
+      'WHERE folder_id IS NOT NULL',
+];
+
 /// Belt-and-braces append-only enforcement (ADR 0001: triggers forbid, never
 /// compute). The Dart layer never issues UPDATE/DELETE on these tables.
+/// `folders` is deliberately absent: folders are master data like items —
+/// renameable, reorderable, archivable in place through the command path.
 const appendOnlyTables = [
   'inventory_movements',
   'event_closeouts',

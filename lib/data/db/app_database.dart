@@ -5,6 +5,7 @@ import '../../core/ids.dart';
 import 'daos/closeout_dao.dart';
 import 'daos/command_dao.dart';
 import 'daos/event_dao.dart';
+import 'daos/folder_dao.dart';
 import 'daos/forecast_dao.dart';
 import 'daos/item_dao.dart';
 import 'daos/ledger_dao.dart';
@@ -25,6 +26,7 @@ const String seedAppVersion = '1.0.0+1';
     WorkspaceMeta,
     Settings,
     Commands,
+    Folders,
     Items,
     Events,
     EventItems,
@@ -45,6 +47,7 @@ const String seedAppVersion = '1.0.0+1';
     EventDao,
     CloseoutDao,
     ItemDao,
+    FolderDao,
     RecipeDao,
     ForecastDao,
     CommandDao,
@@ -59,7 +62,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(NativeDatabase super.executor);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -71,16 +74,24 @@ class AppDatabase extends _$AppDatabase {
       for (final sql in schemaV1Triggers) {
         await customStatement(sql);
       }
+      for (final sql in schemaV3Indices) {
+        await customStatement(sql);
+      }
       await _seedV1(); // same transaction
+      await _seedStarterFolders(); // fresh workspaces only — see below
     },
     onUpgrade: (m, from, to) async {
-      // Stepwise, additive only: every block is ALTER TABLE ... ADD COLUMN
-      // on a nullable column, so existing rows keep every byte they had and
-      // no append-only table is rewritten. Before any real onUpgrade,
-      // bootstrap makes a plain file copy of the (already
+      // Stepwise, additive only: every block is CREATE TABLE or ALTER TABLE
+      // ... ADD COLUMN on a nullable column, so existing rows keep every
+      // byte they had and no append-only table is rewritten. Before any real
+      // onUpgrade, bootstrap makes a plain file copy of the (already
       // device-key-encrypted) db to db/pre-migration-v<from>.db; deleted on
       // success. No passphrase involved.
-      if (from < 2) {
+      //
+      // Each block checks `to` as well as `from`: production always upgrades
+      // to the latest version, but the SchemaVerifier migration tests stop
+      // at intermediate versions and must get exactly that version's schema.
+      if (from < 2 && to >= 2) {
         // v2: an item is NAME + HOW MANY + optionally HOW MANY ONE SERVES.
         // `unit`/`pack_size_micros` keep their v1 values on existing rows
         // and stop being surfaced; new items are always 'each' / one unit.
@@ -98,6 +109,33 @@ class AppDatabase extends _$AppDatabase {
         await m.addColumn(forecastLines, forecastLines.baselinePlannedMicros);
         await m.addColumn(forecastLines, forecastLines.baselineLoadMicros);
         await m.addColumn(forecastLines, forecastLines.baselineAcquireMicros);
+      }
+      if (from < 3 && to >= 3) {
+        // v3: folders + the one-question demand basis. The folders table is
+        // new (created empty — a MIGRATED workspace gets folders from the
+        // owner's tidy-up flow, never from migration); every items /
+        // forecast_lines addition is a nullable column whose NULL means
+        // "unanswered": unfiled, inherit, no baseline. Nothing moves, no
+        // number changes, until the owner acts.
+        await m.createTable(folders);
+        await m.addColumn(items, items.folderId);
+        await m.addColumn(items, items.demandBasis);
+        await m.addColumn(items, items.perEventBaselineMicros);
+        await m.addColumn(items, items.perPersonNumerator);
+        await m.addColumn(items, items.perPersonDenominator);
+        await m.addColumn(forecastLines, forecastLines.demandBasis);
+        await m.addColumn(forecastLines, forecastLines.baselinePerEventMicros);
+        await m.addColumn(
+          forecastLines,
+          forecastLines.baselinePerPersonNumerator,
+        );
+        await m.addColumn(
+          forecastLines,
+          forecastLines.baselinePerPersonDenominator,
+        );
+        for (final sql in schemaV3Indices) {
+          await customStatement(sql);
+        }
       }
     },
     beforeOpen: (details) async {
@@ -129,6 +167,45 @@ class AppDatabase extends _$AppDatabase {
         SettingsCompanion.insert(
           key: entry.key,
           value: entry.value,
+          updatedAtMicros: nowMicros,
+        ),
+      );
+    }
+  }
+
+  /// The eight starter folders, in packing order, with the answer each one
+  /// gives to "does how much you bring depend on how many people come?".
+  /// All renameable; the wording fits the kitchen AND the sales table.
+  /// Disposables stay per_person on purpose — plates and napkins scale with
+  /// the crowd; it is cleaning and setup gear that does not.
+  static const starterFolders = <(String, String)>[
+    ('Cooked on site', 'per_person'),
+    ('Bought ready to serve', 'per_person'),
+    ('Fresh produce', 'per_person'),
+    ('Bakery', 'per_person'),
+    ('Drinks', 'per_person'),
+    ('Disposables', 'per_person'),
+    ('Cleaning & setup', 'per_event'),
+    ('Sales table', 'per_person'),
+  ];
+
+  /// Runs ONLY from onCreate: fresh workspaces start with the eight starter
+  /// folders. Migrated workspaces never pass through here — their folders
+  /// are created by the owner's tidy-up flow, and until then every existing
+  /// item is Unfiled and forecasts are byte-identical to v2.
+  /// `always_planned` starts false everywhere: "comes along to every event"
+  /// is the owner's call, suggested on screen, never assumed.
+  Future<void> _seedStarterFolders() async {
+    final nowMicros = DateTime.now().toUtc().microsecondsSinceEpoch;
+    for (var i = 0; i < starterFolders.length; i++) {
+      final (name, basis) = starterFolders[i];
+      await into(folders).insert(
+        FoldersCompanion.insert(
+          id: newUlid(),
+          name: name,
+          position: i,
+          demandBasis: basis,
+          createdAtMicros: nowMicros,
           updatedAtMicros: nowMicros,
         ),
       );

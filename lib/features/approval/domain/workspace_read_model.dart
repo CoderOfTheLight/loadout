@@ -1,4 +1,5 @@
 import '../../../core/units.dart';
+import '../../catalog/domain/demand_basis.dart';
 import '../../events/domain/event.dart';
 import '../../inventory/domain/movement.dart';
 import '../../recipes/domain/recipe_graph.dart';
@@ -13,6 +14,16 @@ abstract interface class WorkspaceReadModel {
   /// True when a LIVE item other than [excludingItemId] already uses
   /// [name] case-insensitively (partial index uidx_items_name_live).
   bool isItemNameTakenLive(String name, {String? excludingItemId});
+
+  /// Folder by id, or null when unknown.
+  FolderState? folder(String id);
+
+  /// Every live folder in position order (id as tiebreak).
+  List<FolderState> liveFolders();
+
+  /// True when a LIVE folder other than [excludingFolderId] already uses
+  /// [name] case-insensitively (partial index uidx_folders_name_live).
+  bool isFolderNameTakenLive(String name, {String? excludingFolderId});
 
   /// Event by id, or null when unknown.
   EventState? event(String id);
@@ -50,6 +61,9 @@ final class ItemState {
     required this.packSizeMicros,
     required this.archived,
     required this.hasMovements,
+    this.servesPerUnitMicros,
+    this.perPersonNumerator,
+    this.perPersonDenominator,
   });
 
   final String id;
@@ -60,6 +74,32 @@ final class ItemState {
 
   /// True once the item has any movement — locks the unit (§4).
   final bool hasMovements;
+
+  /// Stored cold-start answers, loaded so UpdateItem can validate the
+  /// POST state: an item may never end up with both "1 serves N" and
+  /// "N per person" at once.
+  final int? servesPerUnitMicros;
+  final int? perPersonNumerator;
+  final int? perPersonDenominator;
+}
+
+/// One folder as the validator and applier see it.
+final class FolderState {
+  const FolderState({
+    required this.id,
+    required this.name,
+    required this.position,
+    required this.demandBasis,
+    required this.alwaysPlanned,
+    required this.archived,
+  });
+
+  final String id;
+  final String name;
+  final int position;
+  final DemandBasis demandBasis;
+  final bool alwaysPlanned;
+  final bool archived;
 }
 
 final class EventState {

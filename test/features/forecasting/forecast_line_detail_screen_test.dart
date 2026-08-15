@@ -63,11 +63,11 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     await tester.scrollUntilVisible(
-      find.text('direct_median · v2'),
+      find.text('direct_median · v3'),
       200,
       scrollable: find.byType(Scrollable).first,
     );
-    expect(find.text('direct_median · v2'), findsOneWidget);
+    expect(find.text('direct_median · v3'), findsOneWidget);
   });
 
   testWidgets('the assumptions say what was done about days that ran out', (
@@ -154,6 +154,7 @@ void main() {
       find.widgetWithText(TextFormField, 'Reason (required)'),
       'ab',
     );
+    await tester.ensureVisible(find.text('Apply override'));
     await tester.tap(find.text('Apply override'));
     await tester.pumpAndSettle();
     expect(find.text('Give a reason (at least 3 characters)'), findsOneWidget);
@@ -164,6 +165,7 @@ void main() {
       find.widgetWithText(TextFormField, 'Reason (required)'),
       'roadworks reroute foot traffic',
     );
+    await tester.ensureVisible(find.text('Apply override'));
     await tester.tap(find.text('Apply override'));
     await tester.pumpAndSettle();
     var rows = await overrideRows();

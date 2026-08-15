@@ -1,7 +1,9 @@
 import '../../../core/ids.dart';
 import '../../../core/quantity.dart';
 import '../../../core/time.dart';
+import '../../../core/unit_ratio.dart';
 import '../../../core/units.dart';
+import '../../catalog/domain/demand_basis.dart';
 import '../../forecasting/domain/snapshot.dart';
 import '../../inventory/domain/inventory_ledger.dart';
 import '../../recipes/domain/recipe_drafts.dart';
@@ -24,6 +26,10 @@ final class CreateItem extends WorkspaceCommand {
     this.unit = ItemUnit.each,
     this.packSize = Quantity.one,
     this.servesPerUnit,
+    this.perPersonRatio,
+    this.folderId,
+    this.demandBasis,
+    this.perEventBaseline,
     this.openingCount,
     this.category,
     this.notes = '',
@@ -37,8 +43,21 @@ final class CreateItem extends WorkspaceCommand {
   /// Defaulted to one whole unit — "round to whole things".
   final Quantity packSize;
 
-  /// How many people one unit serves; null when unknown.
+  /// How many people one unit serves; null when unknown. At most one of
+  /// this and [perPersonRatio] may be set (two phrasings of one question).
   final Quantity? servesPerUnit;
+
+  /// The flipped "N per person" exact ratio; null when unknown.
+  final UnitRatio? perPersonRatio;
+
+  /// v3: the folder to file the item under; null = Unfiled.
+  final FolderId? folderId;
+
+  /// v3: per-item override of the folder's demand basis; null inherits.
+  final DemandBasis? demandBasis;
+
+  /// v3: "how many do you usually bring?" — per-event cold-start baseline.
+  final Quantity? perEventBaseline;
 
   /// How many the owner has right now. Written as an `adjust` movement in
   /// the SAME transaction as the item row, so an item can never exist
@@ -57,6 +76,14 @@ final class UpdateItem extends WorkspaceCommand {
     this.packSize,
     this.servesPerUnit,
     this.clearServesPerUnit = false,
+    this.perPersonRatio,
+    this.clearPerPersonRatio = false,
+    this.folderId,
+    this.clearFolder = false,
+    this.demandBasis,
+    this.clearDemandBasis = false,
+    this.perEventBaseline,
+    this.clearPerEventBaseline = false,
     this.category,
     this.notes,
   });
@@ -74,6 +101,23 @@ final class UpdateItem extends WorkspaceCommand {
 
   /// Erases `serves_per_unit_micros`. Ignored when [servesPerUnit] is set.
   final bool clearServesPerUnit;
+
+  /// Null means "leave alone"; use [clearPerPersonRatio] to erase it. The
+  /// validator rejects a post-state carrying both a ratio and a serves.
+  final UnitRatio? perPersonRatio;
+  final bool clearPerPersonRatio;
+
+  /// Null means "leave alone"; [clearFolder] moves the item to Unfiled.
+  final FolderId? folderId;
+  final bool clearFolder;
+
+  /// Null means "leave alone"; [clearDemandBasis] reverts to inheriting.
+  final DemandBasis? demandBasis;
+  final bool clearDemandBasis;
+
+  /// Null means "leave alone"; use [clearPerEventBaseline] to erase it.
+  final Quantity? perEventBaseline;
+  final bool clearPerEventBaseline;
   final String? category;
   final String? notes;
 }
@@ -83,6 +127,88 @@ final class SetItemArchived extends WorkspaceCommand {
 
   final ItemId itemId;
   final bool archived;
+}
+
+// -------------------------------------------------------------- folders
+// Master data like items: plain in-place updates through the single write
+// path. Renames can never orphan an item (items reference folders by FK,
+// not by text); archiving moves a folder's items to Unfiled, never deletes.
+
+final class CreateFolder extends WorkspaceCommand {
+  const CreateFolder({
+    required this.name,
+    required this.demandBasis,
+    this.alwaysPlanned = false,
+  });
+
+  final String name;
+
+  /// The folder's default answer to the one question.
+  final DemandBasis demandBasis;
+
+  /// "Comes along to every event": live items pre-added on event creation.
+  final bool alwaysPlanned;
+}
+
+final class RenameFolder extends WorkspaceCommand {
+  const RenameFolder({required this.folderId, required this.name});
+
+  final FolderId folderId;
+  final String name;
+}
+
+final class ReorderFolders extends WorkspaceCommand {
+  const ReorderFolders(this.orderedFolderIds);
+
+  /// EVERY live folder exactly once, in the owner's new packing order —
+  /// positions become the list indices. A partial list is rejected: a
+  /// reorder that silently forgets folders would scramble the sections.
+  final List<FolderId> orderedFolderIds;
+}
+
+final class ArchiveFolder extends WorkspaceCommand {
+  const ArchiveFolder(this.folderId);
+
+  /// One-way: archiving stamps the folder and moves its items to Unfiled in
+  /// the same transaction. Nothing is deleted; wanting it back means
+  /// creating a folder with the same name (the live-name index frees it).
+  final FolderId folderId;
+}
+
+final class SetFolderBasis extends WorkspaceCommand {
+  const SetFolderBasis({
+    required this.folderId,
+    this.demandBasis,
+    this.alwaysPlanned,
+  });
+
+  final FolderId folderId;
+
+  /// Null leaves the basis alone. At least one field must be set.
+  final DemandBasis? demandBasis;
+
+  /// Null leaves the flag alone.
+  final bool? alwaysPlanned;
+}
+
+final class MoveItemToFolder extends WorkspaceCommand {
+  const MoveItemToFolder({required this.itemId, this.folderId});
+
+  final ItemId itemId;
+
+  /// Null = move to Unfiled.
+  final FolderId? folderId;
+}
+
+/// Batch move for the tidy-up screen: one command, one transaction, one
+/// audit row for "file these 12 under Drinks".
+final class MoveItemsToFolder extends WorkspaceCommand {
+  const MoveItemsToFolder({required this.itemIds, this.folderId});
+
+  final List<ItemId> itemIds;
+
+  /// Null = move to Unfiled.
+  final FolderId? folderId;
 }
 
 // -------------------------------------------------------------- events

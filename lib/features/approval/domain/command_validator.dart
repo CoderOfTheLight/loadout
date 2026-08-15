@@ -1,6 +1,8 @@
 import '../../../core/errors.dart';
 import '../../../core/quantity.dart';
 import '../../../core/result.dart';
+import '../../../core/unit_ratio.dart';
+import '../../catalog/domain/demand_basis.dart';
 import '../../events/domain/event.dart';
 import '../../forecasting/domain/forecast_engine.dart';
 import '../../forecasting/domain/snapshot.dart';
@@ -24,6 +26,14 @@ const int maxDepletionMicros = 1000000000000;
 /// [maxExposure] and [maxDepletionMicros] mirror their CHECKs — SQL stays
 /// authoritative, this is the Dart-side message.
 const int maxServesPerUnitMicros = 10000000000;
+
+/// Cap for `items.per_event_baseline_micros` (v3): the 1e12-micros closeout
+/// depletion envelope. Mirrors `perEventBaselineCapMicros` in the schema.
+const int maxPerEventBaselineMicros = 1000000000000;
+
+/// Cap for each part of the flipped "N per person" ratio (v3). Mirrors
+/// `perPersonRatioPartCap` in the schema.
+const int maxPerPersonRatioPart = 10000;
 
 /// Proof token: only [CommandValidator] can construct one, so a
 /// CommandApplier can require validated input by type.
@@ -50,6 +60,13 @@ final class CommandValidator {
       CreateItem() => _createItem(command, state),
       UpdateItem() => _updateItem(command, state),
       SetItemArchived() => _setItemArchived(command, state),
+      CreateFolder() => _createFolder(command, state),
+      RenameFolder() => _renameFolder(command, state),
+      ReorderFolders() => _reorderFolders(command, state),
+      ArchiveFolder() => _archiveFolder(command, state),
+      SetFolderBasis() => _setFolderBasis(command, state),
+      MoveItemToFolder() => _moveItemToFolder(command, state),
+      MoveItemsToFolder() => _moveItemsToFolder(command, state),
       CreateEvent() => _createEvent(command, state),
       UpdateEvent() => _updateEvent(command, state),
       ActivateEvent() => _activateEvent(command, state),
@@ -75,9 +92,18 @@ final class CommandValidator {
       name: c.name,
       packSize: c.packSize,
       servesPerUnit: c.servesPerUnit,
+      perPersonRatio: c.perPersonRatio,
+      perEventBaseline: c.perEventBaseline,
       category: c.category,
     );
     if (fields != null) return fields;
+    if (c.servesPerUnit != null && c.perPersonRatio != null) {
+      return const ValidationError(
+        'answer either "1 serves N" or "N per person", not both',
+      );
+    }
+    final folder = _liveFolderRef(c.folderId as String?, state);
+    if (folder != null) return folder;
     if (state.isItemNameTakenLive(c.name.trim())) {
       return const ValidationError('a live item with this name already exists');
     }
@@ -100,9 +126,26 @@ final class CommandValidator {
       name: c.name,
       packSize: c.packSize,
       servesPerUnit: c.servesPerUnit,
+      perPersonRatio: c.perPersonRatio,
+      perEventBaseline: c.perEventBaseline,
       category: c.category,
     );
     if (fields != null) return fields;
+    // The POST state may never carry both cold-start phrasings at once —
+    // checked against the stored values, not just this command's fields.
+    final servesAfter =
+        c.servesPerUnit?.micros ??
+        (c.clearServesPerUnit ? null : item.servesPerUnitMicros);
+    final ratioAfter =
+        c.perPersonRatio?.numerator ??
+        (c.clearPerPersonRatio ? null : item.perPersonNumerator);
+    if (servesAfter != null && ratioAfter != null) {
+      return const ValidationError(
+        'answer either "1 serves N" or "N per person", not both',
+      );
+    }
+    final folder = _liveFolderRef(c.folderId as String?, state);
+    if (folder != null) return folder;
     if (c.name != null &&
         state.isItemNameTakenLive(c.name!.trim(), excludingItemId: item.id)) {
       return const ValidationError('a live item with this name already exists');
@@ -133,6 +176,8 @@ final class CommandValidator {
     String? name,
     Quantity? packSize,
     Quantity? servesPerUnit,
+    UnitRatio? perPersonRatio,
+    Quantity? perEventBaseline,
     String? category,
   }) {
     if (name != null && (name.trim().isEmpty || name.trim().length > 120)) {
@@ -154,12 +199,147 @@ final class CommandValidator {
         );
       }
     }
+    if (perPersonRatio != null &&
+        (perPersonRatio.numerator > maxPerPersonRatioPart ||
+            perPersonRatio.denominator > maxPerPersonRatioPart)) {
+      // UnitRatio construction already refuses non-positive parts.
+      return const ValidationError(
+        '"N per person" parts must be at most $maxPerPersonRatioPart',
+      );
+    }
+    if (perEventBaseline != null) {
+      if (perEventBaseline.micros <= 0) {
+        return const ValidationError(
+          'how many you usually bring must be greater than zero',
+        );
+      }
+      if (perEventBaseline.micros > maxPerEventBaselineMicros) {
+        return const ValidationError(
+          'how many you usually bring exceeds the 1e12-micros envelope cap',
+        );
+      }
+    }
     if (category != null &&
         (category.trim().isEmpty || category.trim().length > 60)) {
       return const ValidationError('category must be 1-60 characters');
     }
     return null;
   }
+
+  /// Null is legal (Unfiled); a non-null folder must exist and be live.
+  DomainError? _liveFolderRef(String? folderId, WorkspaceReadModel state) {
+    if (folderId == null) return null;
+    final folder = state.folder(folderId);
+    if (folder == null) return const NotFoundError('folder not found');
+    if (folder.archived) {
+      return const ValidationError('folder is archived');
+    }
+    return null;
+  }
+
+  // ------------------------------------------------------------ folders
+
+  DomainError? _createFolder(CreateFolder c, WorkspaceReadModel state) {
+    final name = _folderName(c.name);
+    if (name != null) return name;
+    if (state.isFolderNameTakenLive(c.name.trim())) {
+      return const ValidationError(
+        'a live folder with this name already exists',
+      );
+    }
+    return null;
+  }
+
+  DomainError? _renameFolder(RenameFolder c, WorkspaceReadModel state) {
+    final folder = state.folder(c.folderId as String);
+    if (folder == null) return const NotFoundError('folder not found');
+    if (folder.archived) {
+      return const ValidationError('folder is archived');
+    }
+    final name = _folderName(c.name);
+    if (name != null) return name;
+    if (state.isFolderNameTakenLive(
+      c.name.trim(),
+      excludingFolderId: folder.id,
+    )) {
+      return const ValidationError(
+        'a live folder with this name already exists',
+      );
+    }
+    return null;
+  }
+
+  DomainError? _reorderFolders(ReorderFolders c, WorkspaceReadModel state) {
+    final ids = [for (final id in c.orderedFolderIds) id as String];
+    if (ids.toSet().length != ids.length) {
+      return const ValidationError('reordered folders must be distinct');
+    }
+    final live = {for (final folder in state.liveFolders()) folder.id};
+    if (ids.toSet().length != live.length || !live.containsAll(ids)) {
+      return const ValidationError(
+        'a reorder must list every live folder exactly once',
+      );
+    }
+    return null;
+  }
+
+  DomainError? _archiveFolder(ArchiveFolder c, WorkspaceReadModel state) {
+    final folder = state.folder(c.folderId as String);
+    if (folder == null) return const NotFoundError('folder not found');
+    if (folder.archived) {
+      return const ValidationError('folder is already archived');
+    }
+    return null;
+  }
+
+  DomainError? _setFolderBasis(SetFolderBasis c, WorkspaceReadModel state) {
+    final folder = state.folder(c.folderId as String);
+    if (folder == null) return const NotFoundError('folder not found');
+    if (folder.archived) {
+      return const ValidationError('folder is archived');
+    }
+    if (c.demandBasis == null && c.alwaysPlanned == null) {
+      return const ValidationError(
+        'set the demand basis, the always-planned flag, or both',
+      );
+    }
+    return null;
+  }
+
+  DomainError? _moveItemToFolder(MoveItemToFolder c, WorkspaceReadModel state) {
+    final item = state.item(c.itemId as String);
+    if (item == null) return const NotFoundError('item not found');
+    if (item.archived) {
+      return const ValidationError('item is archived; unarchive it first');
+    }
+    return _liveFolderRef(c.folderId as String?, state);
+  }
+
+  DomainError? _moveItemsToFolder(
+    MoveItemsToFolder c,
+    WorkspaceReadModel state,
+  ) {
+    if (c.itemIds.isEmpty) {
+      return const ValidationError('a batch move needs at least one item');
+    }
+    final ids = [for (final id in c.itemIds) id as String];
+    if (ids.toSet().length != ids.length) {
+      return const ValidationError('moved items must be distinct');
+    }
+    for (final id in ids) {
+      final item = state.item(id);
+      if (item == null) return const NotFoundError('item not found');
+      if (item.archived) {
+        return const ValidationError('item is archived; unarchive it first');
+      }
+    }
+    return _liveFolderRef(c.folderId as String?, state);
+  }
+
+  DomainError? _folderName(String name) =>
+      name.trim().isEmpty || name.trim().length > 60
+      ? const ValidationError('folder name must be 1-60 characters')
+      : null;
 
   // ------------------------------------------------------------- events
 
@@ -619,23 +799,41 @@ final class CommandValidator {
 
   /// The no-history baseline is all-or-nothing, nonnegative, and legal ONLY
   /// on a line the engine could not forecast — a line with confirmed
-  /// evidence must never carry a guess alongside it.
+  /// evidence must never carry a guess alongside it. v3: the four output
+  /// fields travel with EXACTLY ONE source — serves-per-unit, the "N per
+  /// person" ratio pair, or the per-event usual amount — and the source must
+  /// match the line's demand basis.
   DomainError? _baselineFields(
     ForecastSnapshotLineDraft line, {
     required bool insufficient,
   }) {
-    final parts = [
-      line.baselineServesPerUnitMicros,
+    final ratioHalves = [
+      line.baselinePerPersonNumerator,
+      line.baselinePerPersonDenominator,
+    ].where((v) => v != null).length;
+    if (ratioHalves == 1) {
+      return const ValidationError(
+        'a baseline per-person ratio must set both parts or neither',
+      );
+    }
+    final outputs = [
       line.baselineExpectedUseMicros,
       line.baselinePlannedMicros,
       line.baselineLoadMicros,
       line.baselineAcquireMicros,
     ];
-    final present = parts.where((v) => v != null).length;
-    if (present == 0) return null;
-    if (present != parts.length) {
+    final outputsPresent = outputs.where((v) => v != null).length;
+    final sources = [
+      line.baselineServesPerUnitMicros,
+      line.baselinePerPersonNumerator,
+      line.baselinePerEventMicros,
+    ];
+    final sourcesPresent = sources.where((v) => v != null).length;
+    if (outputsPresent == 0 && sourcesPresent == 0) return null;
+    if (outputsPresent != outputs.length || sourcesPresent != 1) {
       return const ValidationError(
-        'a baseline estimate must set every baseline field or none',
+        'a baseline estimate must set every baseline field or none, with '
+        'exactly one source',
       );
     }
     if (!insufficient) {
@@ -649,11 +847,33 @@ final class CommandValidator {
         'a baseline estimate cannot carry confirmed evidence',
       );
     }
-    final serves = line.baselineServesPerUnitMicros!;
-    if (serves <= 0 || serves > maxServesPerUnitMicros) {
+    final perEventLine = line.demandBasis == DemandBasis.perEvent;
+    final perEventSource = line.baselinePerEventMicros != null;
+    if (perEventLine != perEventSource) {
+      return const ValidationError(
+        'a baseline source must match the line\'s demand basis',
+      );
+    }
+    final serves = line.baselineServesPerUnitMicros;
+    if (serves != null && (serves <= 0 || serves > maxServesPerUnitMicros)) {
       return const ValidationError('baseline serves-per-unit is out of range');
     }
-    for (final value in parts.skip(1)) {
+    final perEvent = line.baselinePerEventMicros;
+    if (perEvent != null &&
+        (perEvent <= 0 || perEvent > maxPerEventBaselineMicros)) {
+      return const ValidationError('baseline per-event amount is out of range');
+    }
+    for (final part in [
+      line.baselinePerPersonNumerator,
+      line.baselinePerPersonDenominator,
+    ]) {
+      if (part != null && (part <= 0 || part > maxPerPersonRatioPart)) {
+        return const ValidationError(
+          'baseline per-person ratio is out of range',
+        );
+      }
+    }
+    for (final value in outputs) {
       if (value! < 0) {
         return const ValidationError('baseline outputs must be nonnegative');
       }

@@ -1,7 +1,9 @@
 import '../../../core/ids.dart';
 import '../../../core/quantity.dart';
 import '../../../core/time.dart';
+import '../../../core/unit_ratio.dart';
 import '../../../core/units.dart';
+import 'demand_basis.dart';
 
 /// Immutable catalog item (design §6.2, mirrors §4 `items`).
 ///
@@ -17,6 +19,10 @@ final class Item {
     this.unit = ItemUnit.each,
     this.packSize = Quantity.one,
     this.servesPerUnit,
+    this.perPersonRatio,
+    this.folderId,
+    this.demandBasis,
+    this.perEventBaseline,
     this.category,
     this.notes = '',
     this.archivedAt,
@@ -36,6 +42,23 @@ final class Item {
   /// the owner never said — then a first-ever event simply gets no estimate.
   /// A planning assumption, never a forecasting label.
   final Quantity? servesPerUnit;
+
+  /// The flipped phrasing: "N per person" ("3 napkins per person"), exact
+  /// integer ratio so 200 people × 3/person is exactly 600. Mutually
+  /// exclusive with [servesPerUnit] — two phrasings of one question.
+  final UnitRatio? perPersonRatio;
+
+  /// The folder this item lives in; null = "Unfiled" (shown last, never
+  /// hidden).
+  final FolderId? folderId;
+
+  /// Per-item override of the folder's demand basis; null inherits. Resolve
+  /// ONLY via [effectiveDemandBasis].
+  final DemandBasis? demandBasis;
+
+  /// "How many do you usually bring?" — the per-event cold-start baseline.
+  /// A planning assumption, never a forecasting label.
+  final Quantity? perEventBaseline;
   final String? category;
   final String notes;
   final Instant? archivedAt;
@@ -55,6 +78,10 @@ final class ItemDraft {
   const ItemDraft({
     required this.name,
     this.servesPerUnit,
+    this.perPersonRatio,
+    this.folderId,
+    this.demandBasis,
+    this.perEventBaseline,
     this.unit = ItemUnit.each,
     this.packSize = Quantity.one,
     this.category,
@@ -66,6 +93,19 @@ final class ItemDraft {
   /// Null clears the stored value on update ("I don't know" is a legal
   /// answer, and the form always submits its whole state).
   final Quantity? servesPerUnit;
+
+  /// The flipped "N per person" phrasing; null clears on update. At most one
+  /// of this and [servesPerUnit] may be set.
+  final UnitRatio? perPersonRatio;
+
+  /// Null files the item under "Unfiled" (and clears on update).
+  final String? folderId;
+
+  /// Null inherits the folder's basis (and clears the override on update).
+  final DemandBasis? demandBasis;
+
+  /// "How many do you usually bring?"; null clears on update.
+  final Quantity? perEventBaseline;
   final ItemUnit unit;
   final Quantity packSize;
   final String? category;

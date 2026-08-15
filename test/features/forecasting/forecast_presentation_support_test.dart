@@ -9,6 +9,7 @@ library;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:loadout/core/ids.dart';
+import 'package:loadout/features/catalog/domain/demand_basis.dart';
 import 'package:loadout/features/forecasting/domain/forecast_engine.dart';
 import 'package:loadout/features/forecasting/domain/snapshot.dart';
 import 'package:loadout/features/forecasting/presentation/forecast_presentation_support.dart';
@@ -107,5 +108,111 @@ void main() {
       selloutHandlingNote(blank, methodVersion: forecastMethodVersion),
       isNull,
     );
+  });
+
+  group('basisExplanation says which question the number answered (v3)', () {
+    test('per-event evidence: "2 per event, from 5 events"', () {
+      final line = ForecastLineView(
+        itemId: const ItemId('item'),
+        packSizeMicros: 1000000,
+        onHandMicros: 0,
+        confirmedInboundMicros: 0,
+        demandBasis: DemandBasis.perEvent,
+        expectedUseMicros: 2000000,
+        evidenceGrade: EvidenceGrade.observedRange,
+        evidence: [for (var i = 0; i < 5; i++) day(i, ranOut: false)],
+      );
+      expect(
+        basisExplanation(line, upcomingExposure: 2000),
+        '2 per event, from 5 events',
+      );
+    });
+
+    test('per-person evidence: "0.4 per person, from 5 events"', () {
+      final line = ForecastLineView(
+        itemId: const ItemId('item'),
+        packSizeMicros: 1000000,
+        onHandMicros: 0,
+        confirmedInboundMicros: 0,
+        expectedUseMicros: 80000000, // 80 for 200 people = 0.4 each
+        evidenceGrade: EvidenceGrade.observedRange,
+        evidence: [for (var i = 0; i < 5; i++) day(i, ranOut: false)],
+      );
+      expect(
+        basisExplanation(line, upcomingExposure: 200),
+        '0.4 per person, from 5 events',
+      );
+    });
+
+    test('singular event count reads naturally', () {
+      final line = ForecastLineView(
+        itemId: const ItemId('item'),
+        packSizeMicros: 1000000,
+        onHandMicros: 0,
+        confirmedInboundMicros: 0,
+        demandBasis: DemandBasis.perEvent,
+        expectedUseMicros: 2000000,
+        evidenceGrade: EvidenceGrade.singleEvent,
+        evidence: [day(0, ranOut: false)],
+      );
+      expect(
+        basisExplanation(line, upcomingExposure: 100),
+        '2 per event, from 1 event',
+      );
+    });
+
+    test('cold starts name their assumption and deny confirmation', () {
+      final perEvent = ForecastLineView(
+        itemId: const ItemId('item'),
+        packSizeMicros: 1000000,
+        onHandMicros: 0,
+        confirmedInboundMicros: 0,
+        demandBasis: DemandBasis.perEvent,
+        baselinePerEventMicros: 2000000,
+        baselineExpectedUseMicros: 2000000,
+        baselinePlannedMicros: 2200000,
+        baselineLoadMicros: 3000000,
+        baselineAcquireMicros: 3000000,
+        evidenceGrade: EvidenceGrade.insufficientData,
+        evidence: const [],
+      );
+      expect(perEvent.basis, ForecastBasis.perEventBaseline);
+      expect(
+        basisExplanation(perEvent, upcomingExposure: 2000),
+        '2 per event — your usual amount, nothing confirmed yet',
+      );
+
+      final ratio = ForecastLineView(
+        itemId: const ItemId('item'),
+        packSizeMicros: 1000000,
+        onHandMicros: 0,
+        confirmedInboundMicros: 0,
+        baselinePerPersonNumerator: 3,
+        baselinePerPersonDenominator: 1,
+        baselineExpectedUseMicros: 600000000,
+        baselinePlannedMicros: 660000000,
+        baselineLoadMicros: 660000000,
+        baselineAcquireMicros: 660000000,
+        evidenceGrade: EvidenceGrade.insufficientData,
+        evidence: const [],
+      );
+      expect(ratio.basis, ForecastBasis.servesBaseline);
+      expect(
+        basisExplanation(ratio, upcomingExposure: 200),
+        '3 per person — estimate, nothing confirmed yet',
+      );
+    });
+
+    test('nothing to explain on a truly blank line', () {
+      final blank = ForecastLineView(
+        itemId: const ItemId('item'),
+        packSizeMicros: 1000000,
+        onHandMicros: 0,
+        confirmedInboundMicros: 0,
+        evidenceGrade: EvidenceGrade.insufficientData,
+        evidence: const [],
+      );
+      expect(basisExplanation(blank, upcomingExposure: 100), isNull);
+    });
   });
 }

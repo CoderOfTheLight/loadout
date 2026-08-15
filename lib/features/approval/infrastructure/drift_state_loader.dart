@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 
 import '../../../core/units.dart';
 import '../../../data/db/app_database.dart';
+import '../../catalog/domain/demand_basis.dart';
 import '../../events/domain/event.dart' show EventStatus;
 import '../../inventory/domain/movement.dart' show MovementKind;
 import '../../recipes/domain/recipe_graph.dart';
@@ -13,6 +14,7 @@ import '../domain/workspace_read_model.dart';
 final class PrefetchedState implements WorkspaceReadModel {
   const PrefetchedState({
     this.items = const {},
+    this.folders = const {},
     this.events = const {},
     this.movements = const {},
     this.latestCloseouts = const {},
@@ -25,6 +27,7 @@ final class PrefetchedState implements WorkspaceReadModel {
   });
 
   final Map<String, ItemState> items;
+  final Map<String, FolderState> folders;
   final Map<String, EventState> events;
   final Map<String, MovementState> movements;
 
@@ -50,6 +53,31 @@ final class PrefetchedState implements WorkspaceReadModel {
           !i.archived &&
           i.id != excludingItemId &&
           i.name.toLowerCase() == lower,
+    );
+  }
+
+  @override
+  FolderState? folder(String id) => folders[id];
+
+  @override
+  List<FolderState> liveFolders() {
+    final live = folders.values.where((f) => !f.archived).toList()
+      ..sort(
+        (a, b) => a.position != b.position
+            ? a.position.compareTo(b.position)
+            : a.id.compareTo(b.id),
+      );
+    return live;
+  }
+
+  @override
+  bool isFolderNameTakenLive(String name, {String? excludingFolderId}) {
+    final lower = name.trim().toLowerCase();
+    return folders.values.any(
+      (f) =>
+          !f.archived &&
+          f.id != excludingFolderId &&
+          f.name.toLowerCase() == lower,
     );
   }
 
@@ -102,6 +130,15 @@ final class DriftStateLoader {
     switch (command) {
       case CreateItem() || UpdateItem() || SetItemArchived():
         break;
+      case CreateFolder() ||
+          RenameFolder() ||
+          ReorderFolders() ||
+          ArchiveFolder() ||
+          SetFolderBasis() ||
+          MoveItemToFolder() ||
+          MoveItemsToFolder():
+        // Folders (and items) are always prefetched below.
+        break;
       case CreateEvent():
         break;
       case UpdateEvent():
@@ -139,6 +176,7 @@ final class DriftStateLoader {
 
     return PrefetchedState(
       items: await _loadItems(),
+      folders: await _loadFolders(),
       events: await _loadEvents(eventIds),
       movements: await _loadMovements(movementIds),
       latestCloseouts: await _loadLatestCloseouts(closeoutEventIds),
@@ -170,6 +208,26 @@ final class DriftStateLoader {
           packSizeMicros: row.packSizeMicros,
           archived: row.archivedAtMicros != null,
           hasMovements: withMovements.contains(row.id),
+          servesPerUnitMicros: row.servesPerUnitMicros,
+          perPersonNumerator: row.perPersonNumerator,
+          perPersonDenominator: row.perPersonDenominator,
+        ),
+    };
+  }
+
+  /// Folders are a short managed list; loading them for every command is
+  /// cheaper than deciding when they matter.
+  Future<Map<String, FolderState>> _loadFolders() async {
+    final rows = await _db.select(_db.folders).get();
+    return {
+      for (final row in rows)
+        row.id: FolderState(
+          id: row.id,
+          name: row.name,
+          position: row.position,
+          demandBasis: DemandBasis.fromDb(row.demandBasis),
+          alwaysPlanned: row.alwaysPlanned,
+          archived: row.archivedAtMicros != null,
         ),
     };
   }

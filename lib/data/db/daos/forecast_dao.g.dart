@@ -8,6 +8,7 @@ mixin _$ForecastDaoMixin on DatabaseAccessor<AppDatabase> {
   $CommandsTable get commands => attachedDatabase.commands;
   $ForecastSnapshotsTable get forecastSnapshots =>
       attachedDatabase.forecastSnapshots;
+  $FoldersTable get folders => attachedDatabase.folders;
   $ItemsTable get items => attachedDatabase.items;
   $ForecastLinesTable get forecastLines => attachedDatabase.forecastLines;
   $EventCloseoutsTable get eventCloseouts => attachedDatabase.eventCloseouts;
@@ -33,6 +34,8 @@ class ForecastDaoManager {
         _db.attachedDatabase,
         _db.forecastSnapshots,
       );
+  $$FoldersTableTableManager get folders =>
+      $$FoldersTableTableManager(_db.attachedDatabase, _db.folders);
   $$ItemsTableTableManager get items =>
       $$ItemsTableTableManager(_db.attachedDatabase, _db.items);
   $$ForecastLinesTableTableManager get forecastLines =>

@@ -55,6 +55,11 @@ final class EventDetail {
 /// Screen-facing event surface (design §6.5). Events are mutable until
 /// closed; closing happens only through CloseoutService.
 abstract interface class EventService {
+  /// Creates the event. The planned list is the draft's items PLUS the live
+  /// items of every live `always_planned` folder (folder order, then name)
+  /// that the draft did not already include — "the standing stuff is a
+  /// review, not forty taps". The stored CreateEvent command carries the
+  /// full final list, so the audit row says exactly what was planned.
   Future<Result<String>> createEvent(EventDraft draft);
   Future<Result<void>> updateEvent({
     required String eventId,
@@ -62,6 +67,10 @@ abstract interface class EventService {
   });
   Future<Result<void>> activate(String eventId);
   Future<Result<void>> cancel(String eventId, {required String reason});
+
+  /// "Copy items from a previous event": [eventId]'s planned items that are
+  /// still live, in position order — a prefill for the picker, not a write.
+  Future<List<String>> clonePlannedItemsFrom(String eventId);
   Stream<List<EventSummary>> watchEvents({required EventStatusFilter filter});
   Stream<EventDetail> watchEvent(String eventId);
 }
@@ -83,6 +92,12 @@ final class DriftEventService implements EventService {
 
   @override
   Future<Result<String>> createEvent(EventDraft draft) async {
+    // Auto-add the always-planned folders' live items (folder position,
+    // then name) after the owner's own picks. Composed HERE, before the
+    // command is built, so the single write path stores the real list.
+    final autoAdded = await _alwaysPlannedItemIds(
+      excluding: draft.plannedItemIds.toSet(),
+    );
     final result = await _submit(
       CreateEvent(
         name: draft.name,
@@ -92,13 +107,52 @@ final class DriftEventService implements EventService {
         plannedExposure: draft.plannedExposure,
         venue: draft.venue,
         notes: draft.notes,
-        plannedItemIds: [for (final id in draft.plannedItemIds) ItemId(id)],
+        plannedItemIds: [
+          for (final id in draft.plannedItemIds) ItemId(id),
+          for (final id in autoAdded) ItemId(id),
+        ],
       ),
     );
     return result.fold(
       (receipt) => Ok(receipt.createdRecordIds.first),
       Err.new,
     );
+  }
+
+  /// Live items of live always-planned folders, in folder order then
+  /// case-insensitive name order, minus [excluding].
+  Future<List<String>> _alwaysPlannedItemIds({
+    required Set<String> excluding,
+  }) async {
+    final rows = await _db
+        .customSelect(
+          'SELECT i.id AS id FROM items i '
+          'JOIN folders f ON f.id = i.folder_id '
+          'WHERE f.always_planned = 1 '
+          'AND f.archived_at_micros IS NULL '
+          'AND i.archived_at_micros IS NULL '
+          'ORDER BY f.position, lower(i.name), i.id',
+          readsFrom: {_db.items, _db.folders},
+        )
+        .get();
+    return [
+      for (final row in rows)
+        if (!excluding.contains(row.read<String>('id'))) row.read<String>('id'),
+    ];
+  }
+
+  @override
+  Future<List<String>> clonePlannedItemsFrom(String eventId) async {
+    final planned = await _db.eventDao.plannedItems(eventId);
+    final items = await _db.itemDao.byIds([for (final p in planned) p.itemId]);
+    final live = {
+      for (final item in items)
+        if (item.archivedAtMicros == null) item.id,
+    };
+    return [
+      for (final p in planned)
+        if (live.contains(p.itemId)) p.itemId,
+    ];
   }
 
   @override

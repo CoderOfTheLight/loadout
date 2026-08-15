@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 
+import '../../catalog/domain/demand_basis.dart';
 import 'forecast_engine.dart';
 // The method version tags the encoding (see [canonicalInputs]); reading the
 // single constant beats keeping a duplicate literal in step with it.
@@ -35,7 +36,11 @@ final class SnapshotLineInput {
     required this.packSizeMicros,
     required this.onHandMicros,
     this.confirmedInboundMicros = 0,
+    this.demandBasis = DemandBasis.perPerson,
     this.servesPerUnitMicros,
+    this.perPersonNumerator,
+    this.perPersonDenominator,
+    this.perEventBaselineMicros,
     required this.evidence,
   });
 
@@ -44,10 +49,27 @@ final class SnapshotLineInput {
   final int onHandMicros;
   final int confirmedInboundMicros;
 
+  /// The EFFECTIVE demand basis (item override else folder else per_person),
+  /// resolved by the builder via `effectiveDemandBasis`. Material to the
+  /// outputs (it decides how the engine is exposed to the history), so it is
+  /// hashed — see [canonicalInputs].
+  final DemandBasis demandBasis;
+
   /// The item's "1 serves N" at generation time. Material to the outputs
   /// (it drives the no-history baseline), so it is hashed — see
-  /// [canonicalInputs].
+  /// [canonicalInputs]. The builder passes it only on per-person lines.
   final int? servesPerUnitMicros;
+
+  /// The item's flipped "N per person" ratio at generation time — material
+  /// like [servesPerUnitMicros], hashed as an exact pair, per-person lines
+  /// only.
+  final int? perPersonNumerator;
+  final int? perPersonDenominator;
+
+  /// The item's "how many do you usually bring" at generation time —
+  /// material (it drives the per-event baseline), hashed, per-event lines
+  /// only.
+  final int? perEventBaselineMicros;
 
   /// Label-query order — NOT re-sorted by the encoding.
   final List<EvidenceInput> evidence;
@@ -79,14 +101,24 @@ final class SnapshotInputs {
 /// `|s=<micros>` ONLY when non-null, which leaves the encoding byte-identical
 /// for every item that has no serves-per-unit.
 ///
+/// Schema-v3 extensions, same append-only-when-material style and in this
+/// fixed order after `|s=`:
+/// - `|r=<numerator>/<denominator>` — the flipped "N per person" ratio (it
+///   drives the per-person baseline);
+/// - `|b=per_event` — the effective demand basis, ONLY when per_event
+///   (per_person is the default every pre-v3 line silently was);
+/// - `|pe=<micros>` — "how many do you usually bring" (it drives the
+///   per-event baseline).
+///
 /// The leading `direct_median|<n>` is the METHOD version, and it is what makes
 /// the contract below ("same hash ⇒ byte-identical outputs") true rather than
 /// merely usually true. Method v2 handles sell-out days as lower bounds
-/// (§6.6), so identical inputs produce different outputs than v1 did and the
-/// tag moves with it. The deliberate consequence: every snapshot stored by v1
-/// now recomputes to a different hash and reads as out of date, which is
-/// exactly what it is. The forecast screen names the reason rather than
-/// blaming an input change.
+/// (§6.6); method v3 forecasts per_event items from the median of per-event
+/// usage. Identical inputs produce different outputs across those changes and
+/// the tag moves with them. The deliberate consequence: every snapshot stored
+/// by an older method now recomputes to a different hash and reads as out of
+/// date, which is exactly what it is. The forecast screen names the reason
+/// rather than blaming an input change.
 String canonicalInputs(SnapshotInputs s) {
   final lines = s.lines.toList()..sort((a, b) => a.itemId.compareTo(b.itemId));
   final b = StringBuffer()
@@ -101,6 +133,15 @@ String canonicalInputs(SnapshotInputs s) {
     );
     if (line.servesPerUnitMicros != null) {
       b.write('|s=${line.servesPerUnitMicros}');
+    }
+    if (line.perPersonNumerator != null) {
+      b.write('|r=${line.perPersonNumerator}/${line.perPersonDenominator}');
+    }
+    if (line.demandBasis == DemandBasis.perEvent) {
+      b.write('|b=per_event');
+    }
+    if (line.perEventBaselineMicros != null) {
+      b.write('|pe=${line.perEventBaselineMicros}');
     }
     for (final e in line.evidence) {
       b.write(

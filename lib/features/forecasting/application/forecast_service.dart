@@ -10,12 +10,14 @@ import '../../../data/db/app_database.dart' as db;
 import '../../approval/domain/approval_service.dart';
 import '../../approval/domain/commands.dart';
 import '../../approval/domain/proposal.dart';
+import '../../catalog/domain/demand_basis.dart';
 import '../../settings/application/settings_service.dart';
 import '../domain/forecast_engine.dart';
 import '../domain/snapshot.dart';
 import '../domain/snapshot_inputs.dart';
 import '../../../data/db/table_watch.dart';
 import 'baseline_estimator.dart';
+import 'per_event_basis.dart';
 import 'stockout_adjustment.dart';
 
 /// Screen-facing forecasting surface (design §6.5). Snapshots are appended,
@@ -208,12 +210,11 @@ final class DriftForecastService implements ForecastService {
       final lines = <ForecastSnapshotLineDraft>[];
       var selloutAdjustedLines = 0;
       var everyDaySoldOutLines = 0;
+      var perEventLines = 0;
       for (final input in inputs.lines) {
-        // A sell-out records a LOWER BOUND on demand. Fix that here, on the
-        // way into the frozen engine, so a sell-out can only ever raise the
-        // estimate — see `stockout_adjustment.dart` for the rule. The stored
-        // evidence below is untouched: it keeps the real confirmed numbers.
-        final adjustment = adjustForSellouts([
+        final isPerEvent = input.demandBasis == DemandBasis.perEvent;
+        if (isPerEvent) perEventLines++;
+        final rawObservations = [
           for (final e in input.evidence)
             ConfirmedObservation(
               exposure: e.exposure,
@@ -221,22 +222,46 @@ final class DriftForecastService implements ForecastService {
               stockout: e.stockout,
               approximate: e.approximate,
             ),
-        ]);
-        if (_exceedsEngineEnvelope(
-          adjustment.observations,
-          inputs.upcomingExposure,
-        )) {
-          // Outside the envelope the frozen engine's rate × exposure product
-          // wraps int64 and it would return a plausible-looking but wrong
-          // number. Report no forecast instead: a blank line with the reason
-          // is honest, a wrong load quantity is not.
+        ];
+        // "About the same every event": map every observation to exposure 1
+        // BEFORE anything else, so the frozen engine's median-of-rates is
+        // the median of per-event depletions and the sell-out lift below
+        // raises a ran-out day to the median per-event usage — see
+        // `per_event_basis.dart`. The stored evidence keeps the real
+        // exposures; this mapping exists only on the way into the engine.
+        final engineExposure = isPerEvent
+            ? perEventEngineExposure
+            : inputs.upcomingExposure;
+        // A sell-out records a LOWER BOUND on demand. Fix that here, on the
+        // way into the frozen engine, so a sell-out can only ever raise the
+        // estimate — see `stockout_adjustment.dart` for the rule. The stored
+        // evidence below is untouched: it keeps the real confirmed numbers.
+        final adjustment = adjustForSellouts(
+          isPerEvent ? perEventObservations(rawObservations) : rawObservations,
+        );
+        // Outside the envelope the frozen engine's rate × exposure product
+        // wraps int64 and it would return a plausible-looking but wrong
+        // number. Report no forecast instead: a blank line with the reason
+        // is honest, a wrong load quantity is not. A per-event line cannot
+        // leave the envelope — at exposure 1 the schema caps bound every
+        // product (see `per_event_basis.dart`), and this check's per-person
+        // limit would wrongly refuse large legitimate per-event depletions.
+        if (!isPerEvent &&
+            _exceedsEngineEnvelope(
+              adjustment.observations,
+              inputs.upcomingExposure,
+            )) {
           lines.add(
             ForecastSnapshotLineDraft(
               itemId: ItemId(input.itemId),
               packSizeMicros: input.packSizeMicros,
               onHandMicros: input.onHandMicros,
               confirmedInboundMicros: input.confirmedInboundMicros,
+              demandBasis: input.demandBasis,
               servesPerUnitMicros: input.servesPerUnitMicros,
+              perPersonNumerator: input.perPersonNumerator,
+              perPersonDenominator: input.perPersonDenominator,
+              perEventBaselineMicros: input.perEventBaselineMicros,
               expectedUseMicros: null,
               plannedMicros: null,
               loadMicros: null,
@@ -252,7 +277,7 @@ final class DriftForecastService implements ForecastService {
           continue;
         }
         final engineLine = _engine.forecastDirect(
-          upcomingExposure: inputs.upcomingExposure,
+          upcomingExposure: engineExposure,
           observations: adjustment.observations,
           policy: inputs.policy,
           packSize: Quantity.fromMicros(input.packSizeMicros),
@@ -265,9 +290,11 @@ final class DriftForecastService implements ForecastService {
           }
         }
         // No confirmed outcomes yet? The engine correctly refuses to
-        // forecast. If the item says "1 serves N" we can still hand the
-        // owner a starting number — clearly labelled, in its own columns,
-        // and never mistakable for history.
+        // forecast. If the item answered its cold-start question — "1
+        // serves N", "N per person", or the per-event "how many do you
+        // usually bring" — we can still hand the owner a starting number:
+        // clearly labelled, in its own columns, never mistakable for
+        // history.
         // `evidence.isEmpty` is belt-and-braces next to the grade check: SQL
         // caps every stored exposure at >= 1, so the engine only ever grades
         // an empty history as insufficient — but a baseline beside real
@@ -276,14 +303,31 @@ final class DriftForecastService implements ForecastService {
         final baseline =
             engineLine.evidenceGrade == EvidenceGrade.insufficientData &&
                 input.evidence.isEmpty
-            ? estimateFromServesPerUnit(
-                expectedAttendance: inputs.upcomingExposure,
-                servesPerUnitMicros: input.servesPerUnitMicros,
-                policy: inputs.policy,
-                packSizeMicros: input.packSizeMicros,
-                usableOnHandMicros: max(0, input.onHandMicros),
-                confirmedInboundMicros: input.confirmedInboundMicros,
-              )
+            ? (isPerEvent
+                  ? estimateFromPerEventBaseline(
+                      perEventBaselineMicros: input.perEventBaselineMicros,
+                      policy: inputs.policy,
+                      packSizeMicros: input.packSizeMicros,
+                      usableOnHandMicros: max(0, input.onHandMicros),
+                      confirmedInboundMicros: input.confirmedInboundMicros,
+                    )
+                  : estimateFromServesPerUnit(
+                          expectedAttendance: inputs.upcomingExposure,
+                          servesPerUnitMicros: input.servesPerUnitMicros,
+                          policy: inputs.policy,
+                          packSizeMicros: input.packSizeMicros,
+                          usableOnHandMicros: max(0, input.onHandMicros),
+                          confirmedInboundMicros: input.confirmedInboundMicros,
+                        ) ??
+                        estimateFromPerPersonRatio(
+                          expectedAttendance: inputs.upcomingExposure,
+                          numerator: input.perPersonNumerator,
+                          denominator: input.perPersonDenominator,
+                          policy: inputs.policy,
+                          packSizeMicros: input.packSizeMicros,
+                          usableOnHandMicros: max(0, input.onHandMicros),
+                          confirmedInboundMicros: input.confirmedInboundMicros,
+                        ))
             : null;
         lines.add(
           ForecastSnapshotLineDraft(
@@ -291,12 +335,19 @@ final class DriftForecastService implements ForecastService {
             packSizeMicros: input.packSizeMicros,
             onHandMicros: input.onHandMicros,
             confirmedInboundMicros: input.confirmedInboundMicros,
+            demandBasis: input.demandBasis,
             servesPerUnitMicros: input.servesPerUnitMicros,
+            perPersonNumerator: input.perPersonNumerator,
+            perPersonDenominator: input.perPersonDenominator,
+            perEventBaselineMicros: input.perEventBaselineMicros,
             expectedUseMicros: engineLine.expectedUse?.micros,
             plannedMicros: engineLine.plannedQuantity?.micros,
             loadMicros: engineLine.roundedLoadQuantity?.micros,
             acquireMicros: engineLine.acquireQuantity?.micros,
             baselineServesPerUnitMicros: baseline?.servesPerUnitMicros,
+            baselinePerPersonNumerator: baseline?.perPersonNumerator,
+            baselinePerPersonDenominator: baseline?.perPersonDenominator,
+            baselinePerEventMicros: baseline?.perEventMicros,
             baselineExpectedUseMicros: baseline?.expectedUseMicros,
             baselinePlannedMicros: baseline?.plannedMicros,
             baselineLoadMicros: baseline?.loadMicros,
@@ -326,6 +377,11 @@ final class DriftForecastService implements ForecastService {
         'stockout_rule_note': selloutRuleNote,
         'stockout_adjusted_lines': selloutAdjustedLines,
         'stockout_all_sellout_lines': everyDaySoldOutLines,
+        // How "about the same every event" items were treated (method v3);
+        // each line also stores its own demand_basis.
+        'per_event_rule': perEventRuleTag,
+        'per_event_rule_note': perEventRuleNote,
+        'per_event_lines': perEventLines,
       };
       return Ok(
         ForecastSnapshotDraft(
@@ -363,6 +419,13 @@ final class DriftForecastService implements ForecastService {
     final policy = await _settings.defaultPolicy();
     final historyWindow = await _settings.historyWindow();
     final planned = await _db.eventDao.plannedItems(eventId);
+    // Folder demand bases, for the one effective-basis resolution below.
+    // Archived folders never hold items (archiving unfiles them in the same
+    // transaction), so live folders are the whole population.
+    final folderBases = {
+      for (final folder in await _db.folderDao.live())
+        folder.id: DemandBasis.fromDb(folder.demandBasis),
+    };
     final lines = <SnapshotLineInput>[];
     for (final plannedItem in planned) {
       final item = await _db.itemDao.byId(plannedItem.itemId);
@@ -372,12 +435,28 @@ final class DriftForecastService implements ForecastService {
         historyWindow: historyWindow,
       );
       final onHand = await _db.ledgerDao.onHandMicros(item.id);
+      // THE effective-basis rule, called — never re-derived (§ contract).
+      final basis = effectiveDemandBasis(
+        itemOverride: DemandBasis.fromDbNullable(item.demandBasis),
+        folderBasis: item.folderId == null ? null : folderBases[item.folderId],
+      );
+      final isPerEvent = basis == DemandBasis.perEvent;
       lines.add(
         SnapshotLineInput(
           itemId: item.id,
           packSizeMicros: item.packSizeMicros,
           onHandMicros: onHand,
-          servesPerUnitMicros: item.servesPerUnitMicros,
+          demandBasis: basis,
+          // Only the inputs MATERIAL under this basis are carried (and
+          // hashed): a per-event line ignores serves/ratio, a per-person
+          // line ignores the usual-amount — so editing the irrelevant one
+          // never reads as "inputs changed".
+          servesPerUnitMicros: isPerEvent ? null : item.servesPerUnitMicros,
+          perPersonNumerator: isPerEvent ? null : item.perPersonNumerator,
+          perPersonDenominator: isPerEvent ? null : item.perPersonDenominator,
+          perEventBaselineMicros: isPerEvent
+              ? item.perEventBaselineMicros
+              : null,
           evidence: [
             for (final row in history)
               EvidenceInput(
@@ -453,11 +532,18 @@ final class DriftForecastService implements ForecastService {
             packSizeMicros: line.packSizeMicros,
             onHandMicros: line.onHandMicros,
             confirmedInboundMicros: line.confirmedInboundMicros,
+            // Rows stored before v3 carry NULL: they were per-person.
+            demandBasis:
+                DemandBasis.fromDbNullable(line.demandBasis) ??
+                DemandBasis.perPerson,
             expectedUseMicros: line.expectedUseMicros,
             plannedMicros: line.plannedMicros,
             loadMicros: line.loadMicros,
             acquireMicros: line.acquireMicros,
             baselineServesPerUnitMicros: line.baselineServesPerUnitMicros,
+            baselinePerPersonNumerator: line.baselinePerPersonNumerator,
+            baselinePerPersonDenominator: line.baselinePerPersonDenominator,
+            baselinePerEventMicros: line.baselinePerEventMicros,
             baselineExpectedUseMicros: line.baselineExpectedUseMicros,
             baselinePlannedMicros: line.baselinePlannedMicros,
             baselineLoadMicros: line.baselineLoadMicros,

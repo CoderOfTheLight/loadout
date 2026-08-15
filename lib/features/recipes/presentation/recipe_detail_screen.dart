@@ -6,6 +6,11 @@
 /// its form/OCR source badge), and app-bar Revise / Archive actions.
 /// Commands: `RecipeService.setArchived` only — revisions are permanent by
 /// design, so there is no edit here, only "Revise" (append).
+///
+/// "Scale to event" (proposal §3) opens a read-only sheet
+/// (`recipe_scale_sheet.dart`) that shows the CURRENT revision as whole
+/// batches against an upcoming event's stored packing list. A view — the
+/// saved recipe never changes.
 library;
 
 import 'package:flutter/material.dart';
@@ -23,6 +28,7 @@ import '../../catalog/application/catalog_service.dart';
 import '../../catalog/domain/item.dart';
 import '../application/recipe_service.dart';
 import '../domain/recipe.dart';
+import 'recipe_scale_sheet.dart';
 
 /// Canonical (const, so family-cached) filter: archived items included —
 /// old revisions may reference since-archived ingredients.
@@ -129,6 +135,25 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
                   Text(
                     _yieldCaption(viewed, outputItem),
                     style: theme.textTheme.bodyLarge,
+                  ),
+                  const SizedBox(height: 12),
+                  // Always scales the CURRENT revision (`revisions.first`),
+                  // whatever revision is being viewed — you cook today's
+                  // method. Read-only, so archived recipes may scale too.
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      key: const Key('scale-to-event'),
+                      onPressed: () => showRecipeScaleSheet(
+                        context,
+                        outputItemId: recipe.outputItemId.value,
+                        outputItemName: outputItem?.name ?? 'Unknown item',
+                        revision: revisions.first,
+                        itemsById: itemsById,
+                      ),
+                      icon: const Icon(Icons.event_outlined),
+                      label: const Text('Scale to event'),
+                    ),
                   ),
                   const SizedBox(height: 16),
                   Row(

@@ -35,17 +35,52 @@ Future<void> insertItem(
   int packSizeMicros = 1000000,
   int? servesPerUnitMicros,
   int? archivedAtMicros,
+  String? folderId,
+  String? demandBasis,
+  int? perEventBaselineMicros,
+  int? perPersonNumerator,
+  int? perPersonDenominator,
 }) => db.customStatement(
   'INSERT INTO items '
   '(id, name, unit, pack_size_micros, serves_per_unit_micros, '
-  'archived_at_micros, created_at_micros, updated_at_micros) '
-  'VALUES (?, ?, ?, ?, ?, ?, 1, 1)',
+  'archived_at_micros, folder_id, demand_basis, per_event_baseline_micros, '
+  'per_person_numerator, per_person_denominator, '
+  'created_at_micros, updated_at_micros) '
+  'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1)',
   [
     id,
     name ?? 'Item $id',
     unit,
     packSizeMicros,
     servesPerUnitMicros,
+    archivedAtMicros,
+    folderId,
+    demandBasis,
+    perEventBaselineMicros,
+    perPersonNumerator,
+    perPersonDenominator,
+  ],
+);
+
+Future<void> insertFolder(
+  AppDatabase db,
+  String id, {
+  String? name,
+  int position = 0,
+  String demandBasis = 'per_person',
+  bool alwaysPlanned = false,
+  int? archivedAtMicros,
+}) => db.customStatement(
+  'INSERT INTO folders '
+  '(id, name, position, demand_basis, always_planned, archived_at_micros, '
+  'created_at_micros, updated_at_micros) '
+  'VALUES (?, ?, ?, ?, ?, ?, 1, 1)',
+  [
+    id,
+    name ?? 'Folder $id',
+    position,
+    demandBasis,
+    alwaysPlanned ? 1 : 0,
     archivedAtMicros,
   ],
 );

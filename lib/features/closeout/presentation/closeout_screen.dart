@@ -10,6 +10,10 @@
 /// same screen prefilled from the latest revision and `revise` appends
 /// revision N+1. Receipt warnings — including NEGATIVE_ON_HAND — surface
 /// as non-blocking snackbars; closeout is never blocked by ledger drift.
+///
+/// The line cards read in the same folder sections as every other list
+/// (proposal §3), and per-event lines start as "didn't count it" — see
+/// closeout_line_card.dart.
 library;
 
 import 'dart:async';
@@ -26,7 +30,12 @@ import '../../../app/widgets/empty_state.dart';
 import '../../../core/quantity.dart';
 import '../../../core/quantity_codec.dart';
 import '../../approval/domain/proposal.dart';
+import '../../catalog/application/catalog_service.dart';
+import '../../catalog/domain/demand_basis.dart';
+import '../../catalog/domain/folder.dart';
 import '../../events/domain/event.dart';
+import '../../events/presentation/folder_sections.dart';
+import '../../forecasting/domain/snapshot.dart';
 import '../application/closeout_service.dart';
 import '../domain/closeout.dart';
 import '../domain/closeout_form.dart';
@@ -49,6 +58,18 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
   final _exposure = TextEditingController();
   final _note = TextEditingController();
   List<CloseoutLineController> _lines = const [];
+
+  /// Live folders — the closeout inherits the same sections every list
+  /// reads in. Empty (migrated, tidy-up not run) = flat list. Filled by
+  /// [_applyBasis] once the folder/item/snapshot providers have data.
+  List<Folder> _folders = const [];
+
+  /// True while no draft and no revision existed at load: only then do
+  /// per-event lines default to "didn't count it".
+  bool _freshCloseout = false;
+
+  /// One-shot: basis + folder resolution has been applied to [_lines].
+  bool _basisApplied = false;
 
   bool _loading = true;
   bool _loadFailed = false;
@@ -125,6 +146,10 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
         _revising = status == EventStatus.closed;
         _nextRevision = revisions.isEmpty ? 1 : revisions.first.revision + 1;
         _plannedExposure = prefill.plannedExposure;
+        // "Didn't count it" defaults apply to a FRESH closeout only — an
+        // autosaved draft or an existing revision already carries the
+        // owner's own answers.
+        _freshCloseout = draft == null && revisions.isEmpty;
         _lines = [
           for (final line in prefill.lines)
             CloseoutLineController(
@@ -145,6 +170,47 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
         });
       }
     }
+  }
+
+  /// Resolves every line's demand basis and folder once the watched
+  /// providers have data (called from build, one-shot). The latest snapshot
+  /// line's STORED basis wins — screens read the resolved value off stored
+  /// lines; a line with no snapshot resolves item override → folder default
+  /// → per-person via the one resolver. Then, on a fresh closeout only,
+  /// per-event lines default to "didn't count it" (recommended: a made-up
+  /// count would become permanent history the forecast trusts).
+  void _applyBasis(
+    List<Folder> folders,
+    List<ItemSummary> catalogItems,
+    ForecastSnapshotView? snapshot,
+  ) {
+    final itemsById = {
+      for (final summary in catalogItems) summary.item.id.value: summary.item,
+    };
+    final folderBasisById = {
+      for (final folder in folders) folder.id.value: folder.demandBasis,
+    };
+    final snapshotBasis = {
+      for (final line in snapshot?.lines ?? const <ForecastLineView>[])
+        line.itemId.value: line.demandBasis,
+    };
+    for (final line in _lines) {
+      final item = itemsById[line.itemId];
+      line.folderId = item?.folderId?.value;
+      line.demandBasis =
+          snapshotBasis[line.itemId] ??
+          effectiveDemandBasis(
+            itemOverride: item?.demandBasis,
+            folderBasis: item?.folderId == null
+                ? null
+                : folderBasisById[item!.folderId!.value],
+          );
+      if (_freshCloseout && line.demandBasis == DemandBasis.perEvent) {
+        line.skipped = true;
+      }
+    }
+    _folders = folders;
+    _basisApplied = true;
   }
 
   /// Initial values: an autosaved draft wins; otherwise a revise run
@@ -368,6 +434,27 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
     final theme = Theme.of(context);
     final exposureLabel =
         ref.watch(workspaceProvider).valueOrNull?.exposureLabel ?? 'attendance';
+    // Folder/item/snapshot projections for the sections and the per-line
+    // basis; resolved onto the controllers once, as soon as all three have
+    // data (a later basis flip never rewrites a closeout in progress).
+    final foldersAsync = ref.watch(eventFoldersProvider);
+    final itemsAsync = ref.watch(
+      itemListProvider(const ItemFilter(includeArchived: true)),
+    );
+    final snapshotAsync = ref.watch(latestSnapshotProvider(widget.eventId));
+    if (!_basisApplied &&
+        !_loading &&
+        !_loadFailed &&
+        _blockedMessage == null &&
+        foldersAsync.hasValue &&
+        itemsAsync.hasValue &&
+        snapshotAsync.hasValue) {
+      _applyBasis(
+        foldersAsync.requireValue,
+        itemsAsync.requireValue,
+        snapshotAsync.requireValue,
+      );
+    }
     final title = _revising ? 'Revise closeout' : 'Close out';
     if (_loading) {
       return Scaffold(
@@ -436,8 +523,25 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
                     ),
                   )
                 else
-                  for (final line in _lines)
-                    CloseoutLineCard(line: line, onChanged: _touched),
+                  for (final section in sectionEntriesByFolder(
+                    entries: _lines,
+                    folders: _folders,
+                    folderIdOf: (line) => line.folderId,
+                  )) ...[
+                    if (_folders.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          folderSectionLabel(
+                            section.folder,
+                            section.entries.length,
+                          ),
+                          style: theme.textTheme.titleSmall,
+                        ),
+                      ),
+                    for (final line in section.entries)
+                      CloseoutLineCard(line: line, onChanged: _touched),
+                  ],
                 const SizedBox(height: 8),
                 TextField(
                   controller: _note,

@@ -1,23 +1,35 @@
 /// `/items/new` and `/items/:itemId/edit` — ItemEditScreen.
 ///
-/// The owner's model of an item, in her words: NAME + HOW MANY YOU HAVE +
-/// optionally HOW MANY PEOPLE ONE SERVES. So this form asks exactly that:
+/// The owner's model of an item, in her words (folders proposal §3):
 ///
-///   * **Item name** — required, live unique-among-live check. Something
-///     sold by weight goes in the name ("Mince (500 g packs)") and is
-///     counted as whole packs; the app never does weight arithmetic.
-///   * **How many do you have?** — a plain whole number, create only. It
-///     rides inside `CreateItem` as the opening `adjust` movement, so the
-///     item and its count land in one transaction. On an existing item the
-///     count is derived from the ledger and can only change by recording a
-///     movement, so edit mode shows it read-only with a button to do that.
-///   * **How many people does one serve?** — optional. Blank is an honest
-///     answer and simply means a first-ever event gets no estimate.
+///   * **Item name** — required, live unique-among-live check.
+///   * **How many do you have?** — create only; rides inside `CreateItem`
+///     as the opening `adjust` movement. Edit mode shows the ledger-derived
+///     count read-only with a button to record a movement.
+///   * **Folder** — a pick-list over the owner's folders ("New folder…" at
+///     the bottom, created through the command path), never free text.
+///     Free-text groups are how "Drinks", "drinks" and "Beverages" become
+///     three folders.
+///   * **The one question** — "Does how much you bring depend on how many
+///     people come?" as two plain choices, pre-answered by the folder and
+///     called out as the exception only when this item differs. The stored
+///     override is null whenever the answer matches the folder's, so a
+///     folder-level change carries its items with it.
+///   * **Cold start** — per-person items take "How many people does one
+///     serve?" OR the flipped "How many per person?" (one value, two
+///     phrasings; the second stores an exact `UnitRatio` so 200 people ×
+///     3/person is exactly 600). Per-event items take "How many do you
+///     usually bring?". The phrasing not on screen is resubmitted verbatim,
+///     so flipping the answer twice loses nothing.
 ///
-/// No unit picker, no pack size: units left the product surface in schema
-/// v2. A legacy row's stored unit and pack size are resubmitted verbatim so
-/// a rename can never trip the §4 unit lock or silently restate what its
-/// numbers mean.
+/// Changing the answer on an item that already has history is allowed,
+/// never silent: a plain-words confirm explains that past events will be
+/// read differently.
+///
+/// No unit picker, no pack size, and no free-text group: a legacy row's
+/// stored unit, pack size and category text are resubmitted verbatim so a
+/// rename can never trip the §4 unit lock or wipe the tidy-up flow's raw
+/// material.
 ///
 /// Commands: `CatalogService.createItem` / `updateItem` — plain updates, no
 /// revision log.
@@ -36,13 +48,19 @@ import '../../../app/widgets/form_action_bar.dart';
 import '../../../core/errors.dart';
 import '../../../core/quantity.dart';
 import '../../../core/result.dart';
+import '../../../core/unit_ratio.dart';
 import '../../../core/units.dart';
+import '../domain/demand_basis.dart';
+import '../domain/folder.dart';
 import '../domain/item.dart';
 import 'catalog_format.dart';
 import 'catalog_providers.dart';
+import 'demand_basis_choice.dart';
+import 'folder_picker_sheet.dart';
 
-/// Cap on "how many people does one serve?", mirroring the command
-/// validator's `maxServesPerUnitMicros` (10 000 people per thing).
+/// Cap on "how many people does one serve?" and "how many per person?",
+/// mirroring the command validator (`maxServesPerUnitMicros` and the ratio
+/// halves cap: 10 000 each).
 const int maxServesPerUnit = 10000;
 
 class ItemEditScreen extends ConsumerStatefulWidget {
@@ -60,18 +78,37 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
   final _name = TextEditingController();
   final _count = TextEditingController();
   final _serves = TextEditingController();
+  final _perPerson = TextEditingController();
+  final _usualBring = TextEditingController();
   final _notes = TextEditingController();
-  String _category = '';
   bool _hydrated = false;
   bool _dirty = false;
   bool _submitting = false;
 
-  /// Schema-v1 leftovers. Never shown, never asked, always resubmitted
+  /// The item's folder; null = Unfiled.
+  String? _folderId;
+
+  /// The stored per-item override, hydrated on edit. Displayed selection is
+  /// derived: explicit tap wins, else this override, else the folder.
+  DemandBasis? _storedOverride;
+  bool _basisTouched = false;
+  DemandBasis? _explicitBasis;
+
+  /// True once the owner touched either per-person phrasing field (or the
+  /// per-event field). Until then, edit mode resubmits the stored values
+  /// verbatim — which keeps a ratio this form's whole-number field cannot
+  /// express (denominator > 1) intact through an unrelated rename.
+  bool _phrasingEdited = false;
+  bool _baselineEdited = false;
+
+  /// Schema-v1/v2 leftovers. Never shown, never asked, always resubmitted
   /// verbatim: changing a legacy item's unit after its first movement is an
-  /// IMMUTABLE_RECORD, and rewriting its pack size would restate what its
-  /// stored numbers mean.
+  /// IMMUTABLE_RECORD, rewriting its pack size would restate what its
+  /// stored numbers mean, and its free-text category is the tidy-up flow's
+  /// raw material.
   ItemUnit _unit = ItemUnit.each;
   Quantity _packSize = Quantity.one;
+  String _category = '';
 
   /// Lowercased name most recently rejected by the command validator
   /// (uniqueness); mirrored onto the name field inline.
@@ -84,6 +121,8 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
     _name.dispose();
     _count.dispose();
     _serves.dispose();
+    _perPerson.dispose();
+    _usualBring.dispose();
     _notes.dispose();
     super.dispose();
   }
@@ -94,14 +133,113 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
     }
   }
 
+  // ------------------------------------------------------- basis plumbing
+
+  DemandBasis? _folderBasis(List<Folder> folders, String? folderId) {
+    if (folderId == null) {
+      return null;
+    }
+    for (final folder in folders) {
+      if (folder.id.value == folderId) {
+        return folder.demandBasis;
+      }
+    }
+    return null;
+  }
+
+  /// What the folder would answer for this item — the pre-selection, and
+  /// the value against which "this item is the exception" is judged.
+  DemandBasis _folderDefault(List<Folder> folders) =>
+      effectiveDemandBasis(folderBasis: _folderBasis(folders, _folderId));
+
+  /// The selection on screen: the owner's explicit tap wins, else the
+  /// stored override, else the folder's answer.
+  DemandBasis _displayedBasis(List<Folder> folders) => _basisTouched
+      ? _explicitBasis!
+      : effectiveDemandBasis(
+          itemOverride: _storedOverride,
+          folderBasis: _folderBasis(folders, _folderId),
+        );
+
+  Future<void> _pickFolder() async {
+    final pick = await showFolderPickerSheet(
+      context,
+      selectedFolderId: _folderId,
+    );
+    if (pick == null || !mounted) {
+      return;
+    }
+    setState(() => _folderId = pick.folderId);
+    _markDirty();
+  }
+
+  // ------------------------------------------------------------- saving
+
   Future<void> _save() async {
     if (_submitting || !_formKey.currentState!.validate()) {
       return;
     }
+    final folders = ref.read(folderListProvider).valueOrNull ?? const [];
+    final detail = _isEdit
+        ? ref.read(itemDetailProvider(widget.itemId!)).valueOrNull
+        : null;
+    final item = detail?.item;
+    final selectedBasis = _displayedBasis(folders);
+
+    // Changing how an item with history forecasts is allowed, never silent.
+    if (_isEdit && detail!.hasMovements) {
+      final oldEffective = effectiveDemandBasis(
+        itemOverride: item!.demandBasis,
+        folderBasis: _folderBasis(folders, item.folderId?.value),
+      );
+      if (oldEffective != selectedBasis &&
+          !await _confirmBasisChange(selectedBasis)) {
+        return;
+      }
+      if (!mounted) {
+        return;
+      }
+    }
+
+    // The override is stored only when this item differs from what its
+    // folder would answer; matching items follow the folder.
+    final folderDefault = _folderDefault(folders);
+    final override = selectedBasis == folderDefault ? null : selectedBasis;
+
+    // One value, two phrasings — at most one of serves/ratio is ever set.
+    // The phrasing that is not on screen rides along verbatim, so flipping
+    // the answer twice loses nothing.
+    Quantity? serves;
+    UnitRatio? ratio;
+    Quantity? baseline;
+    if (selectedBasis == DemandBasis.perPerson) {
+      if (_phrasingEdited || !_isEdit) {
+        serves = CountFormField.tryParseQuantity(_serves.text);
+        final perPerson = CountFormField.tryParseCount(_perPerson.text);
+        ratio = serves == null && perPerson != null
+            ? UnitRatio(perPerson, 1)
+            : null;
+      } else {
+        serves = item!.servesPerUnit;
+        ratio = item.perPersonRatio;
+      }
+      baseline = item?.perEventBaseline;
+    } else {
+      baseline = _baselineEdited || !_isEdit
+          ? CountFormField.tryParseQuantity(_usualBring.text)
+          : item!.perEventBaseline;
+      serves = item?.servesPerUnit;
+      ratio = item?.perPersonRatio;
+    }
+
     final category = _category.trim();
     final draft = ItemDraft(
       name: _name.text.trim(),
-      servesPerUnit: CountFormField.tryParseQuantity(_serves.text),
+      servesPerUnit: serves,
+      perPersonRatio: ratio,
+      folderId: _folderId,
+      demandBasis: override,
+      perEventBaseline: baseline,
       unit: _unit,
       packSize: _packSize,
       category: category.isEmpty ? null : category,
@@ -149,6 +287,32 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
     }
   }
 
+  Future<bool> _confirmBasisChange(DemandBasis to) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Read past events differently?'),
+        content: Text(
+          "This item has history. Switching to "
+          "'${demandBasisLabel(to)}' changes how the events you've "
+          'already recorded are read, so the next packing list can '
+          'change. Nothing you recorded is deleted.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Keep it as it was'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Change it'),
+          ),
+        ],
+      ),
+    );
+    return confirmed ?? false;
+  }
+
   void _showSnack(String message) {
     ScaffoldMessenger.of(
       context,
@@ -182,6 +346,8 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
     }
   }
 
+  // -------------------------------------------------------------- build
+
   @override
   Widget build(BuildContext context) {
     final detailAsync = _isEdit
@@ -211,15 +377,37 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
         final serves? => CountFormField.format(serves.micros ~/ Quantity.scale),
         null => '',
       };
+      // Same for the flipped phrasing (a denominator > 1 cannot come from
+      // this form; it stays blank here and rides along verbatim).
+      _perPerson.text = switch (item.perPersonRatio) {
+        final ratio? when ratio.denominator == 1 => '${ratio.numerator}',
+        _ => '',
+      };
+      _usualBring.text = switch (item.perEventBaseline) {
+        final usual? => CountFormField.format(usual.micros ~/ Quantity.scale),
+        null => '',
+      };
       _notes.text = item.notes;
+      _folderId = item.folderId?.value;
+      _storedOverride = item.demandBasis;
       _category = item.category ?? '';
       _unit = item.unit;
       _packSize = item.packSize;
     }
     final nameIndex = ref.watch(liveItemNameIndexProvider);
-    final suggestions =
-        ref.watch(categorySuggestionsProvider).valueOrNull ?? const <String>[];
+    final folders = ref.watch(folderListProvider).valueOrNull ?? const [];
+    final displayedBasis = _displayedBasis(folders);
+    final folderDefault = _folderDefault(folders);
     final theme = Theme.of(context);
+
+    String folderName() {
+      for (final folder in folders) {
+        if (folder.id.value == _folderId) {
+          return folder.name;
+        }
+      }
+      return 'Unfiled';
+    }
 
     return PopScope(
       canPop: !_dirty,
@@ -273,57 +461,94 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
                         onChanged: (_) => _markDirty(),
                       ),
                     const SizedBox(height: 24),
-                    CountFormField(
-                      controller: _serves,
-                      labelText: 'How many people does one serve?',
-                      hintText: '4',
-                      minValue: 1,
-                      maxValue: maxServesPerUnit,
-                      helperText:
-                          'Optional. Leave blank if it varies — a forecast '
-                          'can still learn from what you actually use.',
-                      textInputAction: TextInputAction.next,
-                      onChanged: (_) => _markDirty(),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(Radii.small),
+                      onTap: _pickFolder,
+                      child: InputDecorator(
+                        decoration: const InputDecoration(
+                          labelText: 'Folder',
+                          helperText:
+                              'Every list sections by folder, in your order.',
+                          helperMaxLines: 2,
+                          border: OutlineInputBorder(),
+                          suffixIcon: Icon(Icons.arrow_drop_down),
+                        ),
+                        child: Text(folderName()),
+                      ),
                     ),
+                    const SizedBox(height: 24),
+                    Text(
+                      'Does how much you bring depend on how many people '
+                      'come?',
+                      style: theme.textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 12),
+                    DemandBasisChoice(
+                      value: displayedBasis,
+                      onChanged: (basis) {
+                        setState(() {
+                          _basisTouched = true;
+                          _explicitBasis = basis;
+                        });
+                        _markDirty();
+                      },
+                    ),
+                    if (displayedBasis != folderDefault) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        "Usually '${demandBasisLabel(folderDefault)}' "
+                        '${_folderId == null ? 'for unfiled items' : 'in this folder'} '
+                        '— this item is the exception.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 24),
+                    if (displayedBasis == DemandBasis.perPerson) ...[
+                      CountFormField(
+                        controller: _serves,
+                        labelText: 'How many people does one serve?',
+                        hintText: '4',
+                        minValue: 1,
+                        maxValue: maxServesPerUnit,
+                        helperText: 'One shared by several — "1 pot serves 8".',
+                        textInputAction: TextInputAction.next,
+                        onChanged: (_) => _servesChanged(),
+                      ),
+                      const SizedBox(height: 24),
+                      CountFormField(
+                        controller: _perPerson,
+                        labelText: 'How many per person?',
+                        hintText: '3',
+                        minValue: 1,
+                        maxValue: maxServesPerUnit,
+                        helperText:
+                            'Several each — "3 napkins per person". Answer '
+                            'whichever way you would say it; leave both '
+                            'blank if it varies.',
+                        textInputAction: TextInputAction.next,
+                        onChanged: (_) => _perPersonChanged(),
+                      ),
+                    ] else
+                      CountFormField(
+                        controller: _usualBring,
+                        labelText: 'How many do you usually bring?',
+                        hintText: '2',
+                        minValue: 1,
+                        helperText:
+                            'Optional. Your first packing lists start '
+                            'here; real events take over as you close '
+                            'them out.',
+                        textInputAction: TextInputAction.next,
+                        onChanged: (_) {
+                          _baselineEdited = true;
+                          _markDirty();
+                        },
+                      ),
                     const SizedBox(height: 32),
                     Text('Optional details', style: theme.textTheme.titleSmall),
                     const SizedBox(height: 12),
-                    Autocomplete<String>(
-                      initialValue: TextEditingValue(text: _category),
-                      optionsBuilder: (value) {
-                        final query = value.text.trim().toLowerCase();
-                        if (query.isEmpty) {
-                          return suggestions;
-                        }
-                        return suggestions.where(
-                          (category) => category.toLowerCase().contains(query),
-                        );
-                      },
-                      onSelected: (value) {
-                        _category = value;
-                        _markDirty();
-                      },
-                      fieldViewBuilder:
-                          (context, controller, focusNode, onFieldSubmitted) =>
-                              TextFormField(
-                                controller: controller,
-                                focusNode: focusNode,
-                                textInputAction: TextInputAction.next,
-                                decoration: const InputDecoration(
-                                  labelText: 'Group',
-                                  helperText:
-                                      'Groups the item list — "Drinks", '
-                                      '"Dry goods".',
-                                  helperMaxLines: 2,
-                                  border: OutlineInputBorder(),
-                                ),
-                                onChanged: (value) {
-                                  _category = value;
-                                  _markDirty();
-                                },
-                              ),
-                    ),
-                    const SizedBox(height: 24),
                     TextFormField(
                       controller: _notes,
                       maxLines: 3,
@@ -356,6 +581,24 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
         ),
       ),
     );
+  }
+
+  /// One value, two phrasings: typing into one side clears the other, so
+  /// serves and per-person can never both be submitted.
+  void _servesChanged() {
+    _phrasingEdited = true;
+    if (_serves.text.trim().isNotEmpty && _perPerson.text.isNotEmpty) {
+      _perPerson.clear();
+    }
+    _markDirty();
+  }
+
+  void _perPersonChanged() {
+    _phrasingEdited = true;
+    if (_perPerson.text.trim().isNotEmpty && _serves.text.isNotEmpty) {
+      _serves.clear();
+    }
+    _markDirty();
   }
 
   String? _validateName(String? text, Map<String, String> nameIndex) {

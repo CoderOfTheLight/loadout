@@ -17,8 +17,10 @@ import '../../../app/widgets/empty_state.dart';
 import '../../../app/widgets/quantity_form_field.dart';
 import '../../../core/quantity.dart';
 import '../../../core/units.dart';
+import '../../catalog/domain/demand_basis.dart';
 import '../../catalog/domain/item.dart';
 import '../../events/domain/event.dart';
+import '../application/baseline_estimator.dart';
 import '../domain/snapshot.dart';
 import 'forecast_presentation_support.dart';
 
@@ -374,14 +376,42 @@ class _ForecastLineDetailScreenState
             'to plan this item.';
       case ForecastBasis.servesBaseline:
         // The owner's own words for the arithmetic she supplied: this is
-        // NOT history, and the warning beneath says so verbatim.
-        final serves = formatMicros(line.baselineServesPerUnitMicros ?? 0);
-        return 'One serves $serves × ${snapshot.upcomingExposure} '
-            '$exposureLabel, +${snapshot.policy.reservePercent} % spare, '
+        // NOT history, and the warning beneath says so verbatim. The
+        // cold-start answer was either "1 serves N" or the flipped "N per
+        // person" ratio — never both.
+        final ratio = switch ((
+          line.baselinePerPersonNumerator,
+          line.baselinePerPersonDenominator,
+        )) {
+          (final numerator?, final denominator?) => formatPerPersonRatio(
+            numerator,
+            denominator,
+          ),
+          _ => null,
+        };
+        final start = ratio != null
+            ? '${ratio.substring(0, 1).toUpperCase()}${ratio.substring(1)} '
+                  '× ${snapshot.upcomingExposure} $exposureLabel'
+            : 'One serves '
+                  '${formatMicros(line.baselineServesPerUnitMicros ?? 0)} × '
+                  '${snapshot.upcomingExposure} $exposureLabel';
+        return '$start, +${snapshot.policy.reservePercent} % spare, '
+            '${_packClause(line)}$onHandClause';
+      case ForecastBasis.perEventBaseline:
+        // Attendance deliberately absent: that is what per-event means.
+        return 'You usually bring '
+            '${formatMicros(line.baselinePerEventMicros ?? 0)} — about the '
+            'same every event, +${snapshot.policy.reservePercent} % spare, '
             '${_packClause(line)}$onHandClause';
       case ForecastBasis.singleEvent:
       case ForecastBasis.observedRange:
         final count = line.evidence.length;
+        if (line.demandBasis == DemandBasis.perEvent) {
+          return 'Middle of what $count confirmed '
+              'event${count == 1 ? '' : 's'} actually used — '
+              'headcount ignored, +${snapshot.policy.reservePercent} % '
+              'reserve, ${_packClause(line)}$onHandClause';
+        }
         return 'Median of $count observed rate${count == 1 ? '' : 's'} × '
             '${snapshot.upcomingExposure} $exposureLabel, '
             '+${snapshot.policy.reservePercent} % reserve, '
@@ -442,6 +472,14 @@ class _ForecastLineDetailScreenState
           children: [
             row('Exposure', '${snapshot.upcomingExposure} $exposureLabel'),
             row('Policy', '${policyChipLabel(snapshot.policy)} reserve'),
+            // WHICH question this line answered, said plainly: "2 per
+            // event, from 5 events" vs "0.4 per person, from 5 events".
+            if (basisExplanation(
+                  line,
+                  upcomingExposure: snapshot.upcomingExposure,
+                )
+                case final explanation?)
+              row('Basis', explanation),
             // What was done about days that ran out. The Warnings section
             // below says why in plain language; this says how much of the
             // history it touched.
@@ -452,6 +490,17 @@ class _ForecastLineDetailScreenState
               row(
                 'One serves',
                 '${formatMicros(line.baselineServesPerUnitMicros!)} people',
+              ),
+            if ((
+                  line.baselinePerPersonNumerator,
+                  line.baselinePerPersonDenominator,
+                )
+                case (final numerator?, final denominator?))
+              row('Per person', formatPerPersonRatio(numerator, denominator)),
+            if (line.baselinePerEventMicros != null)
+              row(
+                'You usually bring',
+                formatMicros(line.baselinePerEventMicros!),
               ),
             // Only when rounding actually happens — see [_packClause].
             if (line.packSizeMicros != Quantity.one.micros)

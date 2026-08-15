@@ -1197,6 +1197,554 @@ class CommandsCompanion extends UpdateCompanion<Command> {
   }
 }
 
+class $FoldersTable extends Folders with TableInfo<$FoldersTable, Folder> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $FoldersTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    additionalChecks: GeneratedColumn.checkTextLength(
+      minTextLength: 26,
+      maxTextLength: 26,
+    ),
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    additionalChecks: GeneratedColumn.checkTextLength(
+      minTextLength: 1,
+      maxTextLength: 60,
+    ),
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _positionMeta = const VerificationMeta(
+    'position',
+  );
+  @override
+  late final GeneratedColumn<int> position = GeneratedColumn<int>(
+    'position',
+    aliasedName,
+    false,
+    check: () => ComparableExpr(position).isBiggerOrEqualValue(0),
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _demandBasisMeta = const VerificationMeta(
+    'demandBasis',
+  );
+  @override
+  late final GeneratedColumn<String> demandBasis = GeneratedColumn<String>(
+    'demand_basis',
+    aliasedName,
+    false,
+    check: () => demandBasis.isIn(['per_person', 'per_event']),
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _alwaysPlannedMeta = const VerificationMeta(
+    'alwaysPlanned',
+  );
+  @override
+  late final GeneratedColumn<bool> alwaysPlanned = GeneratedColumn<bool>(
+    'always_planned',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("always_planned" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _archivedAtMicrosMeta = const VerificationMeta(
+    'archivedAtMicros',
+  );
+  @override
+  late final GeneratedColumn<int> archivedAtMicros = GeneratedColumn<int>(
+    'archived_at_micros',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _createdAtMicrosMeta = const VerificationMeta(
+    'createdAtMicros',
+  );
+  @override
+  late final GeneratedColumn<int> createdAtMicros = GeneratedColumn<int>(
+    'created_at_micros',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMicrosMeta = const VerificationMeta(
+    'updatedAtMicros',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAtMicros = GeneratedColumn<int>(
+    'updated_at_micros',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    name,
+    position,
+    demandBasis,
+    alwaysPlanned,
+    archivedAtMicros,
+    createdAtMicros,
+    updatedAtMicros,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'folders';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<Folder> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('position')) {
+      context.handle(
+        _positionMeta,
+        position.isAcceptableOrUnknown(data['position']!, _positionMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_positionMeta);
+    }
+    if (data.containsKey('demand_basis')) {
+      context.handle(
+        _demandBasisMeta,
+        demandBasis.isAcceptableOrUnknown(
+          data['demand_basis']!,
+          _demandBasisMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_demandBasisMeta);
+    }
+    if (data.containsKey('always_planned')) {
+      context.handle(
+        _alwaysPlannedMeta,
+        alwaysPlanned.isAcceptableOrUnknown(
+          data['always_planned']!,
+          _alwaysPlannedMeta,
+        ),
+      );
+    }
+    if (data.containsKey('archived_at_micros')) {
+      context.handle(
+        _archivedAtMicrosMeta,
+        archivedAtMicros.isAcceptableOrUnknown(
+          data['archived_at_micros']!,
+          _archivedAtMicrosMeta,
+        ),
+      );
+    }
+    if (data.containsKey('created_at_micros')) {
+      context.handle(
+        _createdAtMicrosMeta,
+        createdAtMicros.isAcceptableOrUnknown(
+          data['created_at_micros']!,
+          _createdAtMicrosMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMicrosMeta);
+    }
+    if (data.containsKey('updated_at_micros')) {
+      context.handle(
+        _updatedAtMicrosMeta,
+        updatedAtMicros.isAcceptableOrUnknown(
+          data['updated_at_micros']!,
+          _updatedAtMicrosMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMicrosMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  Folder map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return Folder(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      position: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}position'],
+      )!,
+      demandBasis: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}demand_basis'],
+      )!,
+      alwaysPlanned: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}always_planned'],
+      )!,
+      archivedAtMicros: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}archived_at_micros'],
+      ),
+      createdAtMicros: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_micros'],
+      )!,
+      updatedAtMicros: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at_micros'],
+      )!,
+    );
+  }
+
+  @override
+  $FoldersTable createAlias(String alias) {
+    return $FoldersTable(attachedDatabase, alias);
+  }
+}
+
+class Folder extends DataClass implements Insertable<Folder> {
+  final String id;
+  final String name;
+  final int position;
+  final String demandBasis;
+  final bool alwaysPlanned;
+  final int? archivedAtMicros;
+  final int createdAtMicros;
+  final int updatedAtMicros;
+  const Folder({
+    required this.id,
+    required this.name,
+    required this.position,
+    required this.demandBasis,
+    required this.alwaysPlanned,
+    this.archivedAtMicros,
+    required this.createdAtMicros,
+    required this.updatedAtMicros,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['name'] = Variable<String>(name);
+    map['position'] = Variable<int>(position);
+    map['demand_basis'] = Variable<String>(demandBasis);
+    map['always_planned'] = Variable<bool>(alwaysPlanned);
+    if (!nullToAbsent || archivedAtMicros != null) {
+      map['archived_at_micros'] = Variable<int>(archivedAtMicros);
+    }
+    map['created_at_micros'] = Variable<int>(createdAtMicros);
+    map['updated_at_micros'] = Variable<int>(updatedAtMicros);
+    return map;
+  }
+
+  FoldersCompanion toCompanion(bool nullToAbsent) {
+    return FoldersCompanion(
+      id: Value(id),
+      name: Value(name),
+      position: Value(position),
+      demandBasis: Value(demandBasis),
+      alwaysPlanned: Value(alwaysPlanned),
+      archivedAtMicros: archivedAtMicros == null && nullToAbsent
+          ? const Value.absent()
+          : Value(archivedAtMicros),
+      createdAtMicros: Value(createdAtMicros),
+      updatedAtMicros: Value(updatedAtMicros),
+    );
+  }
+
+  factory Folder.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return Folder(
+      id: serializer.fromJson<String>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      position: serializer.fromJson<int>(json['position']),
+      demandBasis: serializer.fromJson<String>(json['demandBasis']),
+      alwaysPlanned: serializer.fromJson<bool>(json['alwaysPlanned']),
+      archivedAtMicros: serializer.fromJson<int?>(json['archivedAtMicros']),
+      createdAtMicros: serializer.fromJson<int>(json['createdAtMicros']),
+      updatedAtMicros: serializer.fromJson<int>(json['updatedAtMicros']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'name': serializer.toJson<String>(name),
+      'position': serializer.toJson<int>(position),
+      'demandBasis': serializer.toJson<String>(demandBasis),
+      'alwaysPlanned': serializer.toJson<bool>(alwaysPlanned),
+      'archivedAtMicros': serializer.toJson<int?>(archivedAtMicros),
+      'createdAtMicros': serializer.toJson<int>(createdAtMicros),
+      'updatedAtMicros': serializer.toJson<int>(updatedAtMicros),
+    };
+  }
+
+  Folder copyWith({
+    String? id,
+    String? name,
+    int? position,
+    String? demandBasis,
+    bool? alwaysPlanned,
+    Value<int?> archivedAtMicros = const Value.absent(),
+    int? createdAtMicros,
+    int? updatedAtMicros,
+  }) => Folder(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    position: position ?? this.position,
+    demandBasis: demandBasis ?? this.demandBasis,
+    alwaysPlanned: alwaysPlanned ?? this.alwaysPlanned,
+    archivedAtMicros: archivedAtMicros.present
+        ? archivedAtMicros.value
+        : this.archivedAtMicros,
+    createdAtMicros: createdAtMicros ?? this.createdAtMicros,
+    updatedAtMicros: updatedAtMicros ?? this.updatedAtMicros,
+  );
+  Folder copyWithCompanion(FoldersCompanion data) {
+    return Folder(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      position: data.position.present ? data.position.value : this.position,
+      demandBasis: data.demandBasis.present
+          ? data.demandBasis.value
+          : this.demandBasis,
+      alwaysPlanned: data.alwaysPlanned.present
+          ? data.alwaysPlanned.value
+          : this.alwaysPlanned,
+      archivedAtMicros: data.archivedAtMicros.present
+          ? data.archivedAtMicros.value
+          : this.archivedAtMicros,
+      createdAtMicros: data.createdAtMicros.present
+          ? data.createdAtMicros.value
+          : this.createdAtMicros,
+      updatedAtMicros: data.updatedAtMicros.present
+          ? data.updatedAtMicros.value
+          : this.updatedAtMicros,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('Folder(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('position: $position, ')
+          ..write('demandBasis: $demandBasis, ')
+          ..write('alwaysPlanned: $alwaysPlanned, ')
+          ..write('archivedAtMicros: $archivedAtMicros, ')
+          ..write('createdAtMicros: $createdAtMicros, ')
+          ..write('updatedAtMicros: $updatedAtMicros')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    name,
+    position,
+    demandBasis,
+    alwaysPlanned,
+    archivedAtMicros,
+    createdAtMicros,
+    updatedAtMicros,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is Folder &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.position == this.position &&
+          other.demandBasis == this.demandBasis &&
+          other.alwaysPlanned == this.alwaysPlanned &&
+          other.archivedAtMicros == this.archivedAtMicros &&
+          other.createdAtMicros == this.createdAtMicros &&
+          other.updatedAtMicros == this.updatedAtMicros);
+}
+
+class FoldersCompanion extends UpdateCompanion<Folder> {
+  final Value<String> id;
+  final Value<String> name;
+  final Value<int> position;
+  final Value<String> demandBasis;
+  final Value<bool> alwaysPlanned;
+  final Value<int?> archivedAtMicros;
+  final Value<int> createdAtMicros;
+  final Value<int> updatedAtMicros;
+  final Value<int> rowid;
+  const FoldersCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.position = const Value.absent(),
+    this.demandBasis = const Value.absent(),
+    this.alwaysPlanned = const Value.absent(),
+    this.archivedAtMicros = const Value.absent(),
+    this.createdAtMicros = const Value.absent(),
+    this.updatedAtMicros = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  FoldersCompanion.insert({
+    required String id,
+    required String name,
+    required int position,
+    required String demandBasis,
+    this.alwaysPlanned = const Value.absent(),
+    this.archivedAtMicros = const Value.absent(),
+    required int createdAtMicros,
+    required int updatedAtMicros,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       name = Value(name),
+       position = Value(position),
+       demandBasis = Value(demandBasis),
+       createdAtMicros = Value(createdAtMicros),
+       updatedAtMicros = Value(updatedAtMicros);
+  static Insertable<Folder> custom({
+    Expression<String>? id,
+    Expression<String>? name,
+    Expression<int>? position,
+    Expression<String>? demandBasis,
+    Expression<bool>? alwaysPlanned,
+    Expression<int>? archivedAtMicros,
+    Expression<int>? createdAtMicros,
+    Expression<int>? updatedAtMicros,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (position != null) 'position': position,
+      if (demandBasis != null) 'demand_basis': demandBasis,
+      if (alwaysPlanned != null) 'always_planned': alwaysPlanned,
+      if (archivedAtMicros != null) 'archived_at_micros': archivedAtMicros,
+      if (createdAtMicros != null) 'created_at_micros': createdAtMicros,
+      if (updatedAtMicros != null) 'updated_at_micros': updatedAtMicros,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  FoldersCompanion copyWith({
+    Value<String>? id,
+    Value<String>? name,
+    Value<int>? position,
+    Value<String>? demandBasis,
+    Value<bool>? alwaysPlanned,
+    Value<int?>? archivedAtMicros,
+    Value<int>? createdAtMicros,
+    Value<int>? updatedAtMicros,
+    Value<int>? rowid,
+  }) {
+    return FoldersCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      position: position ?? this.position,
+      demandBasis: demandBasis ?? this.demandBasis,
+      alwaysPlanned: alwaysPlanned ?? this.alwaysPlanned,
+      archivedAtMicros: archivedAtMicros ?? this.archivedAtMicros,
+      createdAtMicros: createdAtMicros ?? this.createdAtMicros,
+      updatedAtMicros: updatedAtMicros ?? this.updatedAtMicros,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (position.present) {
+      map['position'] = Variable<int>(position.value);
+    }
+    if (demandBasis.present) {
+      map['demand_basis'] = Variable<String>(demandBasis.value);
+    }
+    if (alwaysPlanned.present) {
+      map['always_planned'] = Variable<bool>(alwaysPlanned.value);
+    }
+    if (archivedAtMicros.present) {
+      map['archived_at_micros'] = Variable<int>(archivedAtMicros.value);
+    }
+    if (createdAtMicros.present) {
+      map['created_at_micros'] = Variable<int>(createdAtMicros.value);
+    }
+    if (updatedAtMicros.present) {
+      map['updated_at_micros'] = Variable<int>(updatedAtMicros.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('FoldersCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('position: $position, ')
+          ..write('demandBasis: $demandBasis, ')
+          ..write('alwaysPlanned: $alwaysPlanned, ')
+          ..write('archivedAtMicros: $archivedAtMicros, ')
+          ..write('createdAtMicros: $createdAtMicros, ')
+          ..write('updatedAtMicros: $updatedAtMicros, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
   @override
   final GeneratedDatabase attachedDatabase;
@@ -1288,6 +1836,71 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
     requiredDuringInsert: false,
     defaultValue: const Constant(''),
   );
+  static const VerificationMeta _folderIdMeta = const VerificationMeta(
+    'folderId',
+  );
+  @override
+  late final GeneratedColumn<String> folderId = GeneratedColumn<String>(
+    'folder_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES folders (id) ON DELETE RESTRICT',
+    ),
+  );
+  static const VerificationMeta _demandBasisMeta = const VerificationMeta(
+    'demandBasis',
+  );
+  @override
+  late final GeneratedColumn<String> demandBasis = GeneratedColumn<String>(
+    'demand_basis',
+    aliasedName,
+    true,
+    check: () => demandBasis.isIn(['per_person', 'per_event']),
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _perEventBaselineMicrosMeta =
+      const VerificationMeta('perEventBaselineMicros');
+  @override
+  late final GeneratedColumn<int> perEventBaselineMicros = GeneratedColumn<int>(
+    'per_event_baseline_micros',
+    aliasedName,
+    true,
+    check: () => ComparableExpr(
+      perEventBaselineMicros,
+    ).isBetweenValues(1, perEventBaselineCapMicros),
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _perPersonNumeratorMeta =
+      const VerificationMeta('perPersonNumerator');
+  @override
+  late final GeneratedColumn<int> perPersonNumerator = GeneratedColumn<int>(
+    'per_person_numerator',
+    aliasedName,
+    true,
+    check: () => ComparableExpr(
+      perPersonNumerator,
+    ).isBetweenValues(1, perPersonRatioPartCap),
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _perPersonDenominatorMeta =
+      const VerificationMeta('perPersonDenominator');
+  @override
+  late final GeneratedColumn<int> perPersonDenominator = GeneratedColumn<int>(
+    'per_person_denominator',
+    aliasedName,
+    true,
+    check: () => ComparableExpr(
+      perPersonDenominator,
+    ).isBetweenValues(1, perPersonRatioPartCap),
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _archivedAtMicrosMeta = const VerificationMeta(
     'archivedAtMicros',
   );
@@ -1330,6 +1943,11 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
     servesPerUnitMicros,
     category,
     notes,
+    folderId,
+    demandBasis,
+    perEventBaselineMicros,
+    perPersonNumerator,
+    perPersonDenominator,
     archivedAtMicros,
     createdAtMicros,
     updatedAtMicros,
@@ -1397,6 +2015,48 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
       context.handle(
         _notesMeta,
         notes.isAcceptableOrUnknown(data['notes']!, _notesMeta),
+      );
+    }
+    if (data.containsKey('folder_id')) {
+      context.handle(
+        _folderIdMeta,
+        folderId.isAcceptableOrUnknown(data['folder_id']!, _folderIdMeta),
+      );
+    }
+    if (data.containsKey('demand_basis')) {
+      context.handle(
+        _demandBasisMeta,
+        demandBasis.isAcceptableOrUnknown(
+          data['demand_basis']!,
+          _demandBasisMeta,
+        ),
+      );
+    }
+    if (data.containsKey('per_event_baseline_micros')) {
+      context.handle(
+        _perEventBaselineMicrosMeta,
+        perEventBaselineMicros.isAcceptableOrUnknown(
+          data['per_event_baseline_micros']!,
+          _perEventBaselineMicrosMeta,
+        ),
+      );
+    }
+    if (data.containsKey('per_person_numerator')) {
+      context.handle(
+        _perPersonNumeratorMeta,
+        perPersonNumerator.isAcceptableOrUnknown(
+          data['per_person_numerator']!,
+          _perPersonNumeratorMeta,
+        ),
+      );
+    }
+    if (data.containsKey('per_person_denominator')) {
+      context.handle(
+        _perPersonDenominatorMeta,
+        perPersonDenominator.isAcceptableOrUnknown(
+          data['per_person_denominator']!,
+          _perPersonDenominatorMeta,
+        ),
       );
     }
     if (data.containsKey('archived_at_micros')) {
@@ -1467,6 +2127,26 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
         DriftSqlType.string,
         data['${effectivePrefix}notes'],
       )!,
+      folderId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}folder_id'],
+      ),
+      demandBasis: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}demand_basis'],
+      ),
+      perEventBaselineMicros: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}per_event_baseline_micros'],
+      ),
+      perPersonNumerator: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}per_person_numerator'],
+      ),
+      perPersonDenominator: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}per_person_denominator'],
+      ),
       archivedAtMicros: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}archived_at_micros'],
@@ -1504,6 +2184,29 @@ class Item extends DataClass implements Insertable<Item> {
   final int? servesPerUnitMicros;
   final String? category;
   final String notes;
+
+  /// v3. The folder this item lives in; NULL = "Unfiled" (shown last, never
+  /// hidden). A rename can never orphan an item: this is an FK, not text.
+  final String? folderId;
+
+  /// v3. Per-item override of the folder's demand basis; NULL inherits the
+  /// folder's answer (and per_person when unfiled). Resolved ONLY by
+  /// `effectiveDemandBasis` — no screen re-derives it.
+  final String? demandBasis;
+
+  /// v3. "How many do you usually bring?" — the per-event cold-start
+  /// baseline, in micros of units. A planning assumption like
+  /// serves_per_unit_micros: never a forecasting label, never history.
+  final int? perEventBaselineMicros;
+
+  /// v3. The flipped "N per person" cold-start ratio ("3 napkins per
+  /// person" = 3/1; "1 urn per 200 people" = 1/200), stored as an exact
+  /// integer pair so 200 people × 3/person is exactly 600 — never the lossy
+  /// micros reciprocal. Both parts set together or both NULL
+  /// (validator-enforced; the pairing CHECK cannot ride an ALTER TABLE).
+  /// Mutually exclusive with serves_per_unit_micros (validator-enforced).
+  final int? perPersonNumerator;
+  final int? perPersonDenominator;
   final int? archivedAtMicros;
   final int createdAtMicros;
   final int updatedAtMicros;
@@ -1515,6 +2218,11 @@ class Item extends DataClass implements Insertable<Item> {
     this.servesPerUnitMicros,
     this.category,
     required this.notes,
+    this.folderId,
+    this.demandBasis,
+    this.perEventBaselineMicros,
+    this.perPersonNumerator,
+    this.perPersonDenominator,
     this.archivedAtMicros,
     required this.createdAtMicros,
     required this.updatedAtMicros,
@@ -1533,6 +2241,21 @@ class Item extends DataClass implements Insertable<Item> {
       map['category'] = Variable<String>(category);
     }
     map['notes'] = Variable<String>(notes);
+    if (!nullToAbsent || folderId != null) {
+      map['folder_id'] = Variable<String>(folderId);
+    }
+    if (!nullToAbsent || demandBasis != null) {
+      map['demand_basis'] = Variable<String>(demandBasis);
+    }
+    if (!nullToAbsent || perEventBaselineMicros != null) {
+      map['per_event_baseline_micros'] = Variable<int>(perEventBaselineMicros);
+    }
+    if (!nullToAbsent || perPersonNumerator != null) {
+      map['per_person_numerator'] = Variable<int>(perPersonNumerator);
+    }
+    if (!nullToAbsent || perPersonDenominator != null) {
+      map['per_person_denominator'] = Variable<int>(perPersonDenominator);
+    }
     if (!nullToAbsent || archivedAtMicros != null) {
       map['archived_at_micros'] = Variable<int>(archivedAtMicros);
     }
@@ -1554,6 +2277,21 @@ class Item extends DataClass implements Insertable<Item> {
           ? const Value.absent()
           : Value(category),
       notes: Value(notes),
+      folderId: folderId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(folderId),
+      demandBasis: demandBasis == null && nullToAbsent
+          ? const Value.absent()
+          : Value(demandBasis),
+      perEventBaselineMicros: perEventBaselineMicros == null && nullToAbsent
+          ? const Value.absent()
+          : Value(perEventBaselineMicros),
+      perPersonNumerator: perPersonNumerator == null && nullToAbsent
+          ? const Value.absent()
+          : Value(perPersonNumerator),
+      perPersonDenominator: perPersonDenominator == null && nullToAbsent
+          ? const Value.absent()
+          : Value(perPersonDenominator),
       archivedAtMicros: archivedAtMicros == null && nullToAbsent
           ? const Value.absent()
           : Value(archivedAtMicros),
@@ -1577,6 +2315,15 @@ class Item extends DataClass implements Insertable<Item> {
       ),
       category: serializer.fromJson<String?>(json['category']),
       notes: serializer.fromJson<String>(json['notes']),
+      folderId: serializer.fromJson<String?>(json['folderId']),
+      demandBasis: serializer.fromJson<String?>(json['demandBasis']),
+      perEventBaselineMicros: serializer.fromJson<int?>(
+        json['perEventBaselineMicros'],
+      ),
+      perPersonNumerator: serializer.fromJson<int?>(json['perPersonNumerator']),
+      perPersonDenominator: serializer.fromJson<int?>(
+        json['perPersonDenominator'],
+      ),
       archivedAtMicros: serializer.fromJson<int?>(json['archivedAtMicros']),
       createdAtMicros: serializer.fromJson<int>(json['createdAtMicros']),
       updatedAtMicros: serializer.fromJson<int>(json['updatedAtMicros']),
@@ -1593,6 +2340,11 @@ class Item extends DataClass implements Insertable<Item> {
       'servesPerUnitMicros': serializer.toJson<int?>(servesPerUnitMicros),
       'category': serializer.toJson<String?>(category),
       'notes': serializer.toJson<String>(notes),
+      'folderId': serializer.toJson<String?>(folderId),
+      'demandBasis': serializer.toJson<String?>(demandBasis),
+      'perEventBaselineMicros': serializer.toJson<int?>(perEventBaselineMicros),
+      'perPersonNumerator': serializer.toJson<int?>(perPersonNumerator),
+      'perPersonDenominator': serializer.toJson<int?>(perPersonDenominator),
       'archivedAtMicros': serializer.toJson<int?>(archivedAtMicros),
       'createdAtMicros': serializer.toJson<int>(createdAtMicros),
       'updatedAtMicros': serializer.toJson<int>(updatedAtMicros),
@@ -1607,6 +2359,11 @@ class Item extends DataClass implements Insertable<Item> {
     Value<int?> servesPerUnitMicros = const Value.absent(),
     Value<String?> category = const Value.absent(),
     String? notes,
+    Value<String?> folderId = const Value.absent(),
+    Value<String?> demandBasis = const Value.absent(),
+    Value<int?> perEventBaselineMicros = const Value.absent(),
+    Value<int?> perPersonNumerator = const Value.absent(),
+    Value<int?> perPersonDenominator = const Value.absent(),
     Value<int?> archivedAtMicros = const Value.absent(),
     int? createdAtMicros,
     int? updatedAtMicros,
@@ -1620,6 +2377,17 @@ class Item extends DataClass implements Insertable<Item> {
         : this.servesPerUnitMicros,
     category: category.present ? category.value : this.category,
     notes: notes ?? this.notes,
+    folderId: folderId.present ? folderId.value : this.folderId,
+    demandBasis: demandBasis.present ? demandBasis.value : this.demandBasis,
+    perEventBaselineMicros: perEventBaselineMicros.present
+        ? perEventBaselineMicros.value
+        : this.perEventBaselineMicros,
+    perPersonNumerator: perPersonNumerator.present
+        ? perPersonNumerator.value
+        : this.perPersonNumerator,
+    perPersonDenominator: perPersonDenominator.present
+        ? perPersonDenominator.value
+        : this.perPersonDenominator,
     archivedAtMicros: archivedAtMicros.present
         ? archivedAtMicros.value
         : this.archivedAtMicros,
@@ -1639,6 +2407,19 @@ class Item extends DataClass implements Insertable<Item> {
           : this.servesPerUnitMicros,
       category: data.category.present ? data.category.value : this.category,
       notes: data.notes.present ? data.notes.value : this.notes,
+      folderId: data.folderId.present ? data.folderId.value : this.folderId,
+      demandBasis: data.demandBasis.present
+          ? data.demandBasis.value
+          : this.demandBasis,
+      perEventBaselineMicros: data.perEventBaselineMicros.present
+          ? data.perEventBaselineMicros.value
+          : this.perEventBaselineMicros,
+      perPersonNumerator: data.perPersonNumerator.present
+          ? data.perPersonNumerator.value
+          : this.perPersonNumerator,
+      perPersonDenominator: data.perPersonDenominator.present
+          ? data.perPersonDenominator.value
+          : this.perPersonDenominator,
       archivedAtMicros: data.archivedAtMicros.present
           ? data.archivedAtMicros.value
           : this.archivedAtMicros,
@@ -1661,6 +2442,11 @@ class Item extends DataClass implements Insertable<Item> {
           ..write('servesPerUnitMicros: $servesPerUnitMicros, ')
           ..write('category: $category, ')
           ..write('notes: $notes, ')
+          ..write('folderId: $folderId, ')
+          ..write('demandBasis: $demandBasis, ')
+          ..write('perEventBaselineMicros: $perEventBaselineMicros, ')
+          ..write('perPersonNumerator: $perPersonNumerator, ')
+          ..write('perPersonDenominator: $perPersonDenominator, ')
           ..write('archivedAtMicros: $archivedAtMicros, ')
           ..write('createdAtMicros: $createdAtMicros, ')
           ..write('updatedAtMicros: $updatedAtMicros')
@@ -1677,6 +2463,11 @@ class Item extends DataClass implements Insertable<Item> {
     servesPerUnitMicros,
     category,
     notes,
+    folderId,
+    demandBasis,
+    perEventBaselineMicros,
+    perPersonNumerator,
+    perPersonDenominator,
     archivedAtMicros,
     createdAtMicros,
     updatedAtMicros,
@@ -1692,6 +2483,11 @@ class Item extends DataClass implements Insertable<Item> {
           other.servesPerUnitMicros == this.servesPerUnitMicros &&
           other.category == this.category &&
           other.notes == this.notes &&
+          other.folderId == this.folderId &&
+          other.demandBasis == this.demandBasis &&
+          other.perEventBaselineMicros == this.perEventBaselineMicros &&
+          other.perPersonNumerator == this.perPersonNumerator &&
+          other.perPersonDenominator == this.perPersonDenominator &&
           other.archivedAtMicros == this.archivedAtMicros &&
           other.createdAtMicros == this.createdAtMicros &&
           other.updatedAtMicros == this.updatedAtMicros);
@@ -1705,6 +2501,11 @@ class ItemsCompanion extends UpdateCompanion<Item> {
   final Value<int?> servesPerUnitMicros;
   final Value<String?> category;
   final Value<String> notes;
+  final Value<String?> folderId;
+  final Value<String?> demandBasis;
+  final Value<int?> perEventBaselineMicros;
+  final Value<int?> perPersonNumerator;
+  final Value<int?> perPersonDenominator;
   final Value<int?> archivedAtMicros;
   final Value<int> createdAtMicros;
   final Value<int> updatedAtMicros;
@@ -1717,6 +2518,11 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     this.servesPerUnitMicros = const Value.absent(),
     this.category = const Value.absent(),
     this.notes = const Value.absent(),
+    this.folderId = const Value.absent(),
+    this.demandBasis = const Value.absent(),
+    this.perEventBaselineMicros = const Value.absent(),
+    this.perPersonNumerator = const Value.absent(),
+    this.perPersonDenominator = const Value.absent(),
     this.archivedAtMicros = const Value.absent(),
     this.createdAtMicros = const Value.absent(),
     this.updatedAtMicros = const Value.absent(),
@@ -1730,6 +2536,11 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     this.servesPerUnitMicros = const Value.absent(),
     this.category = const Value.absent(),
     this.notes = const Value.absent(),
+    this.folderId = const Value.absent(),
+    this.demandBasis = const Value.absent(),
+    this.perEventBaselineMicros = const Value.absent(),
+    this.perPersonNumerator = const Value.absent(),
+    this.perPersonDenominator = const Value.absent(),
     this.archivedAtMicros = const Value.absent(),
     required int createdAtMicros,
     required int updatedAtMicros,
@@ -1748,6 +2559,11 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     Expression<int>? servesPerUnitMicros,
     Expression<String>? category,
     Expression<String>? notes,
+    Expression<String>? folderId,
+    Expression<String>? demandBasis,
+    Expression<int>? perEventBaselineMicros,
+    Expression<int>? perPersonNumerator,
+    Expression<int>? perPersonDenominator,
     Expression<int>? archivedAtMicros,
     Expression<int>? createdAtMicros,
     Expression<int>? updatedAtMicros,
@@ -1762,6 +2578,14 @@ class ItemsCompanion extends UpdateCompanion<Item> {
         'serves_per_unit_micros': servesPerUnitMicros,
       if (category != null) 'category': category,
       if (notes != null) 'notes': notes,
+      if (folderId != null) 'folder_id': folderId,
+      if (demandBasis != null) 'demand_basis': demandBasis,
+      if (perEventBaselineMicros != null)
+        'per_event_baseline_micros': perEventBaselineMicros,
+      if (perPersonNumerator != null)
+        'per_person_numerator': perPersonNumerator,
+      if (perPersonDenominator != null)
+        'per_person_denominator': perPersonDenominator,
       if (archivedAtMicros != null) 'archived_at_micros': archivedAtMicros,
       if (createdAtMicros != null) 'created_at_micros': createdAtMicros,
       if (updatedAtMicros != null) 'updated_at_micros': updatedAtMicros,
@@ -1777,6 +2601,11 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     Value<int?>? servesPerUnitMicros,
     Value<String?>? category,
     Value<String>? notes,
+    Value<String?>? folderId,
+    Value<String?>? demandBasis,
+    Value<int?>? perEventBaselineMicros,
+    Value<int?>? perPersonNumerator,
+    Value<int?>? perPersonDenominator,
     Value<int?>? archivedAtMicros,
     Value<int>? createdAtMicros,
     Value<int>? updatedAtMicros,
@@ -1790,6 +2619,12 @@ class ItemsCompanion extends UpdateCompanion<Item> {
       servesPerUnitMicros: servesPerUnitMicros ?? this.servesPerUnitMicros,
       category: category ?? this.category,
       notes: notes ?? this.notes,
+      folderId: folderId ?? this.folderId,
+      demandBasis: demandBasis ?? this.demandBasis,
+      perEventBaselineMicros:
+          perEventBaselineMicros ?? this.perEventBaselineMicros,
+      perPersonNumerator: perPersonNumerator ?? this.perPersonNumerator,
+      perPersonDenominator: perPersonDenominator ?? this.perPersonDenominator,
       archivedAtMicros: archivedAtMicros ?? this.archivedAtMicros,
       createdAtMicros: createdAtMicros ?? this.createdAtMicros,
       updatedAtMicros: updatedAtMicros ?? this.updatedAtMicros,
@@ -1821,6 +2656,23 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     if (notes.present) {
       map['notes'] = Variable<String>(notes.value);
     }
+    if (folderId.present) {
+      map['folder_id'] = Variable<String>(folderId.value);
+    }
+    if (demandBasis.present) {
+      map['demand_basis'] = Variable<String>(demandBasis.value);
+    }
+    if (perEventBaselineMicros.present) {
+      map['per_event_baseline_micros'] = Variable<int>(
+        perEventBaselineMicros.value,
+      );
+    }
+    if (perPersonNumerator.present) {
+      map['per_person_numerator'] = Variable<int>(perPersonNumerator.value);
+    }
+    if (perPersonDenominator.present) {
+      map['per_person_denominator'] = Variable<int>(perPersonDenominator.value);
+    }
     if (archivedAtMicros.present) {
       map['archived_at_micros'] = Variable<int>(archivedAtMicros.value);
     }
@@ -1846,6 +2698,11 @@ class ItemsCompanion extends UpdateCompanion<Item> {
           ..write('servesPerUnitMicros: $servesPerUnitMicros, ')
           ..write('category: $category, ')
           ..write('notes: $notes, ')
+          ..write('folderId: $folderId, ')
+          ..write('demandBasis: $demandBasis, ')
+          ..write('perEventBaselineMicros: $perEventBaselineMicros, ')
+          ..write('perPersonNumerator: $perPersonNumerator, ')
+          ..write('perPersonDenominator: $perPersonDenominator, ')
           ..write('archivedAtMicros: $archivedAtMicros, ')
           ..write('createdAtMicros: $createdAtMicros, ')
           ..write('updatedAtMicros: $updatedAtMicros, ')
@@ -7234,6 +8091,59 @@ class $ForecastLinesTable extends ForecastLines
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _demandBasisMeta = const VerificationMeta(
+    'demandBasis',
+  );
+  @override
+  late final GeneratedColumn<String> demandBasis = GeneratedColumn<String>(
+    'demand_basis',
+    aliasedName,
+    true,
+    check: () => demandBasis.isIn(['per_person', 'per_event']),
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _baselinePerEventMicrosMeta =
+      const VerificationMeta('baselinePerEventMicros');
+  @override
+  late final GeneratedColumn<int> baselinePerEventMicros = GeneratedColumn<int>(
+    'baseline_per_event_micros',
+    aliasedName,
+    true,
+    check: () => ComparableExpr(
+      baselinePerEventMicros,
+    ).isBetweenValues(1, perEventBaselineCapMicros),
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _baselinePerPersonNumeratorMeta =
+      const VerificationMeta('baselinePerPersonNumerator');
+  @override
+  late final GeneratedColumn<int> baselinePerPersonNumerator =
+      GeneratedColumn<int>(
+        'baseline_per_person_numerator',
+        aliasedName,
+        true,
+        check: () => ComparableExpr(
+          baselinePerPersonNumerator,
+        ).isBetweenValues(1, perPersonRatioPartCap),
+        type: DriftSqlType.int,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _baselinePerPersonDenominatorMeta =
+      const VerificationMeta('baselinePerPersonDenominator');
+  @override
+  late final GeneratedColumn<int> baselinePerPersonDenominator =
+      GeneratedColumn<int>(
+        'baseline_per_person_denominator',
+        aliasedName,
+        true,
+        check: () => ComparableExpr(
+          baselinePerPersonDenominator,
+        ).isBetweenValues(1, perPersonRatioPartCap),
+        type: DriftSqlType.int,
+        requiredDuringInsert: false,
+      );
   @override
   List<GeneratedColumn> get $columns => [
     snapshotId,
@@ -7252,6 +8162,10 @@ class $ForecastLinesTable extends ForecastLines
     baselinePlannedMicros,
     baselineLoadMicros,
     baselineAcquireMicros,
+    demandBasis,
+    baselinePerEventMicros,
+    baselinePerPersonNumerator,
+    baselinePerPersonDenominator,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -7410,6 +8324,42 @@ class $ForecastLinesTable extends ForecastLines
         ),
       );
     }
+    if (data.containsKey('demand_basis')) {
+      context.handle(
+        _demandBasisMeta,
+        demandBasis.isAcceptableOrUnknown(
+          data['demand_basis']!,
+          _demandBasisMeta,
+        ),
+      );
+    }
+    if (data.containsKey('baseline_per_event_micros')) {
+      context.handle(
+        _baselinePerEventMicrosMeta,
+        baselinePerEventMicros.isAcceptableOrUnknown(
+          data['baseline_per_event_micros']!,
+          _baselinePerEventMicrosMeta,
+        ),
+      );
+    }
+    if (data.containsKey('baseline_per_person_numerator')) {
+      context.handle(
+        _baselinePerPersonNumeratorMeta,
+        baselinePerPersonNumerator.isAcceptableOrUnknown(
+          data['baseline_per_person_numerator']!,
+          _baselinePerPersonNumeratorMeta,
+        ),
+      );
+    }
+    if (data.containsKey('baseline_per_person_denominator')) {
+      context.handle(
+        _baselinePerPersonDenominatorMeta,
+        baselinePerPersonDenominator.isAcceptableOrUnknown(
+          data['baseline_per_person_denominator']!,
+          _baselinePerPersonDenominatorMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -7483,6 +8433,22 @@ class $ForecastLinesTable extends ForecastLines
         DriftSqlType.int,
         data['${effectivePrefix}baseline_acquire_micros'],
       ),
+      demandBasis: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}demand_basis'],
+      ),
+      baselinePerEventMicros: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}baseline_per_event_micros'],
+      ),
+      baselinePerPersonNumerator: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}baseline_per_person_numerator'],
+      ),
+      baselinePerPersonDenominator: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}baseline_per_person_denominator'],
+      ),
     );
   }
 
@@ -7509,6 +8475,19 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
   final int? baselinePlannedMicros;
   final int? baselineLoadMicros;
   final int? baselineAcquireMicros;
+  final String? demandBasis;
+
+  /// v3. The per-event cold start: the item's "how many do you usually
+  /// bring" as it was at generation time. Shares the baseline_* output
+  /// columns above; exactly one of baseline_serves_per_unit_micros, the
+  /// baseline_per_person pair, or this may accompany them
+  /// (validator-enforced — the pairing CHECKs cannot ride an ALTER TABLE).
+  final int? baselinePerEventMicros;
+
+  /// v3. The flipped "N per person" ratio that produced a per-person
+  /// baseline, exact integer pair, both set together (validator-enforced).
+  final int? baselinePerPersonNumerator;
+  final int? baselinePerPersonDenominator;
   const ForecastLine({
     required this.snapshotId,
     required this.itemId,
@@ -7526,6 +8505,10 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
     this.baselinePlannedMicros,
     this.baselineLoadMicros,
     this.baselineAcquireMicros,
+    this.demandBasis,
+    this.baselinePerEventMicros,
+    this.baselinePerPersonNumerator,
+    this.baselinePerPersonDenominator,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -7568,6 +8551,22 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
     if (!nullToAbsent || baselineAcquireMicros != null) {
       map['baseline_acquire_micros'] = Variable<int>(baselineAcquireMicros);
     }
+    if (!nullToAbsent || demandBasis != null) {
+      map['demand_basis'] = Variable<String>(demandBasis);
+    }
+    if (!nullToAbsent || baselinePerEventMicros != null) {
+      map['baseline_per_event_micros'] = Variable<int>(baselinePerEventMicros);
+    }
+    if (!nullToAbsent || baselinePerPersonNumerator != null) {
+      map['baseline_per_person_numerator'] = Variable<int>(
+        baselinePerPersonNumerator,
+      );
+    }
+    if (!nullToAbsent || baselinePerPersonDenominator != null) {
+      map['baseline_per_person_denominator'] = Variable<int>(
+        baselinePerPersonDenominator,
+      );
+    }
     return map;
   }
 
@@ -7609,6 +8608,20 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
       baselineAcquireMicros: baselineAcquireMicros == null && nullToAbsent
           ? const Value.absent()
           : Value(baselineAcquireMicros),
+      demandBasis: demandBasis == null && nullToAbsent
+          ? const Value.absent()
+          : Value(demandBasis),
+      baselinePerEventMicros: baselinePerEventMicros == null && nullToAbsent
+          ? const Value.absent()
+          : Value(baselinePerEventMicros),
+      baselinePerPersonNumerator:
+          baselinePerPersonNumerator == null && nullToAbsent
+          ? const Value.absent()
+          : Value(baselinePerPersonNumerator),
+      baselinePerPersonDenominator:
+          baselinePerPersonDenominator == null && nullToAbsent
+          ? const Value.absent()
+          : Value(baselinePerPersonDenominator),
     );
   }
 
@@ -7644,6 +8657,16 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
       baselineAcquireMicros: serializer.fromJson<int?>(
         json['baselineAcquireMicros'],
       ),
+      demandBasis: serializer.fromJson<String?>(json['demandBasis']),
+      baselinePerEventMicros: serializer.fromJson<int?>(
+        json['baselinePerEventMicros'],
+      ),
+      baselinePerPersonNumerator: serializer.fromJson<int?>(
+        json['baselinePerPersonNumerator'],
+      ),
+      baselinePerPersonDenominator: serializer.fromJson<int?>(
+        json['baselinePerPersonDenominator'],
+      ),
     );
   }
   @override
@@ -7670,6 +8693,14 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
       'baselinePlannedMicros': serializer.toJson<int?>(baselinePlannedMicros),
       'baselineLoadMicros': serializer.toJson<int?>(baselineLoadMicros),
       'baselineAcquireMicros': serializer.toJson<int?>(baselineAcquireMicros),
+      'demandBasis': serializer.toJson<String?>(demandBasis),
+      'baselinePerEventMicros': serializer.toJson<int?>(baselinePerEventMicros),
+      'baselinePerPersonNumerator': serializer.toJson<int?>(
+        baselinePerPersonNumerator,
+      ),
+      'baselinePerPersonDenominator': serializer.toJson<int?>(
+        baselinePerPersonDenominator,
+      ),
     };
   }
 
@@ -7690,6 +8721,10 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
     Value<int?> baselinePlannedMicros = const Value.absent(),
     Value<int?> baselineLoadMicros = const Value.absent(),
     Value<int?> baselineAcquireMicros = const Value.absent(),
+    Value<String?> demandBasis = const Value.absent(),
+    Value<int?> baselinePerEventMicros = const Value.absent(),
+    Value<int?> baselinePerPersonNumerator = const Value.absent(),
+    Value<int?> baselinePerPersonDenominator = const Value.absent(),
   }) => ForecastLine(
     snapshotId: snapshotId ?? this.snapshotId,
     itemId: itemId ?? this.itemId,
@@ -7724,6 +8759,16 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
     baselineAcquireMicros: baselineAcquireMicros.present
         ? baselineAcquireMicros.value
         : this.baselineAcquireMicros,
+    demandBasis: demandBasis.present ? demandBasis.value : this.demandBasis,
+    baselinePerEventMicros: baselinePerEventMicros.present
+        ? baselinePerEventMicros.value
+        : this.baselinePerEventMicros,
+    baselinePerPersonNumerator: baselinePerPersonNumerator.present
+        ? baselinePerPersonNumerator.value
+        : this.baselinePerPersonNumerator,
+    baselinePerPersonDenominator: baselinePerPersonDenominator.present
+        ? baselinePerPersonDenominator.value
+        : this.baselinePerPersonDenominator,
   );
   ForecastLine copyWithCompanion(ForecastLinesCompanion data) {
     return ForecastLine(
@@ -7773,6 +8818,18 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
       baselineAcquireMicros: data.baselineAcquireMicros.present
           ? data.baselineAcquireMicros.value
           : this.baselineAcquireMicros,
+      demandBasis: data.demandBasis.present
+          ? data.demandBasis.value
+          : this.demandBasis,
+      baselinePerEventMicros: data.baselinePerEventMicros.present
+          ? data.baselinePerEventMicros.value
+          : this.baselinePerEventMicros,
+      baselinePerPersonNumerator: data.baselinePerPersonNumerator.present
+          ? data.baselinePerPersonNumerator.value
+          : this.baselinePerPersonNumerator,
+      baselinePerPersonDenominator: data.baselinePerPersonDenominator.present
+          ? data.baselinePerPersonDenominator.value
+          : this.baselinePerPersonDenominator,
     );
   }
 
@@ -7794,7 +8851,11 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
           ..write('baselineExpectedUseMicros: $baselineExpectedUseMicros, ')
           ..write('baselinePlannedMicros: $baselinePlannedMicros, ')
           ..write('baselineLoadMicros: $baselineLoadMicros, ')
-          ..write('baselineAcquireMicros: $baselineAcquireMicros')
+          ..write('baselineAcquireMicros: $baselineAcquireMicros, ')
+          ..write('demandBasis: $demandBasis, ')
+          ..write('baselinePerEventMicros: $baselinePerEventMicros, ')
+          ..write('baselinePerPersonNumerator: $baselinePerPersonNumerator, ')
+          ..write('baselinePerPersonDenominator: $baselinePerPersonDenominator')
           ..write(')'))
         .toString();
   }
@@ -7817,6 +8878,10 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
     baselinePlannedMicros,
     baselineLoadMicros,
     baselineAcquireMicros,
+    demandBasis,
+    baselinePerEventMicros,
+    baselinePerPersonNumerator,
+    baselinePerPersonDenominator,
   );
   @override
   bool operator ==(Object other) =>
@@ -7838,7 +8903,12 @@ class ForecastLine extends DataClass implements Insertable<ForecastLine> {
           other.baselineExpectedUseMicros == this.baselineExpectedUseMicros &&
           other.baselinePlannedMicros == this.baselinePlannedMicros &&
           other.baselineLoadMicros == this.baselineLoadMicros &&
-          other.baselineAcquireMicros == this.baselineAcquireMicros);
+          other.baselineAcquireMicros == this.baselineAcquireMicros &&
+          other.demandBasis == this.demandBasis &&
+          other.baselinePerEventMicros == this.baselinePerEventMicros &&
+          other.baselinePerPersonNumerator == this.baselinePerPersonNumerator &&
+          other.baselinePerPersonDenominator ==
+              this.baselinePerPersonDenominator);
 }
 
 class ForecastLinesCompanion extends UpdateCompanion<ForecastLine> {
@@ -7858,6 +8928,10 @@ class ForecastLinesCompanion extends UpdateCompanion<ForecastLine> {
   final Value<int?> baselinePlannedMicros;
   final Value<int?> baselineLoadMicros;
   final Value<int?> baselineAcquireMicros;
+  final Value<String?> demandBasis;
+  final Value<int?> baselinePerEventMicros;
+  final Value<int?> baselinePerPersonNumerator;
+  final Value<int?> baselinePerPersonDenominator;
   final Value<int> rowid;
   const ForecastLinesCompanion({
     this.snapshotId = const Value.absent(),
@@ -7876,6 +8950,10 @@ class ForecastLinesCompanion extends UpdateCompanion<ForecastLine> {
     this.baselinePlannedMicros = const Value.absent(),
     this.baselineLoadMicros = const Value.absent(),
     this.baselineAcquireMicros = const Value.absent(),
+    this.demandBasis = const Value.absent(),
+    this.baselinePerEventMicros = const Value.absent(),
+    this.baselinePerPersonNumerator = const Value.absent(),
+    this.baselinePerPersonDenominator = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ForecastLinesCompanion.insert({
@@ -7895,6 +8973,10 @@ class ForecastLinesCompanion extends UpdateCompanion<ForecastLine> {
     this.baselinePlannedMicros = const Value.absent(),
     this.baselineLoadMicros = const Value.absent(),
     this.baselineAcquireMicros = const Value.absent(),
+    this.demandBasis = const Value.absent(),
+    this.baselinePerEventMicros = const Value.absent(),
+    this.baselinePerPersonNumerator = const Value.absent(),
+    this.baselinePerPersonDenominator = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : snapshotId = Value(snapshotId),
        itemId = Value(itemId),
@@ -7918,6 +9000,10 @@ class ForecastLinesCompanion extends UpdateCompanion<ForecastLine> {
     Expression<int>? baselinePlannedMicros,
     Expression<int>? baselineLoadMicros,
     Expression<int>? baselineAcquireMicros,
+    Expression<String>? demandBasis,
+    Expression<int>? baselinePerEventMicros,
+    Expression<int>? baselinePerPersonNumerator,
+    Expression<int>? baselinePerPersonDenominator,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -7943,6 +9029,13 @@ class ForecastLinesCompanion extends UpdateCompanion<ForecastLine> {
         'baseline_load_micros': baselineLoadMicros,
       if (baselineAcquireMicros != null)
         'baseline_acquire_micros': baselineAcquireMicros,
+      if (demandBasis != null) 'demand_basis': demandBasis,
+      if (baselinePerEventMicros != null)
+        'baseline_per_event_micros': baselinePerEventMicros,
+      if (baselinePerPersonNumerator != null)
+        'baseline_per_person_numerator': baselinePerPersonNumerator,
+      if (baselinePerPersonDenominator != null)
+        'baseline_per_person_denominator': baselinePerPersonDenominator,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -7964,6 +9057,10 @@ class ForecastLinesCompanion extends UpdateCompanion<ForecastLine> {
     Value<int?>? baselinePlannedMicros,
     Value<int?>? baselineLoadMicros,
     Value<int?>? baselineAcquireMicros,
+    Value<String?>? demandBasis,
+    Value<int?>? baselinePerEventMicros,
+    Value<int?>? baselinePerPersonNumerator,
+    Value<int?>? baselinePerPersonDenominator,
     Value<int>? rowid,
   }) {
     return ForecastLinesCompanion(
@@ -7988,6 +9085,13 @@ class ForecastLinesCompanion extends UpdateCompanion<ForecastLine> {
       baselineLoadMicros: baselineLoadMicros ?? this.baselineLoadMicros,
       baselineAcquireMicros:
           baselineAcquireMicros ?? this.baselineAcquireMicros,
+      demandBasis: demandBasis ?? this.demandBasis,
+      baselinePerEventMicros:
+          baselinePerEventMicros ?? this.baselinePerEventMicros,
+      baselinePerPersonNumerator:
+          baselinePerPersonNumerator ?? this.baselinePerPersonNumerator,
+      baselinePerPersonDenominator:
+          baselinePerPersonDenominator ?? this.baselinePerPersonDenominator,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -8053,6 +9157,24 @@ class ForecastLinesCompanion extends UpdateCompanion<ForecastLine> {
         baselineAcquireMicros.value,
       );
     }
+    if (demandBasis.present) {
+      map['demand_basis'] = Variable<String>(demandBasis.value);
+    }
+    if (baselinePerEventMicros.present) {
+      map['baseline_per_event_micros'] = Variable<int>(
+        baselinePerEventMicros.value,
+      );
+    }
+    if (baselinePerPersonNumerator.present) {
+      map['baseline_per_person_numerator'] = Variable<int>(
+        baselinePerPersonNumerator.value,
+      );
+    }
+    if (baselinePerPersonDenominator.present) {
+      map['baseline_per_person_denominator'] = Variable<int>(
+        baselinePerPersonDenominator.value,
+      );
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -8078,6 +9200,12 @@ class ForecastLinesCompanion extends UpdateCompanion<ForecastLine> {
           ..write('baselinePlannedMicros: $baselinePlannedMicros, ')
           ..write('baselineLoadMicros: $baselineLoadMicros, ')
           ..write('baselineAcquireMicros: $baselineAcquireMicros, ')
+          ..write('demandBasis: $demandBasis, ')
+          ..write('baselinePerEventMicros: $baselinePerEventMicros, ')
+          ..write('baselinePerPersonNumerator: $baselinePerPersonNumerator, ')
+          ..write(
+            'baselinePerPersonDenominator: $baselinePerPersonDenominator, ',
+          )
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -9138,6 +10266,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $WorkspaceMetaTable workspaceMeta = $WorkspaceMetaTable(this);
   late final $SettingsTable settings = $SettingsTable(this);
   late final $CommandsTable commands = $CommandsTable(this);
+  late final $FoldersTable folders = $FoldersTable(this);
   late final $ItemsTable items = $ItemsTable(this);
   late final $EventsTable events = $EventsTable(this);
   late final $EventItemsTable eventItems = $EventItemsTable(this);
@@ -9163,6 +10292,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final EventDao eventDao = EventDao(this as AppDatabase);
   late final CloseoutDao closeoutDao = CloseoutDao(this as AppDatabase);
   late final ItemDao itemDao = ItemDao(this as AppDatabase);
+  late final FolderDao folderDao = FolderDao(this as AppDatabase);
   late final RecipeDao recipeDao = RecipeDao(this as AppDatabase);
   late final ForecastDao forecastDao = ForecastDao(this as AppDatabase);
   late final CommandDao commandDao = CommandDao(this as AppDatabase);
@@ -9175,6 +10305,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     workspaceMeta,
     settings,
     commands,
+    folders,
     items,
     events,
     eventItems,
@@ -10133,6 +11264,368 @@ typedef $$CommandsTableProcessedTableManager =
         bool forecastSnapshotsRefs,
       })
     >;
+typedef $$FoldersTableCreateCompanionBuilder =
+    FoldersCompanion Function({
+      required String id,
+      required String name,
+      required int position,
+      required String demandBasis,
+      Value<bool> alwaysPlanned,
+      Value<int?> archivedAtMicros,
+      required int createdAtMicros,
+      required int updatedAtMicros,
+      Value<int> rowid,
+    });
+typedef $$FoldersTableUpdateCompanionBuilder =
+    FoldersCompanion Function({
+      Value<String> id,
+      Value<String> name,
+      Value<int> position,
+      Value<String> demandBasis,
+      Value<bool> alwaysPlanned,
+      Value<int?> archivedAtMicros,
+      Value<int> createdAtMicros,
+      Value<int> updatedAtMicros,
+      Value<int> rowid,
+    });
+
+final class $$FoldersTableReferences
+    extends BaseReferences<_$AppDatabase, $FoldersTable, Folder> {
+  $$FoldersTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static MultiTypedResultKey<$ItemsTable, List<Item>> _itemsRefsTable(
+    _$AppDatabase db,
+  ) => MultiTypedResultKey.fromTable(
+    db.items,
+    aliasName: 'folders__id__items__folder_id',
+  );
+
+  $$ItemsTableProcessedTableManager get itemsRefs {
+    final manager = $$ItemsTableTableManager(
+      $_db,
+      $_db.items,
+    ).filter((f) => f.folderId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_itemsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
+
+class $$FoldersTableFilterComposer
+    extends Composer<_$AppDatabase, $FoldersTable> {
+  $$FoldersTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get position => $composableBuilder(
+    column: $table.position,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get demandBasis => $composableBuilder(
+    column: $table.demandBasis,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get alwaysPlanned => $composableBuilder(
+    column: $table.alwaysPlanned,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get archivedAtMicros => $composableBuilder(
+    column: $table.archivedAtMicros,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAtMicros => $composableBuilder(
+    column: $table.createdAtMicros,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAtMicros => $composableBuilder(
+    column: $table.updatedAtMicros,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  Expression<bool> itemsRefs(
+    Expression<bool> Function($$ItemsTableFilterComposer f) f,
+  ) {
+    final $$ItemsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.items,
+      getReferencedColumn: (t) => t.folderId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ItemsTableFilterComposer(
+            $db: $db,
+            $table: $db.items,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$FoldersTableOrderingComposer
+    extends Composer<_$AppDatabase, $FoldersTable> {
+  $$FoldersTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get position => $composableBuilder(
+    column: $table.position,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get demandBasis => $composableBuilder(
+    column: $table.demandBasis,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get alwaysPlanned => $composableBuilder(
+    column: $table.alwaysPlanned,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get archivedAtMicros => $composableBuilder(
+    column: $table.archivedAtMicros,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAtMicros => $composableBuilder(
+    column: $table.createdAtMicros,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAtMicros => $composableBuilder(
+    column: $table.updatedAtMicros,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$FoldersTableAnnotationComposer
+    extends Composer<_$AppDatabase, $FoldersTable> {
+  $$FoldersTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<int> get position =>
+      $composableBuilder(column: $table.position, builder: (column) => column);
+
+  GeneratedColumn<String> get demandBasis => $composableBuilder(
+    column: $table.demandBasis,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get alwaysPlanned => $composableBuilder(
+    column: $table.alwaysPlanned,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get archivedAtMicros => $composableBuilder(
+    column: $table.archivedAtMicros,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get createdAtMicros => $composableBuilder(
+    column: $table.createdAtMicros,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get updatedAtMicros => $composableBuilder(
+    column: $table.updatedAtMicros,
+    builder: (column) => column,
+  );
+
+  Expression<T> itemsRefs<T extends Object>(
+    Expression<T> Function($$ItemsTableAnnotationComposer a) f,
+  ) {
+    final $$ItemsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.items,
+      getReferencedColumn: (t) => t.folderId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ItemsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.items,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$FoldersTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $FoldersTable,
+          Folder,
+          $$FoldersTableFilterComposer,
+          $$FoldersTableOrderingComposer,
+          $$FoldersTableAnnotationComposer,
+          $$FoldersTableCreateCompanionBuilder,
+          $$FoldersTableUpdateCompanionBuilder,
+          (Folder, $$FoldersTableReferences),
+          Folder,
+          PrefetchHooks Function({bool itemsRefs})
+        > {
+  $$FoldersTableTableManager(_$AppDatabase db, $FoldersTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$FoldersTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$FoldersTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$FoldersTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<int> position = const Value.absent(),
+                Value<String> demandBasis = const Value.absent(),
+                Value<bool> alwaysPlanned = const Value.absent(),
+                Value<int?> archivedAtMicros = const Value.absent(),
+                Value<int> createdAtMicros = const Value.absent(),
+                Value<int> updatedAtMicros = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => FoldersCompanion(
+                id: id,
+                name: name,
+                position: position,
+                demandBasis: demandBasis,
+                alwaysPlanned: alwaysPlanned,
+                archivedAtMicros: archivedAtMicros,
+                createdAtMicros: createdAtMicros,
+                updatedAtMicros: updatedAtMicros,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String name,
+                required int position,
+                required String demandBasis,
+                Value<bool> alwaysPlanned = const Value.absent(),
+                Value<int?> archivedAtMicros = const Value.absent(),
+                required int createdAtMicros,
+                required int updatedAtMicros,
+                Value<int> rowid = const Value.absent(),
+              }) => FoldersCompanion.insert(
+                id: id,
+                name: name,
+                position: position,
+                demandBasis: demandBasis,
+                alwaysPlanned: alwaysPlanned,
+                archivedAtMicros: archivedAtMicros,
+                createdAtMicros: createdAtMicros,
+                updatedAtMicros: updatedAtMicros,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$FoldersTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({itemsRefs = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [if (itemsRefs) db.items],
+              addJoins: null,
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (itemsRefs)
+                    await $_getPrefetchedData<Folder, $FoldersTable, Item>(
+                      currentTable: table,
+                      referencedTable: $$FoldersTableReferences._itemsRefsTable(
+                        db,
+                      ),
+                      managerFromTypedResult: (p0) =>
+                          $$FoldersTableReferences(db, table, p0).itemsRefs,
+                      referencedItemsForCurrentItem: (item, referencedItems) =>
+                          referencedItems.where((e) => e.folderId == item.id),
+                      typedResults: items,
+                    ),
+                ];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$FoldersTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $FoldersTable,
+      Folder,
+      $$FoldersTableFilterComposer,
+      $$FoldersTableOrderingComposer,
+      $$FoldersTableAnnotationComposer,
+      $$FoldersTableCreateCompanionBuilder,
+      $$FoldersTableUpdateCompanionBuilder,
+      (Folder, $$FoldersTableReferences),
+      Folder,
+      PrefetchHooks Function({bool itemsRefs})
+    >;
 typedef $$ItemsTableCreateCompanionBuilder =
     ItemsCompanion Function({
       required String id,
@@ -10142,6 +11635,11 @@ typedef $$ItemsTableCreateCompanionBuilder =
       Value<int?> servesPerUnitMicros,
       Value<String?> category,
       Value<String> notes,
+      Value<String?> folderId,
+      Value<String?> demandBasis,
+      Value<int?> perEventBaselineMicros,
+      Value<int?> perPersonNumerator,
+      Value<int?> perPersonDenominator,
       Value<int?> archivedAtMicros,
       required int createdAtMicros,
       required int updatedAtMicros,
@@ -10156,6 +11654,11 @@ typedef $$ItemsTableUpdateCompanionBuilder =
       Value<int?> servesPerUnitMicros,
       Value<String?> category,
       Value<String> notes,
+      Value<String?> folderId,
+      Value<String?> demandBasis,
+      Value<int?> perEventBaselineMicros,
+      Value<int?> perPersonNumerator,
+      Value<int?> perPersonDenominator,
       Value<int?> archivedAtMicros,
       Value<int> createdAtMicros,
       Value<int> updatedAtMicros,
@@ -10165,6 +11668,23 @@ typedef $$ItemsTableUpdateCompanionBuilder =
 final class $$ItemsTableReferences
     extends BaseReferences<_$AppDatabase, $ItemsTable, Item> {
   $$ItemsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $FoldersTable _folderIdTable(_$AppDatabase db) =>
+      db.folders.createAlias('items__folder_id__folders__id');
+
+  $$FoldersTableProcessedTableManager? get folderId {
+    final $_column = $_itemColumn<String>('folder_id');
+    if ($_column == null) return null;
+    final manager = $$FoldersTableTableManager(
+      $_db,
+      $_db.folders,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_folderIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
 
   static MultiTypedResultKey<$EventItemsTable, List<EventItem>>
   _eventItemsRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
@@ -10363,6 +11883,26 @@ class $$ItemsTableFilterComposer extends Composer<_$AppDatabase, $ItemsTable> {
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<String> get demandBasis => $composableBuilder(
+    column: $table.demandBasis,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get perEventBaselineMicros => $composableBuilder(
+    column: $table.perEventBaselineMicros,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get perPersonNumerator => $composableBuilder(
+    column: $table.perPersonNumerator,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get perPersonDenominator => $composableBuilder(
+    column: $table.perPersonDenominator,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<int> get archivedAtMicros => $composableBuilder(
     column: $table.archivedAtMicros,
     builder: (column) => ColumnFilters(column),
@@ -10377,6 +11917,29 @@ class $$ItemsTableFilterComposer extends Composer<_$AppDatabase, $ItemsTable> {
     column: $table.updatedAtMicros,
     builder: (column) => ColumnFilters(column),
   );
+
+  $$FoldersTableFilterComposer get folderId {
+    final $$FoldersTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.folderId,
+      referencedTable: $db.folders,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$FoldersTableFilterComposer(
+            $db: $db,
+            $table: $db.folders,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
 
   Expression<bool> eventItemsRefs(
     Expression<bool> Function($$EventItemsTableFilterComposer f) f,
@@ -10623,6 +12186,26 @@ class $$ItemsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get demandBasis => $composableBuilder(
+    column: $table.demandBasis,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get perEventBaselineMicros => $composableBuilder(
+    column: $table.perEventBaselineMicros,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get perPersonNumerator => $composableBuilder(
+    column: $table.perPersonNumerator,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get perPersonDenominator => $composableBuilder(
+    column: $table.perPersonDenominator,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get archivedAtMicros => $composableBuilder(
     column: $table.archivedAtMicros,
     builder: (column) => ColumnOrderings(column),
@@ -10637,6 +12220,29 @@ class $$ItemsTableOrderingComposer
     column: $table.updatedAtMicros,
     builder: (column) => ColumnOrderings(column),
   );
+
+  $$FoldersTableOrderingComposer get folderId {
+    final $$FoldersTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.folderId,
+      referencedTable: $db.folders,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$FoldersTableOrderingComposer(
+            $db: $db,
+            $table: $db.folders,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
 }
 
 class $$ItemsTableAnnotationComposer
@@ -10673,6 +12279,26 @@ class $$ItemsTableAnnotationComposer
   GeneratedColumn<String> get notes =>
       $composableBuilder(column: $table.notes, builder: (column) => column);
 
+  GeneratedColumn<String> get demandBasis => $composableBuilder(
+    column: $table.demandBasis,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get perEventBaselineMicros => $composableBuilder(
+    column: $table.perEventBaselineMicros,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get perPersonNumerator => $composableBuilder(
+    column: $table.perPersonNumerator,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get perPersonDenominator => $composableBuilder(
+    column: $table.perPersonDenominator,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<int> get archivedAtMicros => $composableBuilder(
     column: $table.archivedAtMicros,
     builder: (column) => column,
@@ -10687,6 +12313,29 @@ class $$ItemsTableAnnotationComposer
     column: $table.updatedAtMicros,
     builder: (column) => column,
   );
+
+  $$FoldersTableAnnotationComposer get folderId {
+    final $$FoldersTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.folderId,
+      referencedTable: $db.folders,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$FoldersTableAnnotationComposer(
+            $db: $db,
+            $table: $db.folders,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
 
   Expression<T> eventItemsRefs<T extends Object>(
     Expression<T> Function($$EventItemsTableAnnotationComposer a) f,
@@ -10905,6 +12554,7 @@ class $$ItemsTableTableManager
           (Item, $$ItemsTableReferences),
           Item,
           PrefetchHooks Function({
+            bool folderId,
             bool eventItemsRefs,
             bool inventoryMovementsRefs,
             bool closeoutLinesRefs,
@@ -10935,6 +12585,11 @@ class $$ItemsTableTableManager
                 Value<int?> servesPerUnitMicros = const Value.absent(),
                 Value<String?> category = const Value.absent(),
                 Value<String> notes = const Value.absent(),
+                Value<String?> folderId = const Value.absent(),
+                Value<String?> demandBasis = const Value.absent(),
+                Value<int?> perEventBaselineMicros = const Value.absent(),
+                Value<int?> perPersonNumerator = const Value.absent(),
+                Value<int?> perPersonDenominator = const Value.absent(),
                 Value<int?> archivedAtMicros = const Value.absent(),
                 Value<int> createdAtMicros = const Value.absent(),
                 Value<int> updatedAtMicros = const Value.absent(),
@@ -10947,6 +12602,11 @@ class $$ItemsTableTableManager
                 servesPerUnitMicros: servesPerUnitMicros,
                 category: category,
                 notes: notes,
+                folderId: folderId,
+                demandBasis: demandBasis,
+                perEventBaselineMicros: perEventBaselineMicros,
+                perPersonNumerator: perPersonNumerator,
+                perPersonDenominator: perPersonDenominator,
                 archivedAtMicros: archivedAtMicros,
                 createdAtMicros: createdAtMicros,
                 updatedAtMicros: updatedAtMicros,
@@ -10961,6 +12621,11 @@ class $$ItemsTableTableManager
                 Value<int?> servesPerUnitMicros = const Value.absent(),
                 Value<String?> category = const Value.absent(),
                 Value<String> notes = const Value.absent(),
+                Value<String?> folderId = const Value.absent(),
+                Value<String?> demandBasis = const Value.absent(),
+                Value<int?> perEventBaselineMicros = const Value.absent(),
+                Value<int?> perPersonNumerator = const Value.absent(),
+                Value<int?> perPersonDenominator = const Value.absent(),
                 Value<int?> archivedAtMicros = const Value.absent(),
                 required int createdAtMicros,
                 required int updatedAtMicros,
@@ -10973,6 +12638,11 @@ class $$ItemsTableTableManager
                 servesPerUnitMicros: servesPerUnitMicros,
                 category: category,
                 notes: notes,
+                folderId: folderId,
+                demandBasis: demandBasis,
+                perEventBaselineMicros: perEventBaselineMicros,
+                perPersonNumerator: perPersonNumerator,
+                perPersonDenominator: perPersonDenominator,
                 archivedAtMicros: archivedAtMicros,
                 createdAtMicros: createdAtMicros,
                 updatedAtMicros: updatedAtMicros,
@@ -10986,6 +12656,7 @@ class $$ItemsTableTableManager
               .toList(),
           prefetchHooksCallback:
               ({
+                folderId = false,
                 eventItemsRefs = false,
                 inventoryMovementsRefs = false,
                 closeoutLinesRefs = false,
@@ -11007,7 +12678,38 @@ class $$ItemsTableTableManager
                     if (forecastEvidenceRefs) db.forecastEvidence,
                     if (forecastOverridesRefs) db.forecastOverrides,
                   ],
-                  addJoins: null,
+                  addJoins:
+                      <
+                        T extends TableManagerState<
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic
+                        >
+                      >(state) {
+                        if (folderId) {
+                          state =
+                              state.withJoin(
+                                    currentTable: table,
+                                    currentColumn: table.folderId,
+                                    referencedTable: $$ItemsTableReferences
+                                        ._folderIdTable(db),
+                                    referencedColumn: $$ItemsTableReferences
+                                        ._folderIdTable(db)
+                                        .id,
+                                  )
+                                  as T;
+                        }
+
+                        return state;
+                      },
                   getPrefetchedDataCallback: (items) async {
                     return [
                       if (eventItemsRefs)
@@ -11187,6 +12889,7 @@ typedef $$ItemsTableProcessedTableManager =
       (Item, $$ItemsTableReferences),
       Item,
       PrefetchHooks Function({
+        bool folderId,
         bool eventItemsRefs,
         bool inventoryMovementsRefs,
         bool closeoutLinesRefs,
@@ -17137,6 +18840,10 @@ typedef $$ForecastLinesTableCreateCompanionBuilder =
       Value<int?> baselinePlannedMicros,
       Value<int?> baselineLoadMicros,
       Value<int?> baselineAcquireMicros,
+      Value<String?> demandBasis,
+      Value<int?> baselinePerEventMicros,
+      Value<int?> baselinePerPersonNumerator,
+      Value<int?> baselinePerPersonDenominator,
       Value<int> rowid,
     });
 typedef $$ForecastLinesTableUpdateCompanionBuilder =
@@ -17157,6 +18864,10 @@ typedef $$ForecastLinesTableUpdateCompanionBuilder =
       Value<int?> baselinePlannedMicros,
       Value<int?> baselineLoadMicros,
       Value<int?> baselineAcquireMicros,
+      Value<String?> demandBasis,
+      Value<int?> baselinePerEventMicros,
+      Value<int?> baselinePerPersonNumerator,
+      Value<int?> baselinePerPersonDenominator,
       Value<int> rowid,
     });
 
@@ -17280,6 +18991,26 @@ class $$ForecastLinesTableFilterComposer
 
   ColumnFilters<int> get baselineAcquireMicros => $composableBuilder(
     column: $table.baselineAcquireMicros,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get demandBasis => $composableBuilder(
+    column: $table.demandBasis,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get baselinePerEventMicros => $composableBuilder(
+    column: $table.baselinePerEventMicros,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get baselinePerPersonNumerator => $composableBuilder(
+    column: $table.baselinePerPersonNumerator,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get baselinePerPersonDenominator => $composableBuilder(
+    column: $table.baselinePerPersonDenominator,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -17409,6 +19140,26 @@ class $$ForecastLinesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get demandBasis => $composableBuilder(
+    column: $table.demandBasis,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get baselinePerEventMicros => $composableBuilder(
+    column: $table.baselinePerEventMicros,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get baselinePerPersonNumerator => $composableBuilder(
+    column: $table.baselinePerPersonNumerator,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get baselinePerPersonDenominator => $composableBuilder(
+    column: $table.baselinePerPersonDenominator,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   $$ForecastSnapshotsTableOrderingComposer get snapshotId {
     final $$ForecastSnapshotsTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -17535,6 +19286,26 @@ class $$ForecastLinesTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get demandBasis => $composableBuilder(
+    column: $table.demandBasis,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get baselinePerEventMicros => $composableBuilder(
+    column: $table.baselinePerEventMicros,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get baselinePerPersonNumerator => $composableBuilder(
+    column: $table.baselinePerPersonNumerator,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get baselinePerPersonDenominator => $composableBuilder(
+    column: $table.baselinePerPersonDenominator,
+    builder: (column) => column,
+  );
+
   $$ForecastSnapshotsTableAnnotationComposer get snapshotId {
     final $$ForecastSnapshotsTableAnnotationComposer composer =
         $composerBuilder(
@@ -17627,6 +19398,10 @@ class $$ForecastLinesTableTableManager
                 Value<int?> baselinePlannedMicros = const Value.absent(),
                 Value<int?> baselineLoadMicros = const Value.absent(),
                 Value<int?> baselineAcquireMicros = const Value.absent(),
+                Value<String?> demandBasis = const Value.absent(),
+                Value<int?> baselinePerEventMicros = const Value.absent(),
+                Value<int?> baselinePerPersonNumerator = const Value.absent(),
+                Value<int?> baselinePerPersonDenominator = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ForecastLinesCompanion(
                 snapshotId: snapshotId,
@@ -17645,6 +19420,10 @@ class $$ForecastLinesTableTableManager
                 baselinePlannedMicros: baselinePlannedMicros,
                 baselineLoadMicros: baselineLoadMicros,
                 baselineAcquireMicros: baselineAcquireMicros,
+                demandBasis: demandBasis,
+                baselinePerEventMicros: baselinePerEventMicros,
+                baselinePerPersonNumerator: baselinePerPersonNumerator,
+                baselinePerPersonDenominator: baselinePerPersonDenominator,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -17665,6 +19444,10 @@ class $$ForecastLinesTableTableManager
                 Value<int?> baselinePlannedMicros = const Value.absent(),
                 Value<int?> baselineLoadMicros = const Value.absent(),
                 Value<int?> baselineAcquireMicros = const Value.absent(),
+                Value<String?> demandBasis = const Value.absent(),
+                Value<int?> baselinePerEventMicros = const Value.absent(),
+                Value<int?> baselinePerPersonNumerator = const Value.absent(),
+                Value<int?> baselinePerPersonDenominator = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ForecastLinesCompanion.insert(
                 snapshotId: snapshotId,
@@ -17683,6 +19466,10 @@ class $$ForecastLinesTableTableManager
                 baselinePlannedMicros: baselinePlannedMicros,
                 baselineLoadMicros: baselineLoadMicros,
                 baselineAcquireMicros: baselineAcquireMicros,
+                demandBasis: demandBasis,
+                baselinePerEventMicros: baselinePerEventMicros,
+                baselinePerPersonNumerator: baselinePerPersonNumerator,
+                baselinePerPersonDenominator: baselinePerPersonDenominator,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -18914,6 +20701,8 @@ class $AppDatabaseManager {
       $$SettingsTableTableManager(_db, _db.settings);
   $$CommandsTableTableManager get commands =>
       $$CommandsTableTableManager(_db, _db.commands);
+  $$FoldersTableTableManager get folders =>
+      $$FoldersTableTableManager(_db, _db.folders);
   $$ItemsTableTableManager get items =>
       $$ItemsTableTableManager(_db, _db.items);
   $$EventsTableTableManager get events =>

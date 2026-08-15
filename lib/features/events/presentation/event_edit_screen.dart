@@ -20,7 +20,9 @@ import '../../../app/widgets/empty_state.dart';
 import '../../catalog/application/catalog_service.dart';
 import '../domain/event.dart';
 import 'event_ui.dart';
+import 'folder_sections.dart';
 import 'planned_items_picker.dart';
+import 'previous_event_picker.dart';
 import '../../../app/widgets/form_action_bar.dart';
 
 class EventEditScreen extends ConsumerStatefulWidget {
@@ -123,6 +125,35 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
     final selection = await showPlannedItemsPicker(
       context,
       selected: _plannedItemIds,
+    );
+    if (selection != null && mounted) {
+      setState(() {
+        _plannedItemIds = selection;
+        _dirty = true;
+      });
+    }
+  }
+
+  /// "Copy items from a previous event": choose an event, then its
+  /// still-live planned items arrive pre-ticked in the picker (merged with
+  /// the current selection) — untick what differs, Done applies.
+  Future<void> _copyFromEvent() async {
+    final sourceId = await showPreviousEventPicker(
+      context,
+      excludeEventId: widget.eventId,
+    );
+    if (sourceId == null || !mounted) return;
+    final cloned = await ref
+        .read(eventServiceProvider)
+        .clonePlannedItemsFrom(sourceId);
+    if (!mounted) return;
+    final selection = await showPlannedItemsPicker(
+      context,
+      selected: [
+        ..._plannedItemIds,
+        for (final id in cloned)
+          if (!_plannedItemIds.contains(id)) id,
+      ],
     );
     if (selection != null && mounted) {
       setState(() {
@@ -341,6 +372,18 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
                         icon: const Icon(Icons.playlist_add),
                         label: const Text('Add items'),
                       ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: _copyFromEvent,
+                        icon: const Icon(Icons.copy_all_outlined),
+                        label: const Text('Copy items from a previous event'),
+                      ),
+                    ],
+                    // Create only: updates never re-add, so the review
+                    // (unticking) happens on the saved event.
+                    if (!_isEdit) ...[
+                      const SizedBox(height: 16),
+                      const _AlwaysPlannedNote(),
                     ],
                     const SizedBox(height: 24),
                     TextFormField(
@@ -408,6 +451,69 @@ class _EmptyCatalogNote extends StatelessWidget {
               onPressed: onAddItem,
               icon: const Icon(Icons.add),
               label: const Text('Add an item'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Create-only preview of the standing stuff: every live `always comes
+/// along` folder's live items are added automatically when the event is
+/// saved (EventService.createEvent composes them), and this note says which
+/// folder brings what — so removing them afterwards is an informed untick,
+/// not a surprise. Hidden when no folder is marked always-planned.
+class _AlwaysPlannedNote extends ConsumerWidget {
+  const _AlwaysPlannedNote();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final sections =
+        ref.watch(eventFoldersWithItemsProvider).valueOrNull ??
+        const <FolderWithItems>[];
+    final standing = [
+      for (final section in sections)
+        if (section.folder case final folder?
+            when folder.alwaysPlanned && section.items.isNotEmpty)
+          section,
+    ];
+    if (standing.isEmpty) return const SizedBox.shrink();
+    return Material(
+      color: scheme.secondaryContainer,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Comes along to every event',
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: scheme.onSecondaryContainer,
+              ),
+            ),
+            const SizedBox(height: 8),
+            for (final section in standing)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  '${section.folder!.name}: '
+                  '${[for (final s in section.items) s.item.name].join(', ')}',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSecondaryContainer,
+                  ),
+                ),
+              ),
+            const SizedBox(height: 4),
+            Text(
+              'Added automatically when you save — each shows the folder '
+              'that brought it. Remove any you do not need afterwards.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSecondaryContainer,
+              ),
             ),
           ],
         ),

@@ -71,6 +71,8 @@ void _incrementEntropy() {
 
 extension type const ItemId(String value) implements Object {}
 
+extension type const FolderId(String value) implements Object {}
+
 extension type const EventId(String value) implements Object {}
 
 extension type const MovementId(String value) implements Object {}

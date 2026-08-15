@@ -47,6 +47,44 @@ class Commands extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+// ---------------------------------------------------------------- folders
+
+/// Hard cap for `items.per_event_baseline_micros` and
+/// `forecast_lines.baseline_per_event_micros`: the 1e12-micros closeout
+/// depletion envelope. "How many do you usually bring" can never exceed what
+/// a closeout could ever confirm.
+const int perEventBaselineCapMicros = 1000000000000;
+
+/// Hard cap for each part of the flipped "N per person" ratio
+/// (`items.per_person_numerator/denominator`): 10 000 — the same order as
+/// [servesPerUnitCapMicros], and far beyond any real hand-out rate.
+const int perPersonRatioPartCap = 10000;
+
+/// v3. One folder per item, chosen from a short managed list the owner
+/// renames, adds to, and reorders. NO nesting — one level, in her order.
+/// `demand_basis` answers "does how much you bring depend on how many people
+/// come?" for the whole folder ('per_person' | 'per_event'); items may
+/// override it. `always_planned` folders have their live items pre-added to
+/// every new event. Archiving moves the folder's items to Unfiled (NULL
+/// folder_id) and never deletes anything. Folders are master data like
+/// items: plain in-place updates through the command path, not append-only.
+class Folders extends Table {
+  TextColumn get id => text().withLength(min: 26, max: 26)();
+  TextColumn get name => text().withLength(min: 1, max: 60)();
+  IntColumn get position => integer().check(position.isBiggerOrEqualValue(0))();
+  TextColumn get demandBasis =>
+      text().check(demandBasis.isIn(['per_person', 'per_event']))();
+  BoolColumn get alwaysPlanned =>
+      boolean().withDefault(const Constant(false))();
+  IntColumn get archivedAtMicros => integer().nullable()();
+  IntColumn get createdAtMicros => integer()();
+  IntColumn get updatedAtMicros => integer()();
+  @override
+  Set<Column> get primaryKey => {id};
+}
+// Live-name uniqueness is the partial index uidx_folders_name_live (v3):
+// UNIQUE ON folders(lower(name)) WHERE archived_at_micros IS NULL.
+
 // ---------------------------------------------------------------- items
 
 /// Hard cap for `items.serves_per_unit_micros`: 10 000 people served by one
@@ -85,6 +123,46 @@ class Items extends Table {
   )();
   TextColumn get category => text().nullable().withLength(min: 1, max: 60)();
   TextColumn get notes => text().withDefault(const Constant(''))();
+
+  // --------------------------------------------------------- v3 folders
+  // Every column below is nullable and CHECKed at column level only, so the
+  // v3 ALTER TABLE ADD COLUMN carries the constraint and existing rows
+  // survive byte for byte.
+
+  /// v3. The folder this item lives in; NULL = "Unfiled" (shown last, never
+  /// hidden). A rename can never orphan an item: this is an FK, not text.
+  TextColumn get folderId => text().nullable().references(
+    Folders,
+    #id,
+    onDelete: KeyAction.restrict,
+  )();
+
+  /// v3. Per-item override of the folder's demand basis; NULL inherits the
+  /// folder's answer (and per_person when unfiled). Resolved ONLY by
+  /// `effectiveDemandBasis` — no screen re-derives it.
+  TextColumn get demandBasis =>
+      text().nullable().check(demandBasis.isIn(['per_person', 'per_event']))();
+
+  /// v3. "How many do you usually bring?" — the per-event cold-start
+  /// baseline, in micros of units. A planning assumption like
+  /// serves_per_unit_micros: never a forecasting label, never history.
+  IntColumn get perEventBaselineMicros => integer().nullable().check(
+    perEventBaselineMicros.isBetweenValues(1, perEventBaselineCapMicros),
+  )();
+
+  /// v3. The flipped "N per person" cold-start ratio ("3 napkins per
+  /// person" = 3/1; "1 urn per 200 people" = 1/200), stored as an exact
+  /// integer pair so 200 people × 3/person is exactly 600 — never the lossy
+  /// micros reciprocal. Both parts set together or both NULL
+  /// (validator-enforced; the pairing CHECK cannot ride an ALTER TABLE).
+  /// Mutually exclusive with serves_per_unit_micros (validator-enforced).
+  IntColumn get perPersonNumerator => integer().nullable().check(
+    perPersonNumerator.isBetweenValues(1, perPersonRatioPartCap),
+  )();
+  IntColumn get perPersonDenominator => integer().nullable().check(
+    perPersonDenominator.isBetweenValues(1, perPersonRatioPartCap),
+  )();
+
   IntColumn get archivedAtMicros => integer().nullable()();
   IntColumn get createdAtMicros => integer()();
   IntColumn get updatedAtMicros => integer()();
@@ -408,6 +486,31 @@ class ForecastLines extends Table {
       integer().nullable().check(baselineLoadMicros.isBiggerOrEqualValue(0))();
   IntColumn get baselineAcquireMicros => integer().nullable().check(
     baselineAcquireMicros.isBiggerOrEqualValue(0),
+  )();
+
+  // ------------------------------------------------- v3 demand basis
+  // Which question this line's numbers answered, recorded so a stored
+  // forecast can still explain itself ("2 per event" vs "0.4 per person").
+  // NULL only on rows stored before v3 — all of which were per-person.
+  TextColumn get demandBasis =>
+      text().nullable().check(demandBasis.isIn(['per_person', 'per_event']))();
+
+  /// v3. The per-event cold start: the item's "how many do you usually
+  /// bring" as it was at generation time. Shares the baseline_* output
+  /// columns above; exactly one of baseline_serves_per_unit_micros, the
+  /// baseline_per_person pair, or this may accompany them
+  /// (validator-enforced — the pairing CHECKs cannot ride an ALTER TABLE).
+  IntColumn get baselinePerEventMicros => integer().nullable().check(
+    baselinePerEventMicros.isBetweenValues(1, perEventBaselineCapMicros),
+  )();
+
+  /// v3. The flipped "N per person" ratio that produced a per-person
+  /// baseline, exact integer pair, both set together (validator-enforced).
+  IntColumn get baselinePerPersonNumerator => integer().nullable().check(
+    baselinePerPersonNumerator.isBetweenValues(1, perPersonRatioPartCap),
+  )();
+  IntColumn get baselinePerPersonDenominator => integer().nullable().check(
+    baselinePerPersonDenominator.isBetweenValues(1, perPersonRatioPartCap),
   )();
 
   @override

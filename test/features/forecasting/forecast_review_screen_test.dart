@@ -33,7 +33,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Header values come from the snapshot row, never hardcoded.
-    expect(find.textContaining('direct_median v2'), findsOneWidget);
+    expect(find.textContaining('direct_median v3'), findsOneWidget);
     expect(find.textContaining('computed just now'), findsOneWidget);
     expect(find.text('Balanced +10 %'), findsOneWidget);
     expect(find.text('for 150 attendance'), findsOneWidget);
@@ -58,7 +58,7 @@ void main() {
     );
     expect(latest, isNotNull);
     expect(latest!.method, 'direct_median');
-    expect(latest.methodVersion, 2);
+    expect(latest.methodVersion, 3);
   });
 
   testWidgets('staleness banner appears after a ledger write and Refresh '
@@ -229,7 +229,7 @@ void main() {
     await h.pumpApp(tester);
     await h.go(tester, '/events/${scenario.upcomingEventId}/forecast');
     // Overflow errors at 200 % would fail the test; the header must render.
-    expect(find.textContaining('direct_median v2'), findsOneWidget);
+    expect(find.textContaining('direct_median v3'), findsOneWidget);
   });
 
   testWidgets('a sell-out in the history plans higher and says why in plain '

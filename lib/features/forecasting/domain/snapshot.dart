@@ -1,5 +1,6 @@
 import '../../../core/ids.dart';
 import '../../../core/time.dart';
+import '../../catalog/domain/demand_basis.dart';
 import 'forecast_engine.dart';
 import 'snapshot_inputs.dart';
 
@@ -7,18 +8,30 @@ import 'snapshot_inputs.dart';
 const String forecastMethodDirectMedian = 'direct_median';
 
 /// v2: sell-out days are treated as a lower bound on demand before the frozen
-/// engine sees them (`application/stockout_adjustment.dart`). The engine is
-/// unchanged, but the same confirmed history now legitimately produces a
-/// different — never lower — number, so the version has to say so. The
-/// canonical input encoding carries the same tag, which is what keeps
-/// "same hash ⇒ byte-identical outputs" true across the change.
-const int forecastMethodVersion = 2;
+/// engine sees them (`application/stockout_adjustment.dart`).
+///
+/// v3: items whose demand basis is per_event are forecast as the median of
+/// past events' actual usage — every confirmed observation is mapped to
+/// exposure 1 before the frozen engine sees it
+/// (`application/per_event_basis.dart`), so attendance is ignored. The
+/// engine is unchanged both times, but the same confirmed history now
+/// legitimately produces different numbers for those items, so the version
+/// has to say so. The canonical input encoding carries the same tag, which
+/// is what keeps "same hash ⇒ byte-identical outputs" true across the
+/// change — every stored v2 snapshot honestly reads as out of date rather
+/// than silently swapping numbers.
+const int forecastMethodVersion = 3;
 
 /// The first method version that treats a sell-out day as a lower bound on
 /// demand. A snapshot stored below this was computed WITHOUT that correction,
 /// and its numbers are frozen history: nothing on screen may describe them as
 /// having allowed for the days that ran out, because they did not.
 const int selloutAwareMethodVersion = 2;
+
+/// The first method version that can forecast "about the same every event"
+/// items from the median of their per-event usage. Below this, every stored
+/// line was per-person arithmetic.
+const int perEventAwareMethodVersion = 3;
 
 /// Db string mapping for the frozen engine's [EvidenceGrade].
 String evidenceGradeToDb(EvidenceGrade grade) => switch (grade) {
@@ -38,14 +51,18 @@ EvidenceGrade evidenceGradeFromDb(String value) => switch (value) {
 /// screen should switch on.
 ///
 /// [EvidenceGrade] is the frozen engine's vocabulary and only ever describes
-/// CONFIRMED outcomes; [servesBaseline] is the strictly weaker fourth state
-/// the engine cannot express: no confirmed outcomes at all, numbers derived
-/// from the item's "1 serves N". It is stored as `insufficient_data` plus the
-/// `baseline_*` columns, so the §4.3 label query and every history/accuracy
-/// read stay exactly as blind to it as they are to any other prediction.
+/// CONFIRMED outcomes; the baseline states are strictly weaker states the
+/// engine cannot express: no confirmed outcomes at all, numbers derived from
+/// a planning assumption — [servesBaseline] from the per-person cold start
+/// ("1 serves N" or the flipped "N per person" ratio), [perEventBaseline]
+/// from "how many do you usually bring". Both are stored as
+/// `insufficient_data` plus the `baseline_*` columns, so the §4.3 label
+/// query and every history/accuracy read stay exactly as blind to them as
+/// they are to any other prediction.
 enum ForecastBasis {
   insufficientData,
   servesBaseline,
+  perEventBaseline,
   singleEvent,
   observedRange,
 }
@@ -86,7 +103,11 @@ final class ForecastSnapshotDraft {
           packSizeMicros: line.packSizeMicros,
           onHandMicros: line.onHandMicros,
           confirmedInboundMicros: line.confirmedInboundMicros,
+          demandBasis: line.demandBasis,
           servesPerUnitMicros: line.servesPerUnitMicros,
+          perPersonNumerator: line.perPersonNumerator,
+          perPersonDenominator: line.perPersonDenominator,
+          perEventBaselineMicros: line.perEventBaselineMicros,
           evidence: line.evidence,
         ),
     ],
@@ -100,12 +121,19 @@ final class ForecastSnapshotLineDraft {
     required this.packSizeMicros,
     required this.onHandMicros,
     this.confirmedInboundMicros = 0,
+    this.demandBasis = DemandBasis.perPerson,
     this.servesPerUnitMicros,
+    this.perPersonNumerator,
+    this.perPersonDenominator,
+    this.perEventBaselineMicros,
     this.expectedUseMicros,
     this.plannedMicros,
     this.loadMicros,
     this.acquireMicros,
     this.baselineServesPerUnitMicros,
+    this.baselinePerPersonNumerator,
+    this.baselinePerPersonDenominator,
+    this.baselinePerEventMicros,
     this.baselineExpectedUseMicros,
     this.baselinePlannedMicros,
     this.baselineLoadMicros,
@@ -122,18 +150,41 @@ final class ForecastSnapshotLineDraft {
   final int onHandMicros;
   final int confirmedInboundMicros;
 
+  /// The EFFECTIVE demand basis this line was computed under (item override
+  /// else folder else per_person), resolved once by the builder via
+  /// `effectiveDemandBasis`. Hashed (it changes the outputs) and stored, so
+  /// the line can always say which question its numbers answered.
+  final DemandBasis demandBasis;
+
   /// The item's "1 serves N" at generation time — a hashed input, because it
   /// changes the baseline outputs. Not persisted on the line itself; the
   /// value that produced a baseline is in [baselineServesPerUnitMicros].
+  /// Material only on per-person lines; the builder passes null otherwise.
   final int? servesPerUnitMicros;
+
+  /// The item's flipped "N per person" ratio at generation time — hashed
+  /// like [servesPerUnitMicros]; the pair that produced a baseline is in
+  /// [baselinePerPersonNumerator]/[baselinePerPersonDenominator].
+  final int? perPersonNumerator;
+  final int? perPersonDenominator;
+
+  /// The item's "how many do you usually bring" at generation time — hashed;
+  /// material only on per-event lines. The value that produced a baseline is
+  /// in [baselinePerEventMicros].
+  final int? perEventBaselineMicros;
   final int? expectedUseMicros;
   final int? plannedMicros;
   final int? loadMicros;
   final int? acquireMicros;
 
-  /// The no-history "1 serves N" baseline plan. All five are set together or
-  /// all null, and only ever on a line with no confirmed evidence.
+  /// The no-history baseline plan. The four output fields are set together
+  /// or all null, only ever on a line with no confirmed evidence, and
+  /// accompanied by EXACTLY ONE source: serves-per-unit, the per-person
+  /// ratio pair, or the per-event usual amount.
   final int? baselineServesPerUnitMicros;
+  final int? baselinePerPersonNumerator;
+  final int? baselinePerPersonDenominator;
+  final int? baselinePerEventMicros;
   final int? baselineExpectedUseMicros;
   final int? baselinePlannedMicros;
   final int? baselineLoadMicros;
@@ -188,11 +239,15 @@ final class ForecastLineView {
     required this.packSizeMicros,
     required this.onHandMicros,
     required this.confirmedInboundMicros,
+    this.demandBasis = DemandBasis.perPerson,
     this.expectedUseMicros,
     this.plannedMicros,
     this.loadMicros,
     this.acquireMicros,
     this.baselineServesPerUnitMicros,
+    this.baselinePerPersonNumerator,
+    this.baselinePerPersonDenominator,
+    this.baselinePerEventMicros,
     this.baselineExpectedUseMicros,
     this.baselinePlannedMicros,
     this.baselineLoadMicros,
@@ -207,6 +262,11 @@ final class ForecastLineView {
   final int packSizeMicros;
   final int onHandMicros;
   final int confirmedInboundMicros;
+
+  /// The demand basis this line was computed under. Rows stored before v3
+  /// carry NULL and load as [DemandBasis.perPerson] — which is what they
+  /// were.
+  final DemandBasis demandBasis;
   final int? expectedUseMicros;
   final int? plannedMicros;
   final int? loadMicros;
@@ -214,6 +274,9 @@ final class ForecastLineView {
 
   /// The stored no-history baseline, or all null. See [basis].
   final int? baselineServesPerUnitMicros;
+  final int? baselinePerPersonNumerator;
+  final int? baselinePerPersonDenominator;
+  final int? baselinePerEventMicros;
   final int? baselineExpectedUseMicros;
   final int? baselinePlannedMicros;
   final int? baselineLoadMicros;
@@ -225,16 +288,19 @@ final class ForecastLineView {
   /// Latest override row, or null when none was ever recorded.
   final OverrideView? override;
 
-  /// True when this line's numbers are a "1 serves N" estimate rather than
-  /// anything confirmed.
+  /// True when this line's numbers are a cold-start estimate ("1 serves N",
+  /// "N per person", or "you usually bring N") rather than anything
+  /// confirmed.
   bool get isBaseline => baselineLoadMicros != null;
 
   /// What the numbers rest on — switch on this, not on [evidenceGrade].
   ForecastBasis get basis => switch (evidenceGrade) {
     EvidenceGrade.insufficientData =>
-      isBaseline
-          ? ForecastBasis.servesBaseline
-          : ForecastBasis.insufficientData,
+      !isBaseline
+          ? ForecastBasis.insufficientData
+          : demandBasis == DemandBasis.perEvent
+          ? ForecastBasis.perEventBaseline
+          : ForecastBasis.servesBaseline,
     EvidenceGrade.singleEvent => ForecastBasis.singleEvent,
     EvidenceGrade.observedRange => ForecastBasis.observedRange,
   };

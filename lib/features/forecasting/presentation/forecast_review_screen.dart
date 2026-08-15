@@ -681,16 +681,19 @@ class _AccuracyLineCard extends StatelessWidget {
               if (line.stockout ||
                   line.approximate ||
                   line.basis == ForecastBasis.servesBaseline ||
+                  line.basis == ForecastBasis.perEventBaseline ||
                   line.override?.overrideLoadMicros != null) ...[
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    // Never let a "1 serves N" guess be read as a miss
+                    // Never let a cold-start guess ("1 serves N", "N per
+                    // person", or "you usually bring N") be read as a miss
                     // against confirmed history: say what it was measured
                     // against before the variance is believed.
-                    if (line.basis == ForecastBasis.servesBaseline)
+                    if (line.basis == ForecastBasis.servesBaseline ||
+                        line.basis == ForecastBasis.perEventBaseline)
                       _IndicatorChip(
                         icon: Icons.lightbulb_outline,
                         label: 'Compared against an estimate, not history',

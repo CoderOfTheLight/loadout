@@ -124,4 +124,116 @@ void main() {
       expect(formatServesPerUnit(1), '0.000001');
     });
   });
+
+  // ------------------------------------------------- v3: "N per person"
+
+  BaselineEstimate? ratioEstimate({
+    int attendance = 200,
+    int? numerator = 3,
+    int? denominator = 1,
+    PlanningPolicy policy = PlanningPolicy.lean,
+    int packSizeMicros = 1000000,
+    int onHandMicros = 0,
+  }) => estimateFromPerPersonRatio(
+    expectedAttendance: attendance,
+    numerator: numerator,
+    denominator: denominator,
+    policy: policy,
+    packSizeMicros: packSizeMicros,
+    usableOnHandMicros: onHandMicros,
+  );
+
+  group('the flipped "N per person" ratio (v3)', () {
+    test('200 people × 3 per person is EXACTLY 600 — never the reciprocal\'s '
+        '601', () {
+      final result = ratioEstimate()!;
+      expect(result.expectedUseMicros, 600000000);
+      expect(result.perPersonNumerator, 3);
+      expect(result.perPersonDenominator, 1);
+      expect(result.servesPerUnitMicros, isNull);
+      expect(result.perEventMicros, isNull);
+    });
+
+    test('1 per 2 people rounds part-units up to whole things', () {
+      // 101 people × 1/2 = 50.5 → 51 whole units.
+      expect(
+        ratioEstimate(
+          attendance: 101,
+          numerator: 1,
+          denominator: 2,
+        )!.expectedUseMicros,
+        51000000,
+      );
+    });
+
+    test('borrows the engine shape: reserve, pack rounding, acquire', () {
+      final result = ratioEstimate(
+        policy: PlanningPolicy.balanced,
+        packSizeMicros: 12000000,
+        onHandMicros: 40000000,
+      )!;
+      expect(result.plannedMicros, 660000000); // 600 +10 %
+      expect(result.loadMicros, 660000000); // 55 packs of 12 exactly
+      expect(result.acquireMicros, 620000000);
+    });
+
+    test('refuses to guess: missing or nonsense parts', () {
+      expect(ratioEstimate(numerator: null), isNull);
+      expect(ratioEstimate(denominator: null), isNull);
+      expect(ratioEstimate(attendance: 0), isNull);
+      expect(ratioEstimate(packSizeMicros: 0), isNull);
+    });
+
+    test('warning speaks the owner\'s phrasing', () {
+      expect(ratioEstimate()!.warning, contains('3 per person'));
+      expect(
+        ratioEstimate(numerator: 1, denominator: 2)!.warning,
+        contains('1 per 2 people'),
+      );
+      expect(formatPerPersonRatio(3, 4), '3 per 4 people');
+    });
+  });
+
+  // ------------------------------------------------- v3: per-event
+
+  group('the per-event "how many do you usually bring" (v3)', () {
+    BaselineEstimate? perEvent({
+      int? usualMicros = 2000000,
+      PlanningPolicy policy = PlanningPolicy.balanced,
+      int packSizeMicros = 1000000,
+      int onHandMicros = 0,
+    }) => estimateFromPerEventBaseline(
+      perEventBaselineMicros: usualMicros,
+      policy: policy,
+      packSizeMicros: packSizeMicros,
+      usableOnHandMicros: onHandMicros,
+    );
+
+    test('attendance plays no part: the usual amount plus the reserve', () {
+      final result = perEvent()!;
+      expect(result.perEventMicros, 2000000);
+      expect(result.expectedUseMicros, 2000000);
+      expect(result.plannedMicros, 2200000);
+      expect(result.loadMicros, 3000000, reason: 'whole things');
+      expect(result.acquireMicros, 3000000);
+      expect(result.servesPerUnitMicros, isNull);
+      expect(result.perPersonNumerator, isNull);
+    });
+
+    test('subtracts what is on hand', () {
+      expect(perEvent(onHandMicros: 2000000)!.acquireMicros, 1000000);
+    });
+
+    test('refuses to guess without an answer', () {
+      expect(perEvent(usualMicros: null), isNull);
+      expect(perEvent(usualMicros: 0), isNull);
+      expect(perEvent(packSizeMicros: 0), isNull);
+    });
+
+    test('warning names the usual amount and denies it is confirmed', () {
+      final warning = perEvent()!.warning;
+      expect(warning, contains('usual 2 per event'));
+      expect(warning, contains('Estimate only'));
+    });
+  });
 }

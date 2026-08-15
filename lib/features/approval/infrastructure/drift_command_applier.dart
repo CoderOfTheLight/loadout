@@ -281,6 +281,21 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
       CreateItem() => await _createItem(command, commandId, now),
       UpdateItem() => await _updateItem(command, now),
       SetItemArchived() => await _setItemArchived(command, now, state),
+      CreateFolder() => await _createFolder(command, now, state),
+      RenameFolder() => await _renameFolder(command, now),
+      ReorderFolders() => await _reorderFolders(command, now),
+      ArchiveFolder() => await _archiveFolder(command, now),
+      SetFolderBasis() => await _setFolderBasis(command, now),
+      MoveItemToFolder() => await _moveItemsToFolderIds(
+        [command.itemId as String],
+        command.folderId as String?,
+        now,
+      ),
+      MoveItemsToFolder() => await _moveItemsToFolderIds(
+        [for (final id in command.itemIds) id as String],
+        command.folderId as String?,
+        now,
+      ),
       CreateEvent() => await _createEvent(command, now),
       UpdateEvent() => await _updateEvent(command, now),
       ActivateEvent() => await _setEventStatus(
@@ -337,6 +352,11 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
             unit: c.unit.dbValue,
             packSizeMicros: c.packSize.micros,
             servesPerUnitMicros: Value(c.servesPerUnit?.micros),
+            perPersonNumerator: Value(c.perPersonRatio?.numerator),
+            perPersonDenominator: Value(c.perPersonRatio?.denominator),
+            folderId: Value(c.folderId as String?),
+            demandBasis: Value(c.demandBasis?.dbValue),
+            perEventBaselineMicros: Value(c.perEventBaseline?.micros),
             category: Value(c.category?.trim()),
             notes: Value(c.notes),
             createdAtMicros: now,
@@ -370,6 +390,33 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
           UpdateItem(clearServesPerUnit: true) => const Value(null),
           _ => const Value.absent(),
         },
+        perPersonNumerator: switch (c) {
+          UpdateItem(perPersonRatio: final ratio?) => Value(ratio.numerator),
+          UpdateItem(clearPerPersonRatio: true) => const Value(null),
+          _ => const Value.absent(),
+        },
+        perPersonDenominator: switch (c) {
+          UpdateItem(perPersonRatio: final ratio?) => Value(ratio.denominator),
+          UpdateItem(clearPerPersonRatio: true) => const Value(null),
+          _ => const Value.absent(),
+        },
+        folderId: switch (c) {
+          UpdateItem(folderId: final folder?) => Value(folder as String),
+          UpdateItem(clearFolder: true) => const Value(null),
+          _ => const Value.absent(),
+        },
+        demandBasis: switch (c) {
+          UpdateItem(demandBasis: final basis?) => Value(basis.dbValue),
+          UpdateItem(clearDemandBasis: true) => const Value(null),
+          _ => const Value.absent(),
+        },
+        perEventBaselineMicros: switch (c) {
+          UpdateItem(perEventBaseline: final baseline?) => Value(
+            baseline.micros,
+          ),
+          UpdateItem(clearPerEventBaseline: true) => const Value(null),
+          _ => const Value.absent(),
+        },
         category: c.category == null
             ? const Value.absent()
             : Value(c.category!.trim()),
@@ -377,6 +424,101 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
         updatedAtMicros: Value(now),
       ),
     );
+    return const _Effects([]);
+  }
+
+  // ------------------------------------------------------------- folders
+
+  Future<_Effects> _createFolder(
+    CreateFolder c,
+    int now,
+    PrefetchedState state,
+  ) async {
+    final id = _ids.newId();
+    // Next position after the live folders; archived positions may be
+    // reused — archived folders never render, so a collision is harmless.
+    final live = state.liveFolders();
+    final position = live.isEmpty ? 0 : live.last.position + 1;
+    await _db
+        .into(_db.folders)
+        .insert(
+          FoldersCompanion.insert(
+            id: id,
+            name: c.name.trim(),
+            position: position,
+            demandBasis: c.demandBasis.dbValue,
+            alwaysPlanned: Value(c.alwaysPlanned),
+            createdAtMicros: now,
+            updatedAtMicros: now,
+          ),
+        );
+    return _Effects([id]);
+  }
+
+  Future<_Effects> _renameFolder(RenameFolder c, int now) async {
+    await (_db.update(
+      _db.folders,
+    )..where((f) => f.id.equals(c.folderId as String))).write(
+      FoldersCompanion(name: Value(c.name.trim()), updatedAtMicros: Value(now)),
+    );
+    return const _Effects([]);
+  }
+
+  Future<_Effects> _reorderFolders(ReorderFolders c, int now) async {
+    for (var i = 0; i < c.orderedFolderIds.length; i++) {
+      await (_db.update(
+        _db.folders,
+      )..where((f) => f.id.equals(c.orderedFolderIds[i] as String))).write(
+        FoldersCompanion(position: Value(i), updatedAtMicros: Value(now)),
+      );
+    }
+    return const _Effects([]);
+  }
+
+  /// Archives the folder and moves its items to Unfiled in this one
+  /// transaction — a folder can never take items down with it.
+  Future<_Effects> _archiveFolder(ArchiveFolder c, int now) async {
+    final id = c.folderId as String;
+    await (_db.update(_db.items)..where((i) => i.folderId.equals(id))).write(
+      ItemsCompanion(folderId: const Value(null), updatedAtMicros: Value(now)),
+    );
+    await (_db.update(_db.folders)..where((f) => f.id.equals(id))).write(
+      FoldersCompanion(
+        archivedAtMicros: Value(now),
+        updatedAtMicros: Value(now),
+      ),
+    );
+    return const _Effects([]);
+  }
+
+  Future<_Effects> _setFolderBasis(SetFolderBasis c, int now) async {
+    await (_db.update(
+      _db.folders,
+    )..where((f) => f.id.equals(c.folderId as String))).write(
+      FoldersCompanion(
+        demandBasis: c.demandBasis == null
+            ? const Value.absent()
+            : Value(c.demandBasis!.dbValue),
+        alwaysPlanned: c.alwaysPlanned == null
+            ? const Value.absent()
+            : Value(c.alwaysPlanned!),
+        updatedAtMicros: Value(now),
+      ),
+    );
+    return const _Effects([]);
+  }
+
+  /// Shared by MoveItemToFolder (a batch of one) and MoveItemsToFolder.
+  Future<_Effects> _moveItemsToFolderIds(
+    List<String> itemIds,
+    String? folderId,
+    int now,
+  ) async {
+    for (final itemId in itemIds) {
+      await (_db.update(_db.items)..where((i) => i.id.equals(itemId))).write(
+        ItemsCompanion(folderId: Value(folderId), updatedAtMicros: Value(now)),
+      );
+    }
     return const _Effects([]);
   }
 
@@ -866,6 +1008,7 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
               packSizeMicros: line.packSizeMicros,
               onHandMicros: line.onHandMicros,
               confirmedInboundMicros: Value(line.confirmedInboundMicros),
+              demandBasis: Value(line.demandBasis.dbValue),
               expectedUseMicros: Value(line.expectedUseMicros),
               plannedMicros: Value(line.plannedMicros),
               loadMicros: Value(line.loadMicros),
@@ -873,6 +1016,13 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
               baselineServesPerUnitMicros: Value(
                 line.baselineServesPerUnitMicros,
               ),
+              baselinePerPersonNumerator: Value(
+                line.baselinePerPersonNumerator,
+              ),
+              baselinePerPersonDenominator: Value(
+                line.baselinePerPersonDenominator,
+              ),
+              baselinePerEventMicros: Value(line.baselinePerEventMicros),
               baselineExpectedUseMicros: Value(line.baselineExpectedUseMicros),
               baselinePlannedMicros: Value(line.baselinePlannedMicros),
               baselineLoadMicros: Value(line.baselineLoadMicros),

@@ -7,6 +7,7 @@
 library;
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:loadout/core/ids.dart';
 import 'package:loadout/data/db/app_database.dart';
 import 'package:sqlite3/sqlite3.dart' show SqliteException;
 
@@ -93,6 +94,135 @@ void main() {
           serves('I6X${micros.toString().replaceAll('-', 'N')}', micros),
           throwsA(isA<SqliteException>()),
         );
+      }
+    });
+
+    test('demand basis is NULL or per_person|per_event (v3)', () async {
+      await insertItem(db, tid('I7'), demandBasis: null);
+      await insertItem(db, tid('I8'), demandBasis: 'per_event');
+      await bad(
+        'INSERT INTO items (id, name, unit, pack_size_micros, demand_basis, '
+        'created_at_micros, updated_at_micros) '
+        "VALUES (?, 'X9', 'each', 1, 'per_stall', 1, 1)",
+        [tid('I9')],
+      );
+    });
+
+    test('per-event baseline is NULL or inside [1, 1e12] (v3)', () async {
+      await insertItem(db, tid('IA'), perEventBaselineMicros: 1000000000000);
+      for (final micros in [0, -1, 1000000000001]) {
+        await expectLater(
+          insertItem(
+            db,
+            tid('IB${micros.toString().replaceAll('-', 'N')}'),
+            perEventBaselineMicros: micros,
+          ),
+          throwsA(isA<SqliteException>()),
+        );
+      }
+    });
+
+    test('per-person ratio parts are NULL or inside [1, 10000] (v3)', () async {
+      await insertItem(
+        db,
+        tid('IC'),
+        perPersonNumerator: 3,
+        perPersonDenominator: 10000,
+      );
+      for (final part in [0, -1, 10001]) {
+        await expectLater(
+          insertItem(
+            db,
+            tid('ID${part.toString().replaceAll('-', 'N')}'),
+            perPersonNumerator: part,
+            perPersonDenominator: 1,
+          ),
+          throwsA(isA<SqliteException>()),
+        );
+      }
+    });
+  });
+
+  group('folders (v3)', () {
+    test('demand basis outside per_person|per_event', () async {
+      await bad(
+        'INSERT INTO folders (id, name, position, demand_basis, '
+        'created_at_micros, updated_at_micros) '
+        "VALUES (?, 'X', 20, 'per_stall', 1, 1)",
+        [tid('F1')],
+      );
+    });
+
+    test('position must be nonnegative', () async {
+      await bad(
+        'INSERT INTO folders (id, name, position, demand_basis, '
+        'created_at_micros, updated_at_micros) '
+        "VALUES (?, 'X', -1, 'per_person', 1, 1)",
+        [tid('F2')],
+      );
+    });
+
+    test('live names are unique case-insensitively; archiving frees the name '
+        '(partial index)', () async {
+      // 'Drinks' is a seeded starter folder — the collision proves the
+      // index covers the seed too.
+      await expectLater(
+        insertFolder(db, tid('F3'), name: 'DRINKS', position: 20),
+        throwsA(isA<SqliteException>()),
+      );
+      await insertFolder(
+        db,
+        tid('F4'),
+        name: 'Drinks',
+        position: 21,
+        archivedAtMicros: 5,
+      );
+    });
+  });
+
+  group('forecast_lines v3 columns', () {
+    Future<void> line({
+      String? demandBasis,
+      int? baselinePerEventMicros,
+      int? numerator,
+      int? denominator,
+    }) => db.customStatement(
+      'INSERT INTO forecast_lines (snapshot_id, item_id, pack_size_micros, '
+      'on_hand_micros, evidence_grade, demand_basis, '
+      'baseline_per_event_micros, baseline_per_person_numerator, '
+      'baseline_per_person_denominator) '
+      "VALUES (?, ?, 1, 0, 'insufficient_data', ?, ?, ?, ?)",
+      [
+        tid('S1'),
+        newUlid(),
+        demandBasis,
+        baselinePerEventMicros,
+        numerator,
+        denominator,
+      ],
+    );
+    test(
+      'demand basis is NULL (pre-v3 rows) or per_person|per_event',
+      () async {
+        await line(demandBasis: null);
+        await line(demandBasis: 'per_event');
+        await expectLater(
+          line(demandBasis: 'per_stall'),
+          throwsA(isA<SqliteException>()),
+        );
+      },
+    );
+
+    test('baseline sources respect their ranges', () async {
+      await line(baselinePerEventMicros: 1000000000000);
+      await line(numerator: 1, denominator: 10000);
+      for (final future in [
+        line(baselinePerEventMicros: 0),
+        line(baselinePerEventMicros: 1000000000001),
+        line(numerator: 0, denominator: 1),
+        line(numerator: 1, denominator: 10001),
+      ]) {
+        await expectLater(future, throwsA(isA<SqliteException>()));
       }
     });
   });

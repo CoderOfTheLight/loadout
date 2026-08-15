@@ -43,7 +43,7 @@ void main() {
 
     expect(find.text('Loadout'), findsOneWidget);
     expect(find.text('Version 1.0.0+1'), findsOneWidget);
-    expect(find.text('direct_median — v2 — since 2026-08'), findsOneWidget);
+    expect(find.text('direct_median — v3 — since 2026-08'), findsOneWidget);
 
     await tester.tap(find.text('Open-source licenses'));
     await tester.pumpAndSettle();

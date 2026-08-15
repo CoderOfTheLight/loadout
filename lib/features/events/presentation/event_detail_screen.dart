@@ -16,9 +16,12 @@ import '../../../app/providers.dart';
 import '../../../app/theme.dart';
 import '../../../app/widgets/content_column.dart';
 import '../../../app/widgets/empty_state.dart';
+import '../../catalog/application/catalog_service.dart';
+import '../../catalog/domain/folder.dart';
 import '../application/event_service.dart';
 import '../domain/event.dart';
 import 'event_ui.dart';
+import 'folder_sections.dart';
 
 /// True while an activate command is in flight for this event. The button
 /// is stateless, so without this a double tap sends two commands: the
@@ -163,14 +166,7 @@ class _EventDetailBody extends ConsumerWidget {
                     style: theme.textTheme.bodyMedium,
                   )
                 else
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final item in detail.plannedItems)
-                        Chip(label: Text(item.name)),
-                    ],
-                  ),
+                  _PlannedItemSections(plannedItems: detail.plannedItems),
                 if (event.status == EventStatus.closed) ...[
                   const SizedBox(height: 24),
                   _RevisionsSummary(
@@ -314,6 +310,61 @@ class _EventDetailBody extends ConsumerWidget {
       (_) => messenger.showSnackBar(
         const SnackBar(content: Text("Couldn't cancel this event. Try again.")),
       ),
+    );
+  }
+}
+
+/// The planned list in the same folder sections every list reads in
+/// (proposal §3): headers carry per-section counts ("Disposables · 12"),
+/// folder order, Unfiled last. Items whose folder is unknown (or archived)
+/// fall into Unfiled; while no folders exist at all the list renders flat,
+/// exactly as it did before folders.
+class _PlannedItemSections extends ConsumerWidget {
+  const _PlannedItemSections({required this.plannedItems});
+
+  final List<EventPlannedItem> plannedItems;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final folders =
+        ref.watch(eventFoldersProvider).valueOrNull ?? const <Folder>[];
+    final catalog =
+        ref
+            .watch(itemListProvider(const ItemFilter(includeArchived: true)))
+            .valueOrNull ??
+        const <ItemSummary>[];
+    final folderIdByItem = {
+      for (final summary in catalog)
+        summary.item.id.value: summary.item.folderId?.value,
+    };
+    final sections = sectionEntriesByFolder(
+      entries: plannedItems,
+      folders: folders,
+      folderIdOf: (item) => folderIdByItem[item.itemId],
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final section in sections) ...[
+          if (folders.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4, bottom: 8),
+              child: Text(
+                folderSectionLabel(section.folder, section.entries.length),
+                style: theme.textTheme.titleSmall,
+              ),
+            ),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final item in section.entries) Chip(label: Text(item.name)),
+            ],
+          ),
+          const SizedBox(height: 8),
+        ],
+      ],
     );
   }
 }

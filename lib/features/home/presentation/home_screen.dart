@@ -1,15 +1,21 @@
 /// "What needs attention now" (design §9 HomeScreen). Read-only dashboard,
 /// in priority order: (1) pending-closeout nudges for active events past
-/// their date; (2) next-event card with forecast readiness; (3) quick
-/// actions; (4) data health — items with negative derived on-hand;
-/// (5) last five movements + "See all". No commands are issued here.
+/// their date; (2) next-event card with packing-list readiness; (3) the
+/// one-time tidy-up nudge for migrated workspaces; (4) quick actions;
+/// (5) data health — items with negative derived on-hand; (6) last five
+/// movements + "See all". No commands are issued here.
 ///
 /// Owner feedback: *"The menu is confusing, just add item? We need to make
 /// that better."* A fresh workspace used to offer a single bare button with
 /// no explanation of what the app was for. It now opens with the three-step
-/// loop in her words — add what you sell, plan an event, say what you used —
-/// and two obvious first steps. Once there is data the screen leads with the
-/// day and with what needs doing, not with a list of nouns.
+/// loop in her words — add the things you bring, plan an event, say how it
+/// went — and two obvious first steps. Once there is data the screen leads
+/// with the day and with what needs doing, not with a list of nouns.
+///
+/// Copy is proposal §4 verbatim: it must read true from the kitchen AND
+/// the sales table, so "used or sold", "packing list" (never "forecast" on
+/// Home — that word lives on the detail screens with the evidence), and
+/// "add stock" (half of what arrives was never purchased).
 ///
 /// Quantities are shown without a unit: an item is a NAME and a COUNT now,
 /// and "each" is noise on a dashboard.
@@ -31,6 +37,7 @@ import '../../events/application/event_service.dart';
 import '../../forecasting/domain/snapshot.dart';
 import '../../inventory/application/inventory_service.dart';
 import '../../inventory/presentation/movement_display.dart';
+import 'tidy_prompt.dart';
 
 const List<String> _monthNames = [
   'January',
@@ -193,18 +200,27 @@ class _Dashboard extends ConsumerWidget {
           else if (pendingCloseouts.isEmpty)
             const _NoEventCard(),
 
+          // Migrated workspace (items, but no folders yet): the one-time
+          // tidy-up nudge. Nothing moves unless she opens it and confirms.
+          if (items.isNotEmpty && ref.watch(tidyPromptVisibleProvider)) ...[
+            const SizedBox(height: Space.m),
+            const TidyPromptCard(),
+          ],
+
           SectionHeader('Quick actions'),
           _ActionTile(
             icon: Icons.shopping_bag_outlined,
-            title: 'Record a purchase',
-            subtitle: 'Stock you bought or brought in',
+            title: 'Add stock',
+            subtitle:
+                'Shopping, deliveries, donations — anything that '
+                'came in.',
             onTap: () => context.push('/movements/new?kind=receive'),
           ),
           const SizedBox(height: Space.s),
           _ActionTile(
             icon: Icons.rule,
-            title: 'Count stock',
-            subtitle: "Set an item to what's actually there",
+            title: "Count what's there",
+            subtitle: 'Type the real number; Loadout squares the books.',
             onTap: () => context.push('/movements/new?kind=count'),
           ),
 
@@ -296,7 +312,7 @@ class _DayHeading extends StatelessWidget {
   }
 }
 
-/// A market day that was activated and never closed out. Everything the
+/// An event that was activated and never closed out. Everything the
 /// forecast learns comes from closeouts, so this outranks the whole screen.
 class _CloseoutNudge extends StatelessWidget {
   const _CloseoutNudge({required this.event, required this.now});
@@ -342,8 +358,8 @@ class _CloseoutNudge extends StatelessWidget {
                       ),
                       const SizedBox(height: Space.xs),
                       Text(
-                        'Held $held. Say what you actually used and the next '
-                        'list gets closer.',
+                        'Held $held. Confirm what was used and sold, and '
+                        'the next packing list gets sharper.',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: scheme.onPrimaryContainer,
                         ),
@@ -361,7 +377,9 @@ class _CloseoutNudge extends StatelessWidget {
   }
 }
 
-/// The next market day, with how ready its forecast is.
+/// The next event, with how ready its packing list is. On Home it is a
+/// packing list — that is what the owner is holding; "forecast" stays on
+/// the detail screens, where the evidence lives.
 class _NextEventCard extends ConsumerWidget {
   const _NextEventCard({required this.event, required this.now});
 
@@ -374,30 +392,42 @@ class _NextEventCard extends ConsumerWidget {
     final scheme = theme.colorScheme;
     final snapshot = ref.watch(latestSnapshotProvider(event.id));
     final readiness = snapshot.when(
-      loading: () => 'Checking the forecast…',
-      error: (_, _) => 'Forecast unavailable',
+      loading: () => 'Checking the packing list…',
+      error: (_, _) => 'Packing list unavailable',
       data: (view) {
         if (view == null || view.lines.isEmpty) {
-          return 'No forecast yet — open the event to make one.';
+          return 'No packing list yet — open the event to make one.';
         }
         final total = view.lines.length;
         // Switch on `basis`, not `evidenceGrade`: a line with no closeout
-        // history but a "1 serves 4" baseline DOES carry a number, and
-        // calling it "no history" would hide a usable estimate.
+        // history but a "1 serves 4" or "usually bring 2" baseline DOES
+        // carry a number, and calling it "no history" would hide a usable
+        // estimate.
         final blank = view.lines
             .where((line) => line.basis == ForecastBasis.insufficientData)
             .length;
         final estimated = view.lines
-            .where((line) => line.basis == ForecastBasis.servesBaseline)
+            .where(
+              (line) =>
+                  line.basis == ForecastBasis.servesBaseline ||
+                  line.basis == ForecastBasis.perEventBaseline,
+            )
             .length;
         if (blank > 0) {
-          return 'Forecast ready · $blank of $total items have nothing to go '
-              'on yet';
+          return blank == 1
+              ? 'Packing list ready · 1 item Loadout knows nothing about yet'
+              : 'Packing list ready · $blank items Loadout knows nothing '
+                    'about yet';
         }
         if (estimated > 0) {
-          return 'Forecast ready · $estimated estimated, not yet proven';
+          return estimated == 1
+              ? 'Packing list ready · 1 amount is still a first guess'
+              : 'Packing list ready · $estimated amounts are still first '
+                    'guesses';
         }
-        return 'Forecast ready · $total items';
+        return total == 1
+            ? 'Packing list ready · 1 item'
+            : 'Packing list ready · $total items';
       },
     );
     return Semantics(
@@ -464,7 +494,7 @@ class _NoEventCard extends StatelessWidget {
             Text('No event coming up', style: theme.textTheme.titleMedium),
             const SizedBox(height: Space.xs),
             Text(
-              'Plan your next market day and Loadout works out what to take.',
+              'Plan your next event and Loadout will work out what to bring.',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -660,8 +690,9 @@ class _FirstRunGuide extends StatelessWidget {
           ),
           const SizedBox(height: Space.m),
           Text(
-            'Tell Loadout what you sell and where you are selling it, and it '
-            'works out what to take.',
+            'List what you bring — the food you make, the supplies you set '
+            'out, the things you sell — and Loadout works out how much to '
+            'take.',
             style: theme.textTheme.bodyLarge?.copyWith(
               color: scheme.onSurfaceVariant,
             ),
@@ -674,24 +705,24 @@ class _FirstRunGuide extends StatelessWidget {
                 children: const [
                   _Step(
                     number: 1,
-                    title: 'Add what you sell',
+                    title: 'Add the things you bring',
                     body:
-                        'The name, and how many you have. '
-                        'That is the whole thing.',
+                        'Cooked, bought, supplies, or things you sell. '
+                        'A name and a count is enough.',
                   ),
                   _Step(
                     number: 2,
                     title: 'Plan an event',
                     body:
-                        'A market, a fair, a match day — Loadout turns it '
-                        'into a list of what to pack.',
+                        'Set the date and roughly how many people. Loadout '
+                        'turns that into a packing list.',
                   ),
                   _Step(
                     number: 3,
-                    title: 'Say what you used',
+                    title: 'Say how it went',
                     body:
-                        'Close out the day afterwards, and the next list is '
-                        'built from what really happened.',
+                        'Afterwards, confirm what was used or sold. Every '
+                        'next list is built from what really happened.',
                     last: true,
                   ),
                 ],

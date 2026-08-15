@@ -21,9 +21,12 @@ import 'package:loadout/app/providers.dart';
 import 'package:loadout/app/router.dart';
 import 'package:loadout/core/quantity.dart';
 import 'package:loadout/core/result.dart';
+import 'package:loadout/core/unit_ratio.dart';
 import 'package:loadout/features/backup/presentation/backup_screen.dart';
 import 'package:loadout/features/backup/presentation/restore_screen.dart';
+import 'package:loadout/features/catalog/domain/demand_basis.dart';
 import 'package:loadout/features/catalog/domain/item.dart';
+import 'package:loadout/features/catalog/presentation/folder_management_screen.dart';
 import 'package:loadout/features/catalog/presentation/item_detail_screen.dart';
 import 'package:loadout/features/catalog/presentation/item_edit_screen.dart';
 import 'package:loadout/features/catalog/presentation/item_list_screen.dart';
@@ -174,6 +177,77 @@ void main() {
     }
   });
 
+  testWidgets(
+    'every route survives a folder-rich workspace (60+ items across the '
+    '8 starter folders, sales table and per-event included) at 393×852',
+    (tester) async {
+      _usePhoneViewport(tester);
+      final h = (await tester.runAsync(
+        () => AppHarness.start(state: AppHarnessState.workspace),
+      ))!;
+      addTearDown(h.dispose);
+      final ids = (await tester.runAsync(() => _seedDense(h)))!;
+      await h.pumpApp(tester);
+
+      final goRoutes = <String, Type>{
+        ...recordlessGoRoutes,
+        // A SALES-TABLE item carries the catalog detail/edit legs: the same
+        // screens must read right for merch, not just food.
+        '/items/${ids.salesItemId}': ItemDetailScreen,
+        '/items/${ids.salesItemId}/edit': ItemEditScreen,
+        '/events/${ids.eventId}': EventDetailScreen,
+        '/events/${ids.eventId}/edit': EventEditScreen,
+        '/events/${ids.eventId}/forecast': ForecastReviewScreen,
+        // Both bases through the line-detail screen: a per-person line and
+        // a per-event line (the soap) from the same persisted snapshot.
+        '/events/${ids.eventId}/forecast/${ids.perPersonItemId}':
+            ForecastLineDetailScreen,
+        '/events/${ids.eventId}/forecast/${ids.perEventItemId}':
+            ForecastLineDetailScreen,
+        '/events/${ids.eventId}/closeout': CloseoutScreen,
+        '/recipes/${ids.recipeId}': RecipeDetailScreen,
+        '/recipes/${ids.recipeId}/revise': RecipeEditScreen,
+      };
+      final pushRoutes = <String, Type>{
+        ...recordlessPushRoutes,
+        '/movements/${ids.movementId}': MovementDetailScreen,
+        '/movements/${ids.movementId}/correct': CorrectionScreen,
+      };
+
+      for (final entry in goRoutes.entries) {
+        await _visit(tester, h, entry.key, entry.value);
+      }
+      for (final entry in pushRoutes.entries) {
+        await _visit(tester, h, entry.key, entry.value, push: true);
+      }
+
+      // Folder management is Navigator-pushed from the item list's menu —
+      // not a GoRoute — so walk it the way the owner reaches it.
+      await h.go(tester, '/items');
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await _settle(tester);
+      await tester.tap(find.text('Manage folders'));
+      await _settle(tester);
+      expect(find.byType(FolderManagementScreen), findsOneWidget);
+      _expectNoOverflow(tester, '/items > Manage folders');
+      final scrollable = find.byType(Scrollable);
+      if (scrollable.evaluate().isNotEmpty) {
+        await tester.drag(scrollable.first, const Offset(0, -600));
+        await _settle(tester);
+        _expectNoOverflow(tester, '/items > Manage folders (scrolled)');
+      }
+      expect(
+        _hasWayOut(tester),
+        isTrue,
+        reason: 'Manage folders must not be a dead end',
+      );
+      await tester.tap(find.byType(BackButton));
+      await _settle(tester);
+      await h.flushTimers(tester);
+      expect(find.byType(ItemListScreen), findsOneWidget);
+    },
+  );
+
   testWidgets('first-run routes survive at 393×852', (tester) async {
     _usePhoneViewport(tester);
     final h = (await tester.runAsync(AppHarness.start))!;
@@ -311,6 +385,15 @@ typedef _SeededIds = ({
   String recipeId,
 });
 
+typedef _DenseIds = ({
+  String salesItemId,
+  String perPersonItemId,
+  String perEventItemId,
+  String eventId,
+  String movementId,
+  String recipeId,
+});
+
 T _ok<T>(Result<T> result) => result.fold(
   (value) => value,
   (error) => throw StateError('seed failed: ${error.code}: ${error.message}'),
@@ -382,6 +465,153 @@ Future<_SeededIds> _seed(AppHarness h) async {
 
   return (
     itemId: itemId,
+    eventId: eventId,
+    movementId: receipt.createdRecordIds.first,
+    recipeId: recipeId,
+  );
+}
+
+/// The proposal's stress shape: 60+ items spread across the eight starter
+/// folders a fresh workspace is born with — the sales table and the
+/// per-event "Cleaning & setup" included — plus two Unfiled stragglers,
+/// one event planning ALL of them at 200 people, and a persisted forecast
+/// snapshot so the review and line-detail routes render real lines on
+/// both bases.
+Future<_DenseIds> _seedDense(AppHarness h) async {
+  final catalog = h.read(catalogServiceProvider);
+  final folders = await catalog.watchFolders().first;
+  expect(
+    folders,
+    hasLength(8),
+    reason: 'a fresh workspace starts with the eight starter folders',
+  );
+
+  final allItemIds = <String>[];
+  Future<String> item(ItemDraft draft, {Quantity? opening}) async {
+    final id = _ok(
+      await catalog.createItem(draft, openingCount: opening ?? Quantity.zero),
+    );
+    allItemIds.add(id);
+    return id;
+  }
+
+  String folderId(String name) =>
+      folders.firstWhere((f) => f.name == name).id.value;
+
+  // The named characters from the proposal.
+  final perPersonItemId = await item(
+    ItemDraft(
+      name: 'Vegetable soup',
+      servesPerUnit: Quantity.whole(4),
+      folderId: folderId('Cooked on site'),
+    ),
+    opening: Quantity.whole(10),
+  );
+  final salesItemId = await item(
+    ItemDraft(
+      name: 'CDs',
+      perPersonRatio: UnitRatio(1, 4),
+      folderId: folderId('Sales table'),
+    ),
+    opening: Quantity.whole(40),
+  );
+  final perEventItemId = await item(
+    ItemDraft(
+      name: 'Soap',
+      perEventBaseline: Quantity.whole(2),
+      folderId: folderId('Cleaning & setup'),
+    ),
+    opening: Quantity.whole(2),
+  );
+  // A per-item OVERRIDE against a per-person folder's default.
+  await item(
+    ItemDraft(
+      name: 'Water urn',
+      demandBasis: DemandBasis.perEvent,
+      perEventBaseline: Quantity.whole(1),
+      folderId: folderId('Drinks'),
+    ),
+    opening: Quantity.whole(1),
+  );
+  final produceId = await item(
+    ItemDraft(name: 'Carrots', folderId: folderId('Fresh produce')),
+    opening: Quantity.whole(30),
+  );
+
+  // Fill every folder to eight items so the list, picker and closeout all
+  // section past sixty items at phone width.
+  final perFolderSoFar = <String, int>{
+    'Cooked on site': 1,
+    'Sales table': 1,
+    'Cleaning & setup': 1,
+    'Drinks': 1,
+    'Fresh produce': 1,
+  };
+  for (final folder in folders) {
+    final have = perFolderSoFar[folder.name] ?? 0;
+    for (var i = have + 1; i <= 8; i++) {
+      await item(
+        ItemDraft(name: '${folder.name} item $i', folderId: folder.id.value),
+        opening: Quantity.whole(i),
+      );
+    }
+  }
+  // Unfiled stragglers: the migrated-workspace shape inside a foldered one.
+  await item(const ItemDraft(name: 'Mystery box'));
+  await item(const ItemDraft(name: 'Raffle tickets'));
+  expect(allItemIds.length, greaterThanOrEqualTo(60));
+
+  final eventId = _ok(
+    await h
+        .read(eventServiceProvider)
+        .createEvent(
+          EventDraft(
+            name: 'Autumn fair',
+            scheduledDate: '2026-10-03',
+            plannedExposure: 200,
+            plannedItemIds: allItemIds,
+          ),
+        ),
+  );
+
+  final receipt = _ok(
+    await h
+        .read(inventoryServiceProvider)
+        .record(
+          MovementFormDraft(
+            itemId: perPersonItemId,
+            kind: MovementKind.receive,
+            quantity: Quantity.whole(48),
+          ),
+        ),
+  );
+
+  final recipeId = _ok(
+    await h
+        .read(recipeServiceProvider)
+        .createRecipe(
+          RecipeFormDraft(
+            name: 'Soup batch',
+            outputItemId: perPersonItemId,
+            yieldQuantity: Quantity.whole(10),
+            yieldLabel: '10 portions',
+            lines: [
+              RecipeFormLine(
+                itemId: produceId,
+                quantityPerBatch: Quantity.whole(6),
+              ),
+            ],
+          ),
+        ),
+  );
+
+  // Persist the snapshot the forecast routes will render.
+  _ok(await h.read(forecastServiceProvider).generateSnapshot(eventId));
+
+  return (
+    salesItemId: salesItemId,
+    perPersonItemId: perPersonItemId,
+    perEventItemId: perEventItemId,
     eventId: eventId,
     movementId: receipt.createdRecordIds.first,
     recipeId: recipeId,

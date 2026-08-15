@@ -26,7 +26,8 @@ Future<T> unwrap<T>(Future<Result<T>> future) async {
 
 /// Seeds an item in the shape the forms now produce: a counted thing with
 /// a name. [unit] and [packSize] exist only to stage a migrated schema-v1
-/// row; nothing in the product asks for them.
+/// row; nothing in the product asks for them. [folderId] files the item on
+/// creation (null = Unfiled).
 Future<String> seedItem(
   AppHarness h, {
   String name = 'Tortillas',
@@ -34,6 +35,7 @@ Future<String> seedItem(
   Quantity openingCount = Quantity.zero,
   ItemUnit unit = ItemUnit.each,
   Quantity? packSize,
+  String? folderId,
 }) => unwrap(
   h
       .read(catalogServiceProvider)
@@ -43,10 +45,29 @@ Future<String> seedItem(
           servesPerUnit: servesPerUnit,
           unit: unit,
           packSize: packSize ?? Quantity.one,
+          folderId: folderId,
         ),
         openingCount: openingCount,
       ),
 );
+
+/// Resolves one of the seeded starter folders (fresh workspaces carry the
+/// eight from the proposal) — or any folder the test created — by name.
+Future<String> folderIdByName(AppHarness h, String name) async {
+  final folders = await h.read(catalogServiceProvider).watchFolders().first;
+  return folders.firstWhere((folder) => folder.name == name).id.value;
+}
+
+/// Marks a folder "comes along to every event" through the real command
+/// path, so EventService.createEvent pre-adds its live items.
+Future<void> markFolderAlwaysPlanned(AppHarness h, String folderName) async {
+  final folderId = await folderIdByName(h, folderName);
+  await unwrap(
+    h
+        .read(catalogServiceProvider)
+        .setFolderBasis(folderId: folderId, alwaysPlanned: true),
+  );
+}
 
 Future<String> seedEvent(
   AppHarness h, {

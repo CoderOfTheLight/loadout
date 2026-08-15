@@ -4,6 +4,7 @@ part of 'recipe_dao.dart';
 
 // ignore_for_file: type=lint
 mixin _$RecipeDaoMixin on DatabaseAccessor<AppDatabase> {
+  $FoldersTable get folders => attachedDatabase.folders;
   $ItemsTable get items => attachedDatabase.items;
   $RecipesTable get recipes => attachedDatabase.recipes;
   $RecipeRevisionsTable get recipeRevisions => attachedDatabase.recipeRevisions;
@@ -14,6 +15,8 @@ mixin _$RecipeDaoMixin on DatabaseAccessor<AppDatabase> {
 class RecipeDaoManager {
   final _$RecipeDaoMixin _db;
   RecipeDaoManager(this._db);
+  $$FoldersTableTableManager get folders =>
+      $$FoldersTableTableManager(_db.attachedDatabase, _db.folders);
   $$ItemsTableTableManager get items =>
       $$ItemsTableTableManager(_db.attachedDatabase, _db.items);
   $$RecipesTableTableManager get recipes =>

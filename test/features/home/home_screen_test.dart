@@ -108,9 +108,9 @@ void main() {
     // The promise, then the loop, in the owner's words — not one bare
     // "Add item" button with no explanation (owner feedback #5).
     expect(find.text('Bring the right amount to every event.'), findsOneWidget);
-    expect(find.text('Add what you sell'), findsOneWidget);
+    expect(find.text('Add the things you bring'), findsOneWidget);
     expect(find.text('Plan an event'), findsWidgets);
-    expect(find.text('Say what you used'), findsOneWidget);
+    expect(find.text('Say how it went'), findsOneWidget);
 
     await tester.tap(find.text('Add my first item'));
     await tester.pumpAndSettle();
@@ -151,13 +151,14 @@ void main() {
     expect(find.text('What needs doing'), findsOneWidget);
     // (1) Pending-closeout nudge for the active event past its date.
     expect(find.text('Close out Taco Night'), findsOneWidget);
-    // (2) Next-event card, dated in plain words, with forecast readiness.
+    // (2) Next-event card, dated in plain words, with packing-list
+    // readiness — Home says "packing list", never "forecast".
     expect(find.text('Street Fair'), findsOneWidget);
     expect(find.text('Tomorrow'), findsOneWidget);
-    expect(find.textContaining('No forecast yet'), findsOneWidget);
+    expect(find.textContaining('No packing list yet'), findsOneWidget);
     // (3) Quick actions.
-    expect(find.text('Record a purchase'), findsOneWidget);
-    expect(find.text('Count stock'), findsOneWidget);
+    expect(find.text('Add stock'), findsOneWidget);
+    expect(find.text("Count what's there"), findsOneWidget);
     // (4) Data health: negative on-hand, signed, and with no unit — an item
     // is a name and a count now.
     expect(find.text('Tortillas is showing −2'), findsOneWidget);
@@ -181,6 +182,102 @@ void main() {
 
     expect(find.text("You're up to date"), findsOneWidget);
     expect(find.text('No event coming up'), findsOneWidget);
+    expect(
+      find.text(
+        'Plan your next event and Loadout will work out what to '
+        'bring.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('the first-run guide pins the approved copy', (tester) async {
+    _usePhoneSurface(tester);
+    final h = await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    );
+    addTearDown(h!.dispose);
+
+    await h.pumpApp(tester);
+
+    // Proposal §4, word for word: the welcome must make ALL of her stuff —
+    // cooked, bought, supplies, sold — feel welcome, not just "what you
+    // sell".
+    expect(
+      find.text(
+        'List what you bring — the food you make, the supplies you set out, '
+        'the things you sell — and Loadout works out how much to take.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Cooked, bought, supplies, or things you sell. A name and a count '
+        'is enough.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Set the date and roughly how many people. Loadout turns that into '
+        'a packing list.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Afterwards, confirm what was used or sold. Every next list is '
+        'built from what really happened.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('the dashboard pins the approved copy', (tester) async {
+    _usePhoneSurface(tester);
+    final h = await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    );
+    addTearDown(h!.dispose);
+    await _seedDashboard(h, tester);
+
+    await h.pumpApp(tester);
+
+    // Close-out nudge: "used and sold", and a packing list that gets
+    // sharper — true from the kitchen and the sales table alike.
+    expect(
+      find.text(
+        'Held yesterday. Confirm what was used and sold, and the next '
+        'packing list gets sharper.',
+      ),
+      findsOneWidget,
+    );
+    // Quick actions: "Add stock" (half of what arrives was never
+    // purchased) and "Count what's there".
+    expect(
+      find.text('Shopping, deliveries, donations — anything that came in.'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Type the real number; Loadout squares the books.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a fresh workspace never sees the tidy card', (tester) async {
+    _usePhoneSurface(tester);
+    final h = await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    );
+    addTearDown(h!.dispose);
+    // Items exist, and the eight starter folders exist too (fresh
+    // workspaces are born with them) — so there is nothing to tidy.
+    await _seedItem(h, tester);
+
+    await h.pumpApp(tester);
+
+    expect(find.text("You're up to date"), findsOneWidget);
+    expect(find.text('Tidy your items into folders'), findsNothing);
   });
 
   testWidgets('closeout nudge and quick actions navigate', (tester) async {
@@ -192,7 +289,7 @@ void main() {
     await _seedDashboard(h, tester);
 
     await h.pumpApp(tester);
-    await tester.tap(find.text('Record a purchase'));
+    await tester.tap(find.text('Add stock'));
     await tester.pumpAndSettle();
     expect(
       tester.widget<MovementEntryScreen>(find.byType(MovementEntryScreen)).kind,
@@ -253,11 +350,47 @@ void main() {
     await h.pumpApp(tester);
 
     expect(
-      find.textContaining('1 estimated, not yet proven'),
+      find.text('Packing list ready · 1 amount is still a first guess'),
       findsOneWidget,
       reason: 'a baseline line has a number and must not read as no history',
     );
-    expect(find.textContaining('nothing to go on'), findsNothing);
+    expect(find.textContaining('knows nothing about'), findsNothing);
+  });
+
+  testWidgets('a line with nothing to go on is counted plainly', (
+    tester,
+  ) async {
+    _usePhoneSurface(tester);
+    final h = await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    );
+    addTearDown(h!.dispose);
+
+    // No serves answer, no history: the line carries no number at all.
+    final itemId = await _seedItem(h, tester, name: 'Mystery jam');
+    await tester.runAsync(() async {
+      final events = h.read(eventServiceProvider);
+      final created = await events.createEvent(
+        EventDraft(
+          name: 'Street Fair',
+          scheduledDate: _date(DateTime.now().add(const Duration(days: 2))),
+          plannedExposure: 100,
+          plannedItemIds: [itemId],
+        ),
+      );
+      final eventId = created.fold(
+        (id) => id,
+        (error) => throw StateError(error.code),
+      );
+      await h.read(forecastServiceProvider).generateSnapshot(eventId);
+    });
+
+    await h.pumpApp(tester);
+
+    expect(
+      find.text('Packing list ready · 1 item Loadout knows nothing about yet'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('renders at 200% text scale on a 320 dp viewport', (

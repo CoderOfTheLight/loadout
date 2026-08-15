@@ -4,6 +4,10 @@
 /// promise, one sentence of how, one line about privacy, one button. Every
 /// other word was cut. The column scrolls rather than centring rigidly, so
 /// a large system text size on a small phone still reaches the button.
+///
+/// The sentence of how is proposal §4 verbatim: it has to make ALL of her
+/// stuff feel welcome — the food she makes, the supplies she sets out, the
+/// things she sells — before the app asks her for anything.
 library;
 
 import 'package:flutter/material.dart';
@@ -58,8 +62,9 @@ class WelcomeScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: Space.m),
                         Text(
-                          'Loadout works out what to pack for an event, then '
-                          'learns from how the day actually went.',
+                          'List what you bring — the food you make, the '
+                          'supplies you set out, the things you sell — and '
+                          'Loadout works out how much to take.',
                           textAlign: TextAlign.center,
                           style: theme.textTheme.bodyLarge?.copyWith(
                             color: scheme.onSurfaceVariant,

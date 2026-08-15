@@ -9,8 +9,10 @@ import '../../../app/unit_display.dart';
 import '../../../core/quantity.dart';
 import '../../../core/quantity_codec.dart';
 import '../../../core/time.dart';
+import '../../../core/unit_ratio.dart';
 import '../../../core/units.dart';
 import '../../inventory/domain/movement.dart';
+import '../domain/demand_basis.dart';
 
 /// U+2212, the minus used throughout the design copy ("−2").
 const String minusSign = '−';
@@ -30,6 +32,21 @@ String formatSignedMicros(int micros) =>
 /// legacy measured row (see [unitSuffix]).
 String formatCount(int micros, ItemUnit unit) =>
     '${formatMicros(micros)}${unitSuffix(unit)}';
+
+/// The two plain answers to the one question every item answers — "Does how
+/// much you bring depend on how many people come?" Worded to fit the
+/// kitchen and the sales table alike; never "sold", never "eaten".
+String demandBasisLabel(DemandBasis basis) => switch (basis) {
+  DemandBasis.perPerson => 'More people, more of it',
+  DemandBasis.perEvent => 'About the same every event',
+};
+
+/// The flipped cold-start phrasing as the owner says it: "3 per person"
+/// (or "3 per 4 people" for a stored ratio this form's whole-number field
+/// cannot express).
+String perPersonRatioPhrase(UnitRatio ratio) => ratio.denominator == 1
+    ? '${ratio.numerator} per person'
+    : '${ratio.numerator} per ${ratio.denominator} people';
 
 /// Movement-kind display label (§5 kinds; forms call `adjust` a count).
 String movementKindLabel(MovementKind kind) => switch (kind) {

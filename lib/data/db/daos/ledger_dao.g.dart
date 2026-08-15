@@ -4,6 +4,7 @@ part of 'ledger_dao.dart';
 
 // ignore_for_file: type=lint
 mixin _$LedgerDaoMixin on DatabaseAccessor<AppDatabase> {
+  $FoldersTable get folders => attachedDatabase.folders;
   $ItemsTable get items => attachedDatabase.items;
   $EventsTable get events => attachedDatabase.events;
   $CommandsTable get commands => attachedDatabase.commands;
@@ -15,6 +16,8 @@ mixin _$LedgerDaoMixin on DatabaseAccessor<AppDatabase> {
 class LedgerDaoManager {
   final _$LedgerDaoMixin _db;
   LedgerDaoManager(this._db);
+  $$FoldersTableTableManager get folders =>
+      $$FoldersTableTableManager(_db.attachedDatabase, _db.folders);
   $$ItemsTableTableManager get items =>
       $$ItemsTableTableManager(_db.attachedDatabase, _db.items);
   $$EventsTableTableManager get events =>

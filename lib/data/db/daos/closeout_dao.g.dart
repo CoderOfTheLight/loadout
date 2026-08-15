@@ -7,6 +7,7 @@ mixin _$CloseoutDaoMixin on DatabaseAccessor<AppDatabase> {
   $EventsTable get events => attachedDatabase.events;
   $CommandsTable get commands => attachedDatabase.commands;
   $EventCloseoutsTable get eventCloseouts => attachedDatabase.eventCloseouts;
+  $FoldersTable get folders => attachedDatabase.folders;
   $ItemsTable get items => attachedDatabase.items;
   $InventoryMovementsTable get inventoryMovements =>
       attachedDatabase.inventoryMovements;
@@ -27,6 +28,8 @@ class CloseoutDaoManager {
         _db.attachedDatabase,
         _db.eventCloseouts,
       );
+  $$FoldersTableTableManager get folders =>
+      $$FoldersTableTableManager(_db.attachedDatabase, _db.folders);
   $$ItemsTableTableManager get items =>
       $$ItemsTableTableManager(_db.attachedDatabase, _db.items);
   $$InventoryMovementsTableTableManager get inventoryMovements =>
