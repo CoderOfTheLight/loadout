@@ -95,16 +95,14 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
                 : () => context.push('/recipes/${widget.recipeId}/revise'),
             child: const Text('Revise'),
           ),
-          IconButton(
-            tooltip: recipe.isArchived ? 'Unarchive recipe' : 'Archive recipe',
-            icon: Icon(
-              recipe.isArchived
-                  ? Icons.unarchive_outlined
-                  : Icons.archive_outlined,
-            ),
+          // A word, not a glyph: no icon-only actions (design-spec §2 —
+          // only search's magnifier is universal).
+          TextButton(
+            key: const Key('archive-action'),
             onPressed: _archiveBusy
                 ? null
                 : () => _setArchived(!recipe.isArchived),
+            child: Text(recipe.isArchived ? 'Unarchive' : 'Archive'),
           ),
         ],
       ),

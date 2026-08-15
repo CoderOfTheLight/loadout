@@ -162,6 +162,54 @@ void main() {
       );
     });
 
+    test('hue name is NULL or one of the eight named hues (v4)', () async {
+      await insertFolder(db, tid('F5'), name: 'Hueless', position: 30);
+      await insertFolder(
+        db,
+        tid('F6'),
+        name: 'Ferny',
+        position: 31,
+        hueName: 'fern',
+        iconName: 'eco',
+      );
+      for (final bad in ['teal', '', 'FERN']) {
+        await expectLater(
+          insertFolder(
+            db,
+            tid('F7$bad'),
+            name: 'Bad hue $bad',
+            position: 32,
+            hueName: bad,
+          ),
+          throwsA(isA<SqliteException>()),
+          reason: '$bad is not a named hue',
+        );
+      }
+    });
+
+    test('icon name is NULL or 1-40 characters (v4; grid membership is '
+        'validator-enforced)', () async {
+      await insertFolder(
+        db,
+        tid('F8'),
+        name: 'Iconed',
+        position: 33,
+        iconName: 'local_drink',
+      );
+      for (final bad in ['', 'x' * 41]) {
+        await expectLater(
+          insertFolder(
+            db,
+            tid('F9${bad.length}'),
+            name: 'Bad icon ${bad.length}',
+            position: 34,
+            iconName: bad,
+          ),
+          throwsA(isA<SqliteException>()),
+        );
+      }
+    });
+
     test('live names are unique case-insensitively; archiving frees the name '
         '(partial index)', () async {
       // 'Drinks' is a seeded starter folder — the collision proves the

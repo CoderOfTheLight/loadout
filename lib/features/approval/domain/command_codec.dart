@@ -13,6 +13,7 @@ String commandKind(WorkspaceCommand command) => switch (command) {
   RenameFolder() => 'RenameFolder',
   ReorderFolders() => 'ReorderFolders',
   ArchiveFolder() => 'ArchiveFolder',
+  SetFolderAppearance() => 'SetFolderAppearance',
   SetFolderBasis() => 'SetFolderBasis',
   MoveItemToFolder() => 'MoveItemToFolder',
   MoveItemsToFolder() => 'MoveItemsToFolder',
@@ -80,6 +81,8 @@ Map<String, Object?> _payload(WorkspaceCommand command) => switch (command) {
     'name': command.name,
     'demand_basis': command.demandBasis.dbValue,
     'always_planned': command.alwaysPlanned,
+    'hue_name': command.hue?.dbValue,
+    'icon_name': command.iconName,
   },
   RenameFolder() => {
     'folder_id': command.folderId as String,
@@ -91,6 +94,11 @@ Map<String, Object?> _payload(WorkspaceCommand command) => switch (command) {
     ],
   },
   ArchiveFolder() => {'folder_id': command.folderId as String},
+  SetFolderAppearance() => {
+    'folder_id': command.folderId as String,
+    'hue_name': command.hue?.dbValue,
+    'icon_name': command.iconName,
+  },
   SetFolderBasis() => {
     'folder_id': command.folderId as String,
     'demand_basis': command.demandBasis?.dbValue,

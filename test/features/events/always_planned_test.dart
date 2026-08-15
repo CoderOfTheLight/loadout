@@ -47,7 +47,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Tortillas'));
     await tester.pump();
-    await tester.tap(find.text('1 item picked · Done'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Done'));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Save event'));

@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
+import '../../../app/theme.dart';
 import '../../../app/unit_display.dart';
 import '../../../core/quantity_codec.dart';
 import '../../catalog/domain/item.dart';
@@ -224,59 +225,131 @@ class _ScaleBody extends ConsumerWidget {
           yieldMicros: revision.yieldQuantity.micros,
         );
         final label = revision.yieldLabel;
+        // The total the whole batches make — the "Serves 240" glance figure
+        // of spec §6, computed exactly (batches × yield). '—' would mean
+        // the quantity envelope was left; the verdict still tells the story.
+        final made = plan.batches == 0
+            ? null
+            : scaledIngredientTotal(revision.yieldQuantity, plan.batches);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              key: const Key('scale-context'),
-              'Packing list: bring ${formatMicros(need)} for '
-              '${snapshot.upcomingExposure} ${exposureLabelOf(snapshot)}.'
-              '${line.isBaseline ? ' An estimate — nothing confirmed yet.' : ''}',
-              style: theme.textTheme.bodyMedium,
-            ),
-            if (olderMethod || stale) ...[
-              const SizedBox(height: 8),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    Icons.warning_amber_outlined,
-                    size: 18,
-                    color: theme.colorScheme.tertiary,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'The packing list is out of date — refresh it on the '
-                      'event\'s forecast screen before you cook.',
+            // Scale header card (spec §6): the multiplier as one prominent
+            // chip, the resulting amount as the glance number, and the
+            // rounding said out loud. Restraint zone — the numbers are the
+            // payload; no hue, no motion.
+            Card(
+              margin: EdgeInsets.zero,
+              child: Padding(
+                padding: const EdgeInsets.all(Space.l),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (plan.batches > 0) ...[
+                      Wrap(
+                        spacing: Space.m,
+                        runSpacing: Space.s,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Container(
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.secondaryContainer,
+                              borderRadius: BorderRadius.circular(Radii.small),
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: Space.m,
+                              vertical: Space.xs,
+                            ),
+                            child: Text(
+                              '×${plan.batches} '
+                              '${plan.batches == 1 ? 'batch' : 'batches'}',
+                              style: theme.textTheme.labelLarge?.copyWith(
+                                color: theme.colorScheme.onSecondaryContainer,
+                                fontFeatures: Numerals.tabular,
+                              ),
+                            ),
+                          ),
+                          if (made != null && made != '—')
+                            Text(
+                              'Makes $made',
+                              style: Numerals.glance(theme.textTheme),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: Space.m),
+                    ],
+                    Text(
+                      key: const Key('scale-verdict'),
+                      plan.verdict,
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: Space.s),
+                    Text(
+                      key: const Key('scale-context'),
+                      'Packing list: bring ${formatMicros(need)} for '
+                      '${snapshot.upcomingExposure} '
+                      '${exposureLabelOf(snapshot)}.'
+                      '${line.isBaseline ? ' An estimate — nothing confirmed yet.' : ''}',
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: Space.xs),
+                    Text(
+                      'One batch makes '
+                      '${QuantityCodec.format(revision.yieldQuantity)}'
+                      '${label == null || label.isEmpty ? '' : ' — “$label”'}.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    if (olderMethod || stale) ...[
+                      const SizedBox(height: Space.m),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: StatusColors.of(context).warning,
+                          borderRadius: BorderRadius.circular(Radii.small),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: Space.m,
+                          vertical: Space.s,
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.warning_amber_outlined,
+                              size: 18,
+                              color: StatusColors.of(context).onWarning,
+                            ),
+                            const SizedBox(width: Space.s),
+                            Expanded(
+                              child: Text(
+                                'The packing list is out of date — refresh '
+                                'it on the event\'s forecast screen before '
+                                'you cook.',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: StatusColors.of(context).onWarning,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
-            ],
-            const SizedBox(height: 8),
-            Text(
-              'One batch makes '
-              '${QuantityCodec.format(revision.yieldQuantity)}'
-              '${label == null || label.isEmpty ? '' : ' — “$label”'}.',
-              style: theme.textTheme.bodyMedium,
             ),
-            const SizedBox(height: 12),
-            Text(
-              key: const Key('scale-verdict'),
-              plan.verdict,
-              style: theme.textTheme.titleMedium,
-            ),
-            const SizedBox(height: 16),
-            _IngredientTable(
-              revision: revision,
-              itemsById: itemsById,
-              batches: plan.batches,
-            ),
-            const SizedBox(height: 12),
+            const SizedBox(height: Space.l),
+            Text('Ingredients', style: theme.textTheme.titleMedium),
+            for (final recipeLine in revision.lines)
+              _IngredientRow(
+                line: recipeLine,
+                itemsById: itemsById,
+                batches: plan.batches,
+              ),
+            const SizedBox(height: Space.m),
           ],
         );
       },
@@ -284,59 +357,24 @@ class _ScaleBody extends ConsumerWidget {
   }
 }
 
-/// Two columns per ingredient: per batch, and for all batches — both exact.
-class _IngredientTable extends StatelessWidget {
-  const _IngredientTable({
-    required this.revision,
+/// One ingredient row (spec §6): name left, the scaled total right in the
+/// row-quantity numeral role, the per-batch amount directly beneath it as a
+/// caption. Plain vertical list — no hue, no motion, no chips (ingredients
+/// aren't folders). Both figures exact.
+class _IngredientRow extends StatelessWidget {
+  const _IngredientRow({
+    required this.line,
     required this.itemsById,
     required this.batches,
   });
 
-  final RecipeRevisionView revision;
+  final RecipeLine line;
   final Map<String, Item> itemsById;
   final int batches;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final headerStyle = theme.textTheme.labelSmall?.copyWith(
-      color: theme.colorScheme.onSurfaceVariant,
-    );
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            Expanded(child: Text('Ingredient', style: headerStyle)),
-            SizedBox(
-              width: 84,
-              child: Text(
-                'Per batch',
-                style: headerStyle,
-                textAlign: TextAlign.right,
-              ),
-            ),
-            SizedBox(
-              width: 110,
-              child: Text(
-                batches == 1 ? 'For 1 batch' : 'For $batches batches',
-                style: headerStyle,
-                textAlign: TextAlign.right,
-              ),
-            ),
-          ],
-        ),
-        const Divider(),
-        for (final line in revision.lines)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6),
-            child: _buildLine(theme, line),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildLine(ThemeData theme, RecipeLine line) {
     final item = itemsById[line.ingredientItemId.value];
     final name = item == null
         ? 'Unknown item'
@@ -344,26 +382,39 @@ class _IngredientTable extends StatelessWidget {
         ? '${item.name} (archived)'
         : item.name;
     final suffix = item == null ? '' : unitSuffix(item.unit);
-    return Row(
-      children: [
-        Expanded(child: Text(name, style: theme.textTheme.bodyLarge)),
-        SizedBox(
-          width: 84,
-          child: Text(
-            '${QuantityCodec.format(line.quantityPerBatch)}$suffix',
-            style: theme.textTheme.bodyLarge,
-            textAlign: TextAlign.right,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 56),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              name,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
-        ),
-        SizedBox(
-          width: 110,
-          child: Text(
-            '${scaledIngredientTotal(line.quantityPerBatch, batches)}$suffix',
-            style: theme.textTheme.titleMedium,
-            textAlign: TextAlign.right,
+          const SizedBox(width: Space.m),
+          Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '${scaledIngredientTotal(line.quantityPerBatch, batches)}'
+                '$suffix',
+                style: Numerals.rowQuantity(theme.textTheme),
+              ),
+              Text(
+                '${QuantityCodec.format(line.quantityPerBatch)}$suffix '
+                'per batch',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

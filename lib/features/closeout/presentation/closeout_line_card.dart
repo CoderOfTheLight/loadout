@@ -7,6 +7,20 @@
 /// records no line. The prefill caption "Planned load was N" comes from the
 /// latest snapshot's load/override, blank when none exists.
 ///
+/// The card carries the design-spec §4 checklist grammar — every state is
+/// color + icon + word, the name always fully legible, no strikethrough
+/// ever:
+///  * **Confirmed** — card tint animates to `primaryContainer` (150 ms, on
+///    the owner's own edit), filled check, the word "Confirmed", one light
+///    haptic on the flip. Fields stay editable; unconfirming is plain and
+///    instant.
+///  * **In progress** — an open-but-incomplete worksheet gets a thin
+///    `secondary` left stripe + the word "In progress": partial must never
+///    look like done.
+///  * **Skipped** — neutral, dimmed, the literal word "Skipped".
+/// The worksheet opens and closes through a 200 ms `AnimatedSize`. All
+/// durations drop to zero when animations are disabled.
+///
 /// Per-event lines ("about the same every event") get "didn't count it" as
 /// a first-class skip instead — the recommended default, because nobody
 /// counts soap at midnight and a made-up number would become permanent
@@ -15,7 +29,9 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../../../app/theme.dart';
 import '../../../app/widgets/quantity_form_field.dart';
 import '../../../app/widgets/warning_banner.dart';
 import '../../../core/quantity.dart';
@@ -117,11 +133,21 @@ final class CloseoutLineController {
   /// Done = confirmed (has a legal depletion) or deliberately skipped.
   bool get done => skipped || effectiveDepletion != null;
 
-  /// Counts toward "X of Y items confirmed" (skips never do).
+  /// Counts toward "X of Y confirmed" (skips never do).
   bool get confirmed => !skipped && effectiveDepletion != null;
+
+  /// True once anything has been entered on a still-unconfirmed line — the
+  /// §4 mid-state: partial must never look like done.
+  bool get inProgress =>
+      !done &&
+      (worksheetOpen ||
+          depletion.text.trim().isNotEmpty ||
+          loaded.text.trim().isNotEmpty ||
+          returned.text.trim().isNotEmpty ||
+          waste.text.trim().isNotEmpty);
 }
 
-class CloseoutLineCard extends StatelessWidget {
+class CloseoutLineCard extends StatefulWidget {
   const CloseoutLineCard({
     super.key,
     required this.line,
@@ -135,87 +161,188 @@ class CloseoutLineCard extends StatelessWidget {
   final VoidCallback onChanged;
 
   @override
+  State<CloseoutLineCard> createState() => _CloseoutLineCardState();
+}
+
+class _CloseoutLineCardState extends State<CloseoutLineCard> {
+  /// Last seen confirmed state, so the check-off haptic fires exactly once
+  /// per flip into confirmed — never per keystroke, never on rebuilds.
+  late bool _wasConfirmed = widget.line.confirmed;
+
+  @override
+  void didUpdateWidget(CloseoutLineCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final nowConfirmed = widget.line.confirmed;
+    if (nowConfirmed && !_wasConfirmed) {
+      // The §4 check-off moment: light impact per line confirmed.
+      HapticFeedback.lightImpact();
+    }
+    _wasConfirmed = nowConfirmed;
+  }
+
+  Duration _duration(int milliseconds) =>
+      MediaQuery.disableAnimationsOf(context)
+      ? Duration.zero
+      : Duration(milliseconds: milliseconds);
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    final scheme = theme.colorScheme;
+    final line = widget.line;
+    final confirmed = line.confirmed;
+    final skipped = line.skipped;
+    final inProgress = line.inProgress;
+
+    // §4 grammar: confirmed = primaryContainer tint; skipped = neutral,
+    // dimmed; pending = neutral card. Word + icon + color, always.
+    final cardColor = confirmed
+        ? scheme.primaryContainer
+        : scheme.surfaceContainerLow;
+    final contentInk = confirmed
+        ? scheme.onPrimaryContainer
+        : skipped
+        ? scheme.onSurfaceVariant
+        : scheme.onSurface;
+    final (stateWord, stateColor) = confirmed
+        ? ('Confirmed', scheme.onPrimaryContainer)
+        : skipped
+        ? ('Skipped', scheme.onSurfaceVariant)
+        : inProgress
+        ? ('In progress', scheme.secondary)
+        : (null, scheme.onSurface);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: AnimatedContainer(
+        // The check-off tint change: 150 ms on the owner's own edit.
+        duration: _duration(150),
+        curve: Curves.easeOutCubic,
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(Radii.card),
+          border: Border.all(color: scheme.outlineVariant),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
           children: [
-            Row(
-              children: [
-                Icon(
-                  line.done
-                      ? Icons.check_circle_outline
-                      : Icons.radio_button_unchecked,
-                  color: line.done
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.onSurfaceVariant,
-                  semanticLabel: line.done
-                      ? '${line.itemName}: done'
-                      : '${line.itemName}: to do',
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: AnimatedSize(
+                // Worksheet open/close (§7 motion budget).
+                duration: _duration(200),
+                curve: Curves.easeOutCubic,
+                alignment: Alignment.topCenter,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          confirmed
+                              ? Icons.check_circle
+                              : skipped
+                              ? Icons.remove_circle_outline
+                              : Icons.radio_button_unchecked,
+                          color: confirmed
+                              ? scheme.onPrimaryContainer
+                              : scheme.onSurfaceVariant,
+                          semanticLabel: line.done
+                              ? '${line.itemName}: done'
+                              : '${line.itemName}: to do',
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            line.itemName,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: contentInk,
+                            ),
+                          ),
+                        ),
+                        if (stateWord != null) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            stateWord,
+                            style: theme.textTheme.labelLarge?.copyWith(
+                              color: stateColor,
+                            ),
+                          ),
+                        ],
+                        if (line.demandBasis == DemandBasis.perPerson)
+                          TextButton(
+                            onPressed: () {
+                              line.skipped = !line.skipped;
+                              widget.onChanged();
+                            },
+                            child: Text(
+                              line.skipped ? 'Include item' : 'Skip item',
+                            ),
+                          ),
+                      ],
+                    ),
+                    if (line.plannedLoadMicros != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          'Planned load was '
+                          '${QuantityCodec.format(Quantity.fromMicros(line.plannedLoadMicros!))}'
+                          '${line.unitSuffix}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: contentInk,
+                          ),
+                        ),
+                      ),
+                    if (line.demandBasis == DemandBasis.perEvent) ...[
+                      const SizedBox(height: 4),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: FilterChip(
+                          label: const Text("Didn't count it"),
+                          tooltip: 'Recommended when nobody counted',
+                          selected: line.skipped,
+                          onSelected: (selected) {
+                            line.skipped = selected;
+                            widget.onChanged();
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      if (line.skipped)
+                        Text(
+                          'Nothing recorded — a skipped line teaches the '
+                          "forecast nothing, and that's better than a "
+                          'made-up number.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: contentInk,
+                          ),
+                        )
+                      else
+                        ..._entryFields(theme),
+                    ] else if (line.skipped)
+                      Text(
+                        'Skipped — nothing will be recorded for this item.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: contentInk,
+                        ),
+                      )
+                    else ...[
+                      const SizedBox(height: 4),
+                      ..._entryFields(theme),
+                    ],
+                  ],
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    line.itemName,
-                    style: theme.textTheme.titleMedium,
-                  ),
-                ),
-                if (line.demandBasis == DemandBasis.perPerson)
-                  TextButton(
-                    onPressed: () {
-                      line.skipped = !line.skipped;
-                      onChanged();
-                    },
-                    child: Text(line.skipped ? 'Include item' : 'Skip item'),
-                  ),
-              ],
+              ),
             ),
-            if (line.plannedLoadMicros != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text(
-                  'Planned load was '
-                  '${QuantityCodec.format(Quantity.fromMicros(line.plannedLoadMicros!))}'
-                  '${line.unitSuffix}',
-                  style: theme.textTheme.bodySmall,
-                ),
+            // The §4 mid-state stripe: thin secondary left border + the
+            // word — an open worksheet must never look like done.
+            if (inProgress)
+              Positioned(
+                left: 0,
+                top: 0,
+                bottom: 0,
+                child: Container(width: 4, color: scheme.secondary),
               ),
-            if (line.demandBasis == DemandBasis.perEvent) ...[
-              const SizedBox(height: 4),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: FilterChip(
-                  label: const Text("Didn't count it"),
-                  tooltip: 'Recommended when nobody counted',
-                  selected: line.skipped,
-                  onSelected: (selected) {
-                    line.skipped = selected;
-                    onChanged();
-                  },
-                ),
-              ),
-              const SizedBox(height: 8),
-              if (line.skipped)
-                Text(
-                  'Nothing recorded — a skipped line teaches the forecast '
-                  "nothing, and that's better than a made-up number.",
-                  style: theme.textTheme.bodySmall,
-                )
-              else
-                ..._entryFields(theme),
-            ] else if (line.skipped)
-              Text(
-                'Skipped — nothing will be recorded for this item.',
-                style: theme.textTheme.bodyMedium,
-              )
-            else ...[
-              const SizedBox(height: 4),
-              ..._entryFields(theme),
-            ],
           ],
         ),
       ),
@@ -224,96 +351,102 @@ class CloseoutLineCard extends StatelessWidget {
 
   /// The counting body shared by both bases: direct depletion (or the
   /// derived read-only display), the expandable worksheet, and the flags.
-  List<Widget> _entryFields(ThemeData theme) => [
-    if (line.worksheetComplete)
-      _derivedDepletion(theme)
-    else
-      QuantityFormField(
-        controller: line.depletion,
-        labelText: 'Depletion',
-        unitLabel: line.unitLabel,
-        isRequired: false,
-        allowZero: true,
-        helperText: line.demandBasis == DemandBasis.perEvent
-            ? 'What was used or sold — excludes waste.'
-            : 'What sold — excludes waste.',
-        onChanged: (_) => onChanged(),
-        validator: (value) => value.micros > maxDepletionMicros
-            ? 'Larger than Loadout supports'
-            : null,
-      ),
-    const SizedBox(height: 4),
-    Align(
-      alignment: Alignment.centerLeft,
-      child: TextButton.icon(
-        onPressed: () {
-          line.worksheetOpen = !line.worksheetOpen;
-          onChanged();
-        },
-        icon: Icon(line.worksheetOpen ? Icons.expand_less : Icons.expand_more),
-        label: Text(
-          line.worksheetOpen
-              ? 'Hide worksheet'
-              : 'Worksheet (loaded − returned − waste)',
+  List<Widget> _entryFields(ThemeData theme) {
+    final line = widget.line;
+    return [
+      if (line.worksheetComplete)
+        _derivedDepletion(theme)
+      else
+        QuantityFormField(
+          controller: line.depletion,
+          labelText: 'Depletion',
+          unitLabel: line.unitLabel,
+          isRequired: false,
+          allowZero: true,
+          helperText: line.demandBasis == DemandBasis.perEvent
+              ? 'What was used or sold — excludes waste.'
+              : 'What sold — excludes waste.',
+          onChanged: (_) => widget.onChanged(),
+          validator: (value) => value.micros > maxDepletionMicros
+              ? 'Larger than Loadout supports'
+              : null,
+        ),
+      const SizedBox(height: 4),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          onPressed: () {
+            line.worksheetOpen = !line.worksheetOpen;
+            widget.onChanged();
+          },
+          icon: Icon(
+            line.worksheetOpen ? Icons.expand_less : Icons.expand_more,
+          ),
+          label: Text(
+            line.worksheetOpen
+                ? 'Hide worksheet'
+                : 'Worksheet (loaded − returned − waste)',
+          ),
         ),
       ),
-    ),
-    if (line.worksheetOpen) ...[
-      const SizedBox(height: 8),
-      QuantityFormField(
-        controller: line.loaded,
-        labelText: 'Loaded',
-        unitLabel: line.unitLabel,
-        isRequired: false,
-        allowZero: true,
-        onChanged: (_) => onChanged(),
-      ),
-      const SizedBox(height: 12),
-      QuantityFormField(
-        controller: line.returned,
-        labelText: 'Returned',
-        unitLabel: line.unitLabel,
-        isRequired: false,
-        allowZero: true,
-        onChanged: (_) => onChanged(),
-      ),
-      const SizedBox(height: 12),
-      QuantityFormField(
-        controller: line.waste,
-        labelText: 'Waste',
-        unitLabel: line.unitLabel,
-        isRequired: false,
-        allowZero: true,
-        onChanged: (_) => onChanged(),
-      ),
-    ],
-    const SizedBox(height: 8),
-    Wrap(
-      spacing: 8,
-      children: [
-        FilterChip(
-          label: const Text('Ran out'),
-          tooltip: 'Stockout — demand was at least this',
-          selected: line.stockout,
-          onSelected: (selected) {
-            line.stockout = selected;
-            onChanged();
-          },
+      if (line.worksheetOpen) ...[
+        const SizedBox(height: 8),
+        QuantityFormField(
+          controller: line.loaded,
+          labelText: 'Loaded',
+          unitLabel: line.unitLabel,
+          isRequired: false,
+          allowZero: true,
+          onChanged: (_) => widget.onChanged(),
         ),
-        FilterChip(
-          label: const Text('Estimate'),
-          tooltip: 'Approximate numbers',
-          selected: line.approximate,
-          onSelected: (selected) {
-            line.approximate = selected;
-            onChanged();
-          },
+        const SizedBox(height: 12),
+        QuantityFormField(
+          controller: line.returned,
+          labelText: 'Returned',
+          unitLabel: line.unitLabel,
+          isRequired: false,
+          allowZero: true,
+          onChanged: (_) => widget.onChanged(),
+        ),
+        const SizedBox(height: 12),
+        QuantityFormField(
+          controller: line.waste,
+          labelText: 'Waste',
+          unitLabel: line.unitLabel,
+          isRequired: false,
+          allowZero: true,
+          onChanged: (_) => widget.onChanged(),
         ),
       ],
-    ),
-  ];
+      const SizedBox(height: 8),
+      Wrap(
+        spacing: 8,
+        children: [
+          FilterChip(
+            label: const Text('Ran out'),
+            tooltip: 'Stockout — demand was at least this',
+            selected: line.stockout,
+            onSelected: (selected) {
+              line.stockout = selected;
+              widget.onChanged();
+            },
+          ),
+          FilterChip(
+            label: const Text('Estimate'),
+            tooltip: 'Approximate numbers',
+            selected: line.approximate,
+            onSelected: (selected) {
+              line.approximate = selected;
+              widget.onChanged();
+            },
+          ),
+        ],
+      ),
+    ];
+  }
 
   Widget _derivedDepletion(ThemeData theme) {
+    final line = widget.line;
     final derived = line.derivedDepletionMicros!;
     if (derived < 0) {
       return const WarningBanner(
@@ -325,6 +458,8 @@ class CloseoutLineCard extends StatelessWidget {
         message: 'This depletion is larger than Loadout supports.',
       );
     }
+    final confirmed = line.confirmed;
+    final scheme = theme.colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -332,12 +467,16 @@ class CloseoutLineCard extends StatelessWidget {
           'Depletion: '
           '${QuantityCodec.format(Quantity.fromMicros(derived))}'
           '${line.unitSuffix}',
-          style: theme.textTheme.titleMedium,
+          style: theme.textTheme.titleMedium?.copyWith(
+            color: confirmed ? scheme.onPrimaryContainer : null,
+          ),
         ),
         const SizedBox(height: 4),
         Text(
           'Depletion excludes waste — derived from the worksheet.',
-          style: theme.textTheme.bodySmall,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: confirmed ? scheme.onPrimaryContainer : null,
+          ),
         ),
       ],
     );

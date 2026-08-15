@@ -2,6 +2,12 @@
 /// on-hand, receipt warnings). Icon + text — meaning never color-only.
 /// Warnings never block.
 ///
+/// Painted with the semantic [StatusColors] amber pair (design-spec §5):
+/// the ONE amber in the app's state grammar — neutral, amber, red, green —
+/// so every warning surface reads as the same word in the same voice. The
+/// contrast tests in `theme_test.dart` measure the pair in both
+/// brightnesses.
+///
 /// The action sits on its own row under the message rather than beside it:
 /// side by side, a two-word button and a full sentence overflow each other
 /// as soon as the system text scale goes up on a narrow phone.
@@ -26,9 +32,9 @@ class WarningBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
+    final status = StatusColors.of(context);
     return Material(
-      color: scheme.tertiaryContainer,
+      color: status.warning,
       borderRadius: BorderRadius.circular(Radii.small),
       child: Padding(
         padding: const EdgeInsets.symmetric(
@@ -42,16 +48,13 @@ class WarningBanner extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  Icons.warning_amber_rounded,
-                  color: scheme.onTertiaryContainer,
-                ),
+                Icon(Icons.warning_amber_rounded, color: status.onWarning),
                 const SizedBox(width: Space.m),
                 Expanded(
                   child: Text(
                     message,
                     style: theme.textTheme.bodyMedium?.copyWith(
-                      color: scheme.onTertiaryContainer,
+                      color: status.onWarning,
                     ),
                   ),
                 ),
@@ -63,7 +66,7 @@ class WarningBanner extends StatelessWidget {
                 child: TextButton(
                   onPressed: onAction,
                   style: TextButton.styleFrom(
-                    foregroundColor: scheme.onTertiaryContainer,
+                    foregroundColor: status.onWarning,
                   ),
                   child: Text(actionLabel!),
                 ),

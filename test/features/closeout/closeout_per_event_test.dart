@@ -65,9 +65,14 @@ void main() {
     await h.pumpApp(tester);
     await h.go(tester, '/events/$eventId/closeout');
 
-    // The worksheet inherits the sections, counts on the headers.
-    expect(find.text('Cleaning & setup · 1'), findsOneWidget);
-    expect(find.text('Unfiled · 1'), findsOneWidget);
+    // The worksheet inherits the sections. The skipped supply section is
+    // already handled, so its header fraction has morphed into the filled
+    // "Done" chip (spec §4); the uncounted Unfiled section shows its
+    // fraction.
+    expect(find.text('Cleaning & setup'), findsOneWidget);
+    expect(find.text('Unfiled'), findsOneWidget);
+    expect(find.text('Done'), findsOneWidget); // Cleaning & setup
+    expect(find.text('0 of 1'), findsOneWidget); // Unfiled
 
     // The per-event line starts as "didn't count it" — recommended default —
     // and the copy says plainly what a skip means.
@@ -76,7 +81,7 @@ void main() {
     expect(tester.widget<FilterChip>(skipChip).selected, isTrue);
     expect(find.textContaining('teaches the forecast nothing'), findsOneWidget);
     // Skips never count as confirmed.
-    expect(find.text('0 of 2 items confirmed'), findsOneWidget);
+    expect(find.text('0 of 2 confirmed'), findsOneWidget);
     // The per-person line keeps today's behaviour: a Skip item button and
     // the depletion field (the skipped soap card shows no field).
     expect(find.text('Skip item'), findsOneWidget);
@@ -88,10 +93,10 @@ void main() {
       '3',
     );
     await tester.pumpAndSettle();
-    expect(find.text('1 of 2 items confirmed'), findsOneWidget);
+    expect(find.text('1 of 2 confirmed'), findsOneWidget);
 
     // Confirms without the supply line.
-    await tester.tap(find.text('Confirm closeout'));
+    await tester.tap(find.text('Finish closeout'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Confirm'));
     await tester.pumpAndSettle();
@@ -222,7 +227,7 @@ void main() {
     // Starts skipped: no field, no way to confuse it with per-person skip.
     expect(find.widgetWithText(TextFormField, 'Depletion'), findsNothing);
     expect(find.text('Skip item'), findsNothing);
-    expect(find.text('0 of 1 items confirmed'), findsOneWidget);
+    expect(find.text('0 of 1 confirmed'), findsOneWidget);
 
     // This time somebody counted.
     await tester.tap(find.widgetWithText(FilterChip, "Didn't count it"));
@@ -236,9 +241,9 @@ void main() {
       '1',
     );
     await tester.pumpAndSettle();
-    expect(find.text('1 of 1 items confirmed'), findsOneWidget);
+    expect(find.text('1 of 1 confirmed'), findsOneWidget);
 
-    await tester.tap(find.text('Confirm closeout'));
+    await tester.tap(find.text('Finish closeout'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Confirm'));
     await tester.pumpAndSettle();

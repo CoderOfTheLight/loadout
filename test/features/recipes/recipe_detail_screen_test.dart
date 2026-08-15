@@ -3,6 +3,7 @@
 /// verbatim rendering of prior revisions, archive/unarchive.
 library;
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:loadout/app/providers.dart';
 import 'package:loadout/core/quantity.dart';
@@ -99,7 +100,9 @@ void main() {
     await h.pumpApp(tester);
     await h.go(tester, '/recipes/$recipeId');
 
-    await tester.tap(find.byTooltip('Archive recipe'));
+    // A labeled word in the app bar, not an icon-only glyph (spec §2).
+    expect(find.text('Archive'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('archive-action')));
     await tester.pumpAndSettle();
     // Drift publishes query-stream updates on a zero-duration timer that
     // pumpAndSettle does not wait for.
@@ -112,7 +115,9 @@ void main() {
     ))!;
     expect(archived.recipe.isArchived, isTrue);
 
-    await tester.tap(find.byTooltip('Unarchive recipe'));
+    // The same slot flips to the unarchive word (still two labeled
+    // buttons: this one, and the banner's own "Unarchive" action).
+    await tester.tap(find.byKey(const Key('archive-action')));
     await tester.pumpAndSettle();
     await tester.pump(Duration.zero);
     await tester.pumpAndSettle();

@@ -155,6 +155,6 @@ void main() {
       find.textContaining('nothing will be recorded for this item'),
       findsOneWidget,
     );
-    expect(find.text('1 of 2 items confirmed'), findsOneWidget);
+    expect(find.text('1 of 2 confirmed'), findsOneWidget);
   });
 }

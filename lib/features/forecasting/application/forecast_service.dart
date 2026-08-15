@@ -283,6 +283,16 @@ final class DriftForecastService implements ForecastService {
           packSize: Quantity.fromMicros(input.packSizeMicros),
           usableOnHand: Quantity.fromMicros(max(0, input.onHandMicros)),
         );
+        // A per-event estimate ignores attendance on purpose — so when this
+        // event dwarfs everything the estimate was learned from, say so on
+        // the line (warning only, no invented scaling). Checked against the
+        // REAL stored exposures, not the mapped exposure-1 observations.
+        final suppliesJump =
+            isPerEvent &&
+            perEventSuppliesJump(
+              upcomingExposure: inputs.upcomingExposure,
+              observedExposures: [for (final e in input.evidence) e.exposure],
+            );
         if (adjustment.adjusted) {
           selloutAdjustedLines++;
           if (adjustment.kind == StockoutAdjustmentKind.everyDaySoldOut) {
@@ -360,6 +370,7 @@ final class DriftForecastService implements ForecastService {
             warnings: [
               ...engineLine.warnings,
               if (adjustment.warning != null) adjustment.warning!,
+              if (suppliesJump) perEventSuppliesJumpWarning,
               if (baseline != null) baseline.warning,
             ],
             evidence: input.evidence,

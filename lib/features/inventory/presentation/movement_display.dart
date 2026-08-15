@@ -7,6 +7,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../../../app/theme.dart';
 import '../../../app/unit_display.dart';
 import '../../../core/quantity.dart';
 import '../../../core/quantity_codec.dart';
@@ -144,10 +145,12 @@ class MovementRow extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
+          // Row-quantity role (design-spec §4/§5): tabular titleLarge —
+          // 16 pt numerals fail the arm's-length glance.
           Text(
             delta,
             style: (struck ?? const TextStyle()).merge(
-              theme.textTheme.bodyLarge,
+              Numerals.rowQuantity(theme.textTheme),
             ),
           ),
           if (corrected)

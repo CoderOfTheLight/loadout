@@ -149,14 +149,19 @@ void main() {
 
     // The screen answers "is there anything for me?" before anything else.
     expect(find.text('What needs doing'), findsOneWidget);
-    // (1) Pending-closeout nudge for the active event past its date.
-    expect(find.text('Close out Taco Night'), findsOneWidget);
+    // (1) Pending-closeout lead tile (spec §6): eyebrow states the task,
+    // the hero figure is the relative date, and urgency is border + icon +
+    // word + tint — held yesterday sits on the amber "Due soon" rung.
+    expect(find.text('CLOSEOUT PENDING'), findsOneWidget);
+    expect(find.text('Due soon'), findsOneWidget);
+    expect(find.text('Yesterday'), findsOneWidget);
+    expect(find.textContaining('Close out Taco Night'), findsOneWidget);
     // (2) Next-event card, dated in plain words, with packing-list
     // readiness — Home says "packing list", never "forecast".
     expect(find.text('Street Fair'), findsOneWidget);
     expect(find.text('Tomorrow'), findsOneWidget);
     expect(find.textContaining('No packing list yet'), findsOneWidget);
-    // (3) Quick actions.
+    // (3) Quick actions: a 2-up grid of labeled tiles, never icon-only.
     expect(find.text('Add stock'), findsOneWidget);
     expect(find.text("Count what's there"), findsOneWidget);
     // (4) Data health: negative on-hand, signed, and with no unit — an item
@@ -243,25 +248,21 @@ void main() {
 
     await h.pumpApp(tester);
 
-    // Close-out nudge: "used and sold", and a packing list that gets
-    // sharper — true from the kitchen and the sales table alike.
+    // Close-out lead tile: "used and sold", and a packing list that gets
+    // sharper — true from the kitchen and the sales table alike. The date
+    // is the tile's hero figure, not part of the sentence (spec §6).
     expect(
       find.text(
-        'Held yesterday. Confirm what was used and sold, and the next '
-        'packing list gets sharper.',
+        'Close out Taco Night — confirm what was used and sold, and the '
+        'next packing list gets sharper.',
       ),
       findsOneWidget,
     );
+    expect(find.text('Yesterday'), findsOneWidget);
     // Quick actions: "Add stock" (half of what arrives was never
-    // purchased) and "Count what's there".
-    expect(
-      find.text('Shopping, deliveries, donations — anything that came in.'),
-      findsOneWidget,
-    );
-    expect(
-      find.text('Type the real number; Loadout squares the books.'),
-      findsOneWidget,
-    );
+    // purchased) and "Count what's there" — labeled tiles (spec §6).
+    expect(find.text('Add stock'), findsOneWidget);
+    expect(find.text("Count what's there"), findsOneWidget);
   });
 
   testWidgets('a fresh workspace never sees the tidy card', (tester) async {
@@ -298,7 +299,7 @@ void main() {
 
     h.read(routerProvider).go('/home');
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Close out Taco Night'));
+    await tester.tap(find.textContaining('Close out Taco Night'));
     await tester.pumpAndSettle();
     expect(find.byType(CloseoutScreen), findsOneWidget);
 
@@ -410,7 +411,43 @@ void main() {
 
     // Overflow at 200 % scale would throw and fail the test here.
     await h.pumpApp(tester);
-    expect(find.text('Close out Taco Night'), findsOneWidget);
+    expect(find.textContaining('Close out Taco Night'), findsOneWidget);
+  });
+
+  testWidgets('a closeout left for days climbs to the red Overdue rung', (
+    tester,
+  ) async {
+    _usePhoneSurface(tester);
+    final h = await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    );
+    addTearDown(h!.dispose);
+    final itemId = await _seedItem(h, tester);
+    await tester.runAsync(() async {
+      final events = h.read(eventServiceProvider);
+      final created = await events.createEvent(
+        EventDraft(
+          name: 'Spring Fete',
+          scheduledDate: _date(
+            DateTime.now().subtract(const Duration(days: 3)),
+          ),
+          plannedItemIds: [itemId],
+        ),
+      );
+      final eventId = created.fold(
+        (id) => id,
+        (error) => throw StateError(error.code),
+      );
+      await events.activate(eventId);
+    });
+
+    await h.pumpApp(tester);
+
+    // The ladder's third rung: red, with the word — never color alone.
+    expect(find.text('CLOSEOUT PENDING'), findsOneWidget);
+    expect(find.text('Overdue'), findsOneWidget);
+    expect(find.text('Due soon'), findsNothing);
+    expect(find.text('3 days ago'), findsOneWidget);
   });
 
   testWidgets('the first run also renders at 200% text scale', (tester) async {

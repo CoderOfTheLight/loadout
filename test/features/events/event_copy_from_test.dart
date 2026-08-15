@@ -62,17 +62,20 @@ void main() {
     await tester.tap(find.text('Spring fair'));
     await tester.pumpAndSettle();
 
-    // The picker opened pre-ticked with the two still-live items.
-    expect(find.text('2 items picked · Done'), findsOneWidget);
-    expect(find.text('Disposables · 1 of 1'), findsOneWidget);
-    expect(find.text('Drinks · 1 of 1'), findsOneWidget);
+    // The picker opened pre-ticked with the two still-live items: the
+    // docked tally reports items and the folders they span, and each
+    // section header carries its live fraction.
+    expect(find.text('2 items · 2 folders'), findsOneWidget);
+    expect(find.text('1 of 1'), findsNWidgets(2)); // Disposables and Drinks
+    expect(find.text('Disposables'), findsOneWidget);
+    expect(find.text('Drinks'), findsOneWidget);
     expect(find.text('Tortillas'), findsNothing);
 
     // Untick what differs this time.
     await tester.tap(find.text('Lemonade'));
     await tester.pump();
-    expect(find.text('1 item picked · Done'), findsOneWidget);
-    await tester.tap(find.text('1 item picked · Done'));
+    expect(find.text('1 item · 1 folder'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Done'));
     await tester.pumpAndSettle();
 
     expect(find.widgetWithText(InputChip, 'Paper plates'), findsOneWidget);

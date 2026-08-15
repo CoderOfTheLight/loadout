@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/theme.dart';
+import '../../../app/widgets/folder_chip.dart';
 import 'catalog_format.dart';
 import 'catalog_providers.dart';
 import 'folder_dialogs.dart';
@@ -69,6 +70,7 @@ class _FolderPickerSheet extends ConsumerWidget {
                 children: [
                   for (final folder in folders)
                     ListTile(
+                      leading: FolderChip.forFolder(folder),
                       title: Text(folder.name),
                       subtitle: Text(demandBasisLabel(folder.demandBasis)),
                       trailing: folder.id.value == selectedFolderId
@@ -80,6 +82,7 @@ class _FolderPickerSheet extends ConsumerWidget {
                       ).pop(FolderPick(folder.id.value)),
                     ),
                   ListTile(
+                    leading: const Icon(Icons.inbox_outlined),
                     title: const Text('Unfiled'),
                     subtitle: const Text(
                       'No folder — shown at the end of every list.',

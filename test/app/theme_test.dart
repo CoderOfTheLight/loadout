@@ -14,6 +14,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:loadout/app/theme.dart';
+import 'package:loadout/core/folder_appearance.dart';
 
 /// WCAG 2.1 contrast ratio between two opaque colours.
 double _contrast(Color a, Color b) {
@@ -110,6 +111,76 @@ void main() {
         );
       }
     });
+
+    test('all eight folder (tint, ink) pairs clear WCAG in both '
+        'brightnesses', () {
+      // Spec §3: pairs are DERIVED (primaryContainer/onPrimaryContainer per
+      // seed), never hand-tuned — this test is the proof the derivation
+      // holds for every seed. If one fails, adjust that seed's tone, not
+      // the method.
+      for (final brightness in Brightness.values) {
+        final palette = FolderPalette.derive(brightness);
+        for (final hue in FolderHue.values) {
+          final pair = palette.pair(hue);
+          _expectContrast(
+            pair.ink,
+            pair.tint,
+            atLeast: 4.5,
+            pair: '${brightness.name} folder ${hue.dbValue}',
+          );
+          // The chip must also read against the surfaces it sits on.
+          final s = loadoutColorScheme(brightness);
+          _expectContrast(
+            pair.tint,
+            s.surface,
+            atLeast: 1.2,
+            pair: '${brightness.name} folder ${hue.dbValue} tint/surface',
+          );
+        }
+      }
+    });
+
+    test('the amber warning pair clears WCAG in both brightnesses', () {
+      for (final brightness in Brightness.values) {
+        final status = StatusColors.derive(brightness);
+        _expectContrast(
+          status.onWarning,
+          status.warning,
+          atLeast: 4.5,
+          pair: '${brightness.name} warning',
+        );
+        // Warning surfaces (banners, the Home lead tile's amber rung) and
+        // the red Overdue rung sit as tinted cards ON the page surface —
+        // each tint must be visibly distinct from it, like folder tints.
+        final s = loadoutColorScheme(brightness);
+        _expectContrast(
+          status.warning,
+          s.surface,
+          atLeast: 1.2,
+          pair: '${brightness.name} warning tint/surface',
+        );
+        _expectContrast(
+          s.errorContainer,
+          s.surface,
+          atLeast: 1.2,
+          pair: '${brightness.name} errorContainer/surface',
+        );
+      }
+    });
+
+    test('the theme carries the precomputed extensions', () {
+      for (final brightness in Brightness.values) {
+        final theme = loadoutTheme(brightness);
+        final palette = theme.extension<FolderPalette>();
+        expect(palette, isNotNull, reason: 'widgets must never derive');
+        final derived = FolderPalette.derive(brightness);
+        for (final hue in FolderHue.values) {
+          expect(palette!.pair(hue).tint, derived.pair(hue).tint);
+          expect(palette.pair(hue).ink, derived.pair(hue).ink);
+        }
+        expect(theme.extension<StatusColors>(), isNotNull);
+      }
+    });
   });
 
   group('components', () {
@@ -170,6 +241,27 @@ void main() {
       expect(text.titleSmall!.letterSpacing!, greaterThan(0.5));
       // Body copy is at least Material's default, never smaller.
       expect(text.bodyLarge!.fontSize!, greaterThanOrEqualTo(16));
+      // Spec §5 deltas: the eyebrow and the caption both sit ON the
+      // older-adult reading floor, not under it.
+      expect(text.titleSmall!.fontSize, 13.5);
+      expect(text.bodySmall!.fontSize, 13);
+    });
+
+    test('numeral roles are tabular and weighted for the glance', () {
+      final text = loadoutTheme(Brightness.light).textTheme;
+      expect(Numerals.tabular, const [FontFeature.tabularFigures()]);
+      final row = Numerals.rowQuantity(text)!;
+      expect(row.fontSize, text.titleLarge!.fontSize);
+      expect(row.fontWeight, FontWeight.w600);
+      expect(row.fontFeatures, Numerals.tabular);
+      final glance = Numerals.glance(text)!;
+      expect(glance.fontSize, text.headlineSmall!.fontSize);
+      expect(glance.fontWeight, FontWeight.w600);
+      expect(glance.fontFeatures, Numerals.tabular);
+      final hero = Numerals.hero(text)!;
+      expect(hero.fontSize, text.displaySmall!.fontSize);
+      expect(hero.fontWeight, FontWeight.w700);
+      expect(hero.fontFeatures, Numerals.tabular);
     });
   });
 }

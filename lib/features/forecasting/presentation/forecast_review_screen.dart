@@ -6,6 +6,14 @@
 /// CLOSED events the screen becomes the accuracy review
 /// ([accuracyReviewProvider]: planned vs confirmed actuals, derived by
 /// join, never stored).
+///
+/// The line cards read in the same folder sections as every other
+/// event-scoped list (proposal §3), each section led by the folder's
+/// [FolderChip] — the same chip as Items, the picker, and closeout, which
+/// is what makes the app feel organized (design-spec §3). Warnings paint
+/// with the semantic [StatusColors] amber (spec §5) so every warning —
+/// including the per-event supplies-jump note — carries the same visual
+/// weight.
 library;
 
 import 'package:flutter/material.dart';
@@ -16,10 +24,13 @@ import '../../../app/providers.dart';
 import '../../../app/theme.dart';
 import '../../../app/widgets/content_column.dart';
 import '../../../app/widgets/empty_state.dart';
+import '../../../app/widgets/folder_chip.dart';
 import '../../../app/widgets/warning_banner.dart';
+import '../../catalog/domain/folder.dart';
 import '../../catalog/domain/item.dart';
 import '../../events/application/event_service.dart';
 import '../../events/domain/event.dart';
+import '../../events/presentation/folder_sections.dart';
 import '../domain/snapshot.dart';
 import 'forecast_presentation_support.dart';
 
@@ -154,9 +165,10 @@ class _NoSnapshotBodyState extends ConsumerState<_NoSnapshotBody> {
           const SizedBox(height: 16),
           Text(
             'No forecast yet. Loadout builds a load list for the '
-            '${widget.detail.plannedItems.length} planned item(s) from the '
-            'confirmed history of past events — generate one to review it '
-            'here.',
+            '${widget.detail.plannedItems.length} planned '
+            '${widget.detail.plannedItems.length == 1 ? 'item' : 'items'} '
+            'from the confirmed history of past events — generate one to '
+            'review it here.',
             textAlign: TextAlign.center,
             style: theme.textTheme.bodyLarge,
           ),
@@ -246,6 +258,10 @@ class _SnapshotBodyState extends ConsumerState<_SnapshotBody> {
     final items =
         ref.watch(forecastItemIndexProvider).valueOrNull ??
         const <String, Item>{};
+    // The same folder sections every event-scoped list reads in; a
+    // workspace with no folders at all renders flat, as it always did.
+    final folders =
+        ref.watch(eventFoldersProvider).valueOrNull ?? const <Folder>[];
     return ContentColumn(
       child: ListView(
         children: [
@@ -273,15 +289,68 @@ class _SnapshotBodyState extends ConsumerState<_SnapshotBody> {
             ),
           _SnapshotHeader(snapshot: snapshot),
           const SizedBox(height: 4),
-          for (final line in snapshot.lines)
-            _ForecastLineCard(
-              line: line,
-              item: items[line.itemId as String],
-              onOpen: () => context.push(
-                '/events/${widget.eventId}/forecast/${line.itemId as String}',
+          for (final section in sectionEntriesByFolder(
+            entries: snapshot.lines,
+            folders: folders,
+            folderIdOf: (line) => items[line.itemId as String]?.folderId?.value,
+          )) ...[
+            if (folders.isNotEmpty)
+              _FolderSectionHeader(
+                folder: section.folder,
+                count: section.entries.length,
               ),
-            ),
+            for (final line in section.entries)
+              _ForecastLineCard(
+                line: line,
+                item: items[line.itemId as String],
+                onOpen: () => context.push(
+                  '/events/${widget.eventId}/forecast/'
+                  '${line.itemId as String}',
+                ),
+              ),
+          ],
           const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+}
+
+/// One folder section label: the folder's small chip, its name, and the
+/// line count right-aligned in tabular figures — Airtable's header anatomy
+/// pared down to what this read-only list needs. No fill, no color beyond
+/// the chip itself (spec §3: color never as a header background).
+class _FolderSectionHeader extends StatelessWidget {
+  const _FolderSectionHeader({required this.folder, required this.count});
+
+  /// Null for the Unfiled section, which gets a name and no chip.
+  final Folder? folder;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, Space.l, 4, Space.xs),
+      child: Row(
+        children: [
+          if (folder case final folder?) ...[
+            FolderChip.forFolder(folder, size: FolderChipSize.small),
+            const SizedBox(width: Space.s),
+          ],
+          Expanded(
+            child: Text(
+              folder?.name ?? 'Unfiled',
+              style: theme.textTheme.titleMedium,
+            ),
+          ),
+          Text(
+            '$count',
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontFeatures: Numerals.tabular,
+            ),
+          ),
         ],
       ),
     );
@@ -417,13 +486,16 @@ class _ForecastLineCard extends StatelessWidget {
                   foreground: theme.colorScheme.onSecondaryContainer,
                 ),
               ],
+              // Every stored warning — the engine's own and the
+              // application-layer notes like the supplies jump — renders
+              // with the same semantic amber weight (spec §5).
               for (final warning in line.warnings) ...[
                 const SizedBox(height: 8),
                 _IndicatorChip(
                   icon: Icons.warning_amber_outlined,
                   label: warning,
-                  background: theme.colorScheme.tertiaryContainer,
-                  foreground: theme.colorScheme.onTertiaryContainer,
+                  background: StatusColors.of(context).warning,
+                  foreground: StatusColors.of(context).onWarning,
                 ),
               ],
               // Only a line with NO number at all needs this prompt; a
@@ -546,6 +618,8 @@ class _AccuracyReviewBody extends ConsumerWidget {
     final items =
         ref.watch(forecastItemIndexProvider).valueOrNull ??
         const <String, Item>{};
+    final folders =
+        ref.watch(eventFoldersProvider).valueOrNull ?? const <Folder>[];
     return Scaffold(
       appBar: AppBar(title: const Text('Accuracy review')),
       body: reviewAsync.when(
@@ -589,14 +663,26 @@ class _AccuracyReviewBody extends ConsumerWidget {
                     ),
                   ),
                 ),
-                for (final line in review.lines)
-                  _AccuracyLineCard(
-                    line: line,
-                    item: items[line.itemId as String],
-                    onOpen: () => context.push(
-                      '/events/$eventId/forecast/${line.itemId as String}',
+                for (final section in sectionEntriesByFolder(
+                  entries: review.lines,
+                  folders: folders,
+                  folderIdOf: (line) =>
+                      items[line.itemId as String]?.folderId?.value,
+                )) ...[
+                  if (folders.isNotEmpty)
+                    _FolderSectionHeader(
+                      folder: section.folder,
+                      count: section.entries.length,
                     ),
-                  ),
+                  for (final line in section.entries)
+                    _AccuracyLineCard(
+                      line: line,
+                      item: items[line.itemId as String],
+                      onOpen: () => context.push(
+                        '/events/$eventId/forecast/${line.itemId as String}',
+                      ),
+                    ),
+                ],
                 const SizedBox(height: 24),
               ],
             ),
@@ -697,15 +783,15 @@ class _AccuracyLineCard extends StatelessWidget {
                       _IndicatorChip(
                         icon: Icons.lightbulb_outline,
                         label: 'Compared against an estimate, not history',
-                        background: theme.colorScheme.tertiaryContainer,
-                        foreground: theme.colorScheme.onTertiaryContainer,
+                        background: StatusColors.of(context).warning,
+                        foreground: StatusColors.of(context).onWarning,
                       ),
                     if (line.stockout)
                       _IndicatorChip(
                         icon: Icons.warning_amber_outlined,
                         label: 'Ran out',
-                        background: theme.colorScheme.tertiaryContainer,
-                        foreground: theme.colorScheme.onTertiaryContainer,
+                        background: StatusColors.of(context).warning,
+                        foreground: StatusColors.of(context).onWarning,
                       ),
                     if (line.approximate)
                       _IndicatorChip(

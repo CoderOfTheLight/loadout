@@ -14,8 +14,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
 import '../../../app/theme.dart';
+import '../../../core/folder_appearance.dart';
 import '../../../core/result.dart';
 import '../domain/demand_basis.dart';
+import '../domain/folder.dart';
+import 'catalog_providers.dart';
 import 'demand_basis_choice.dart';
 
 /// Mirrors the command validator's folder-name rule (1–60 characters).
@@ -80,9 +83,17 @@ class _CreateFolderDialogState extends ConsumerState<_CreateFolderDialog> {
       return;
     }
     setState(() => _submitting = true);
+    // Spec §3 assignment rule: a new folder auto-assigns the next unused
+    // hue in table order (changeable later in the folder editor). Past
+    // eight folders hues repeat — identity is color + icon + name together.
+    final liveFolders =
+        ref.read(folderListProvider).valueOrNull ?? const <Folder>[];
+    final hue = nextUnusedFolderHue([
+      for (final folder in liveFolders) folder.effectiveHue,
+    ]);
     final result = await ref
         .read(catalogServiceProvider)
-        .createFolder(name: _name.text.trim(), demandBasis: _basis);
+        .createFolder(name: _name.text.trim(), demandBasis: _basis, hue: hue);
     if (!mounted) {
       return;
     }

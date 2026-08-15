@@ -76,6 +76,33 @@ class Folders extends Table {
       text().check(demandBasis.isIn(['per_person', 'per_event']))();
   BoolColumn get alwaysPlanned =>
       boolean().withDefault(const Constant(false))();
+
+  // --------------------------------------------------- v4 appearance
+  // Both nullable and CHECKed at column level only, so the v4 ALTER TABLE
+  // ADD COLUMN carries the constraint and v3 rows ride it byte for byte.
+  // NULL = never chose: effective hue is assigned by position order and the
+  // effective icon by the starter-name table (core/folder_appearance.dart).
+
+  /// v4. One of the eight named hues (spec §3's bounded palette); the CHECK
+  /// list mirrors [FolderHue] exactly.
+  TextColumn get hueName => text().nullable().check(
+    hueName.isIn([
+      'fern',
+      'lake',
+      'plum',
+      'berry',
+      'clay',
+      'honey',
+      'olive',
+      'stone',
+    ]),
+  )();
+
+  /// v4. A curated Material glyph name; membership in the ~32-name grid is
+  /// validator-enforced (the grid may grow without a migration), SQL only
+  /// bounds the length.
+  TextColumn get iconName =>
+      text().nullable().check(iconName.length.isBetweenValues(1, 40))();
   IntColumn get archivedAtMicros => integer().nullable()();
   IntColumn get createdAtMicros => integer()();
   IntColumn get updatedAtMicros => integer()();

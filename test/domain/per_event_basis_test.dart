@@ -150,6 +150,60 @@ void main() {
     });
   });
 
+  group('the supplies-jump rule — warning only, never arithmetic', () {
+    test('fires strictly above 2× the largest observed exposure', () {
+      expect(
+        perEventSuppliesJump(
+          upcomingExposure: 500,
+          observedExposures: const [100, 100, 100],
+        ),
+        isTrue,
+        reason: 'the literal owner-approved case: learned at 100, event 500',
+      );
+      expect(
+        perEventSuppliesJump(
+          upcomingExposure: 200,
+          observedExposures: const [100],
+        ),
+        isFalse,
+        reason: 'exactly 2× is still the learned range',
+      );
+      expect(
+        perEventSuppliesJump(
+          upcomingExposure: 201,
+          observedExposures: const [100],
+        ),
+        isTrue,
+      );
+      expect(
+        perEventSuppliesJump(
+          upcomingExposure: 500,
+          observedExposures: const [100, 300],
+        ),
+        isFalse,
+        reason: 'the LARGEST observed exposure sets the range',
+      );
+    });
+
+    test('no evidence means no learned range — never fires', () {
+      expect(
+        perEventSuppliesJump(
+          upcomingExposure: 500,
+          observedExposures: const [],
+        ),
+        isFalse,
+      );
+    });
+
+    test('the stored copy is the owner-approved sentence', () {
+      expect(
+        perEventSuppliesJumpWarning,
+        'This estimate comes from much smaller events — bring more than '
+        'usual and count what you use.',
+      );
+    });
+  });
+
   test('the assumptions tag and note exist for stored snapshots', () {
     expect(perEventRuleTag, 'per_event_median_exposure_1');
     expect(perEventRuleNote, contains('attendance is ignored'));

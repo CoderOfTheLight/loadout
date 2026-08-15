@@ -2,12 +2,18 @@
 /// snapshot and the screen renders the persisted row; the staleness banner
 /// appears after an input change; Refresh APPENDS a new snapshot; closed
 /// events become the accuracy review; empty states; 200 % text scale.
+/// Plus the visual pass: folder sections led by the shared [FolderChip],
+/// and the per-event supplies-jump warning at full warning weight.
 library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:loadout/app/providers.dart';
+import 'package:loadout/app/widgets/folder_chip.dart';
 import 'package:loadout/core/quantity.dart';
+import 'package:loadout/features/catalog/domain/demand_basis.dart';
+import 'package:loadout/features/catalog/domain/item.dart';
+import 'package:loadout/features/forecasting/application/per_event_basis.dart';
 import 'package:loadout/features/inventory/application/inventory_service.dart';
 import 'package:loadout/features/inventory/domain/movement.dart';
 
@@ -305,5 +311,95 @@ void main() {
 
     // Units left the product surface: nothing on this screen says "each".
     expect(find.textContaining('each'), findsNothing);
+  });
+
+  testWidgets('lines read in folder sections led by the folder chip', (
+    tester,
+  ) async {
+    final h = (await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    ))!;
+    addTearDown(h.dispose);
+    final eventId = (await tester.runAsync(() async {
+      // File the item into a starter folder; the section header must show
+      // the SAME chip Items and closeout show (spec §3).
+      final folders = await h.read(catalogServiceProvider).watchFolders().first;
+      final drinks = folders.firstWhere((folder) => folder.name == 'Drinks');
+      final itemId = unwrap(
+        await h
+            .read(catalogServiceProvider)
+            .createItem(ItemDraft(name: 'Lemonade', folderId: drinks.id.value)),
+      );
+      final eventId = await seedEvent(
+        h,
+        name: 'Fete',
+        date: '2026-09-05',
+        exposure: 80,
+        itemIds: [itemId],
+      );
+      unwrap(await h.read(forecastServiceProvider).generateSnapshot(eventId));
+      return eventId;
+    }))!;
+
+    await h.pumpApp(tester);
+    await h.go(tester, '/events/$eventId/forecast');
+
+    expect(find.text('Drinks'), findsOneWidget);
+    expect(find.byType(FolderChip), findsOneWidget);
+    expect(find.text('Lemonade'), findsOneWidget);
+    expect(find.text('Unfiled'), findsNothing);
+  });
+
+  testWidgets('a per-event estimate warns about a supplies jump at the same '
+      'weight as every other warning', (tester) async {
+    final h = (await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    ))!;
+    addTearDown(h.dispose);
+    final eventId = (await tester.runAsync(() async {
+      // "About the same every event", learned at a 100-person event; the
+      // upcoming event is 500 — far past twice the largest exposure the
+      // estimate was learned from.
+      final itemId = unwrap(
+        await h
+            .read(catalogServiceProvider)
+            .createItem(
+              const ItemDraft(
+                name: 'Hand soap',
+                demandBasis: DemandBasis.perEvent,
+              ),
+            ),
+      );
+      final small = await seedEvent(
+        h,
+        name: 'Small market',
+        date: '2026-07-01',
+        exposure: 100,
+        itemIds: [itemId],
+      );
+      await seedCloseout(
+        h,
+        eventId: small,
+        confirmedExposure: 100,
+        itemId: itemId,
+        depletionMicros: 2 * 1000000,
+      );
+      final big = await seedEvent(
+        h,
+        name: 'County fair',
+        date: '2026-09-01',
+        exposure: 500,
+        itemIds: [itemId],
+      );
+      unwrap(await h.read(forecastServiceProvider).generateSnapshot(big));
+      return big;
+    }))!;
+
+    await h.pumpApp(tester);
+    await h.go(tester, '/events/$eventId/forecast');
+
+    // The stored warning, verbatim, in the same amber chip every other
+    // warning gets — warning-only, never scaling math.
+    expect(find.text(perEventSuppliesJumpWarning), findsOneWidget);
   });
 }

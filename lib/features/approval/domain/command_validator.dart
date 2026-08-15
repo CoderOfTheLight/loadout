@@ -1,4 +1,5 @@
 import '../../../core/errors.dart';
+import '../../../core/folder_appearance.dart';
 import '../../../core/quantity.dart';
 import '../../../core/result.dart';
 import '../../../core/unit_ratio.dart';
@@ -64,6 +65,7 @@ final class CommandValidator {
       RenameFolder() => _renameFolder(command, state),
       ReorderFolders() => _reorderFolders(command, state),
       ArchiveFolder() => _archiveFolder(command, state),
+      SetFolderAppearance() => _setFolderAppearance(command, state),
       SetFolderBasis() => _setFolderBasis(command, state),
       MoveItemToFolder() => _moveItemToFolder(command, state),
       MoveItemsToFolder() => _moveItemsToFolder(command, state),
@@ -247,7 +249,7 @@ final class CommandValidator {
         'a live folder with this name already exists',
       );
     }
-    return null;
+    return _folderIconRef(c.iconName);
   }
 
   DomainError? _renameFolder(RenameFolder c, WorkspaceReadModel state) {
@@ -291,6 +293,28 @@ final class CommandValidator {
     }
     return null;
   }
+
+  DomainError? _setFolderAppearance(
+    SetFolderAppearance c,
+    WorkspaceReadModel state,
+  ) {
+    final folder = state.folder(c.folderId as String);
+    if (folder == null) return const NotFoundError('folder not found');
+    if (folder.archived) {
+      return const ValidationError('folder is archived');
+    }
+    if (c.hue == null && c.iconName == null) {
+      return const ValidationError('set the hue, the icon, or both');
+    }
+    return _folderIconRef(c.iconName);
+  }
+
+  /// Null is legal (keep/never chose); a non-null icon must come from the
+  /// curated grid — recognition over choice, and the chip can always draw it.
+  DomainError? _folderIconRef(String? iconName) =>
+      iconName == null || folderIconNames.contains(iconName)
+      ? null
+      : const ValidationError('folder icon must be one of the curated icons');
 
   DomainError? _setFolderBasis(SetFolderBasis c, WorkspaceReadModel state) {
     final folder = state.folder(c.folderId as String);

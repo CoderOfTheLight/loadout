@@ -8,6 +8,8 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:loadout/app/providers.dart';
+import 'package:loadout/app/widgets/folder_chip.dart';
+import 'package:loadout/core/folder_appearance.dart';
 import 'package:loadout/core/result.dart';
 import 'package:loadout/features/catalog/domain/demand_basis.dart';
 import 'package:loadout/features/catalog/domain/folder.dart';
@@ -66,14 +68,23 @@ void main() {
       tester.getTopLeft(find.text('Fresh produce')).dy,
       lessThan(tester.getTopLeft(find.text('Bakery')).dy),
     );
-    // Counts and default answers read from the workspace.
-    expect(
-      find.text('More people, more of it · 1 item'),
-      findsOneWidget, // Bakery
+    // Every row carries the folder's identity chip (design-spec §3).
+    expect(find.byType(FolderChip), findsNWidgets(8));
+    // Counts (right-aligned per spec §3) and default answers read from the
+    // workspace: Bakery holds the one item.
+    Finder inRow(String folderName, Finder matching) => find.descendant(
+      of: find.widgetWithText(ListTile, folderName),
+      matching: matching,
     );
-    expect(find.text('More people, more of it · 0 items'), findsWidgets);
+    expect(inRow('Bakery', find.text('1')), findsOneWidget);
+    expect(inRow('Drinks', find.text('0')), findsOneWidget);
+    expect(find.text('More people, more of it'), findsNWidgets(7));
     // Only Cleaning & setup starts as per-event.
-    expect(find.text('About the same every event · 0 items'), findsOneWidget);
+    expect(find.text('About the same every event'), findsOneWidget);
+    expect(
+      inRow('Cleaning & setup', find.text('About the same every event')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('rename writes through the service and refuses a duplicate '
@@ -83,6 +94,9 @@ void main() {
 
     await h.pumpScreen(tester, const FolderManagementScreen());
     await openEditor(tester, 'Bakery');
+    // The identity controls sit above; bring the rename row into view.
+    await tester.ensureVisible(find.text('Rename'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Rename'));
     await tester.pumpAndSettle();
 
@@ -114,21 +128,28 @@ void main() {
     await h.flushTimers(tester);
   });
 
-  testWidgets('adding a folder appends it to the end of the order', (
-    tester,
-  ) async {
+  testWidgets('adding a folder appends it to the end of the order and '
+      'auto-assigns the next hue', (tester) async {
     final h = await startWorkspace(tester);
     addTearDown(h.dispose);
 
     await h.pumpScreen(tester, const FolderManagementScreen());
-    await tester.tap(find.byTooltip('New folder'));
+    // The FAB carries a word, never an icon alone (spec §2).
+    await tester.tap(find.widgetWithText(FloatingActionButton, 'New folder'));
     await tester.pumpAndSettle();
 
     await tester.enterText(
       find.widgetWithText(TextFormField, 'Folder name'),
       'Van gear',
     );
-    await tester.tap(find.text('About the same every event'));
+    // Scoped to the dialog: the list behind it words a row subtitle the
+    // same way.
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('About the same every event'),
+      ),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Add folder'));
     await tester.pumpAndSettle();
@@ -138,6 +159,54 @@ void main() {
     expect(folders.last.position, 8);
     expect(folders.last.demandBasis, DemandBasis.perEvent);
     expect(folders.last.alwaysPlanned, isFalse);
+    // Spec §3 assignment: the eight starters use all eight hues, so the
+    // ninth folder wraps to the top of the table order.
+    expect(folders.last.hue, FolderHue.fern);
+  });
+
+  testWidgets('the editor sheet writes hue and icon through the service and '
+      'previews them live', (tester) async {
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+
+    await h.pumpScreen(tester, const FolderManagementScreen());
+    await openEditor(tester, 'Drinks');
+
+    // The eight named swatches (spec §3), Lake preselected via the seeded
+    // starter appearance.
+    for (final hue in FolderHue.values) {
+      expect(find.byKey(ValueKey('hue-${hue.dbValue}')), findsOneWidget);
+    }
+
+    // Pick Plum: an immediate service write, and the sheet's live preview
+    // chip re-renders from the stream.
+    await tester.tap(find.byKey(const ValueKey('hue-plum')));
+    await tester.pumpAndSettle();
+    var folders = await tester.runAsync(() => readFolders(h));
+    var drinks = folders!.firstWhere((folder) => folder.name == 'Drinks');
+    expect(drinks.hue, FolderHue.plum);
+    // The seeded starter icon is untouched — hue-only write, not both.
+    expect(drinks.iconName, 'local_drink');
+
+    // Pick a new icon from the curated grid.
+    await tester.ensureVisible(find.byKey(const ValueKey('icon-coffee')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('icon-coffee')));
+    await tester.pumpAndSettle();
+    folders = await tester.runAsync(() => readFolders(h));
+    drinks = folders!.firstWhere((folder) => folder.name == 'Drinks');
+    expect(drinks.iconName, 'coffee');
+    expect(drinks.hue, FolderHue.plum);
+
+    // The preview chip in the sheet now draws the chosen identity.
+    final chips = tester.widgetList<FolderChip>(find.byType(FolderChip));
+    expect(
+      chips.any(
+        (chip) => chip.hue == FolderHue.plum && chip.iconName == 'coffee',
+      ),
+      isTrue,
+    );
+    await h.flushTimers(tester);
   });
 
   testWidgets('archiving confirms in plain words, moves its items to '
@@ -156,6 +225,8 @@ void main() {
 
     await h.pumpScreen(tester, const FolderManagementScreen());
     await openEditor(tester, 'Fresh produce');
+    await tester.ensureVisible(find.text('Archive folder'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Archive folder'));
     await tester.pumpAndSettle();
 
@@ -186,13 +257,20 @@ void main() {
     await h.pumpScreen(tester, const FolderManagementScreen());
     await openEditor(tester, 'Drinks');
 
-    // Flip the folder's default answer to the one question.
-    await tester.ensureVisible(find.text('About the same every event'));
-    await tester.tap(find.text('About the same every event'));
+    // Flip the folder's default answer to the one question. Scoped to the
+    // sheet: the list behind it words a row subtitle the same way.
+    final inSheet = find.descendant(
+      of: find.byType(BottomSheet),
+      matching: find.text('About the same every event'),
+    );
+    await tester.ensureVisible(inSheet);
+    await tester.pumpAndSettle();
+    await tester.tap(inSheet);
     await tester.pumpAndSettle();
 
     // And mark it as coming along to every event.
     await tester.ensureVisible(find.text('Comes along to every event'));
+    await tester.pumpAndSettle();
     await tester.tap(find.byType(SwitchListTile));
     await tester.pumpAndSettle();
 

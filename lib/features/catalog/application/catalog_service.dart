@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 
+import '../../../core/folder_appearance.dart';
 import '../../../core/ids.dart';
 import '../../../core/quantity.dart';
 import '../../../core/result.dart';
@@ -94,10 +95,14 @@ abstract interface class CatalogService {
   // archiving moves a folder's items to Unfiled in the same transaction.
 
   /// Creates a folder at the end of the owner's order. Returns the folderId.
+  /// Null [hue]/[iconName] = never chose: the folder renders its effective
+  /// defaults (hue by position order, icon by starter name).
   Future<Result<String>> createFolder({
     required String name,
     required DemandBasis demandBasis,
     bool alwaysPlanned = false,
+    FolderHue? hue,
+    String? iconName,
   });
 
   Future<Result<void>> renameFolder({
@@ -119,6 +124,14 @@ abstract interface class CatalogService {
     required String folderId,
     DemandBasis? demandBasis,
     bool? alwaysPlanned,
+  });
+
+  /// Updates the folder's hue and/or icon (the folder editor); at least one
+  /// must be given. Identity only — never touches numbers.
+  Future<Result<void>> setFolderAppearance({
+    required String folderId,
+    FolderHue? hue,
+    String? iconName,
   });
 
   /// Null [folderId] = move to Unfiled.
@@ -222,18 +235,38 @@ final class DriftCatalogService implements CatalogService {
     required String name,
     required DemandBasis demandBasis,
     bool alwaysPlanned = false,
+    FolderHue? hue,
+    String? iconName,
   }) async {
     final result = await _submit(
       CreateFolder(
         name: name,
         demandBasis: demandBasis,
         alwaysPlanned: alwaysPlanned,
+        hue: hue,
+        iconName: iconName,
       ),
     );
     return result.fold(
       (receipt) => Ok(receipt.createdRecordIds.first),
       Err.new,
     );
+  }
+
+  @override
+  Future<Result<void>> setFolderAppearance({
+    required String folderId,
+    FolderHue? hue,
+    String? iconName,
+  }) async {
+    final result = await _submit(
+      SetFolderAppearance(
+        folderId: FolderId(folderId),
+        hue: hue,
+        iconName: iconName,
+      ),
+    );
+    return result.fold((_) => const Ok(null), Err.new);
   }
 
   @override
@@ -470,6 +503,8 @@ final class DriftCatalogService implements CatalogService {
     position: row.position,
     demandBasis: DemandBasis.fromDb(row.demandBasis),
     alwaysPlanned: row.alwaysPlanned,
+    hue: FolderHue.fromDbNullable(row.hueName),
+    iconName: row.iconName,
     archivedAt: row.archivedAtMicros == null
         ? null
         : Instant(row.archivedAtMicros!),

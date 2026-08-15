@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/providers.dart';
+import '../../../app/theme.dart';
 import '../../../app/widgets/empty_state.dart';
 import '../../catalog/application/catalog_service.dart';
 import 'movement_display.dart';
@@ -101,12 +102,15 @@ class _ItemPickerSheetState extends ConsumerState<_ItemPickerSheet> {
                         subtitle: summary.item.category == null
                             ? null
                             : Text(summary.item.category!),
+                        // Row-quantity role (spec §4): tabular titleLarge.
                         trailing: Text(
                           formatSignedMicros(
                             summary.onHandMicros,
                             summary.item.unit,
                           ),
-                          style: Theme.of(context).textTheme.bodyMedium,
+                          style: Numerals.rowQuantity(
+                            Theme.of(context).textTheme,
+                          ),
                         ),
                         onTap: () => Navigator.of(context).pop(summary),
                       );

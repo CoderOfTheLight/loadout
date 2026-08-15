@@ -69,18 +69,22 @@ Future<void> insertFolder(
   int position = 0,
   String demandBasis = 'per_person',
   bool alwaysPlanned = false,
+  String? hueName,
+  String? iconName,
   int? archivedAtMicros,
 }) => db.customStatement(
   'INSERT INTO folders '
-  '(id, name, position, demand_basis, always_planned, archived_at_micros, '
-  'created_at_micros, updated_at_micros) '
-  'VALUES (?, ?, ?, ?, ?, ?, 1, 1)',
+  '(id, name, position, demand_basis, always_planned, hue_name, icon_name, '
+  'archived_at_micros, created_at_micros, updated_at_micros) '
+  'VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1)',
   [
     id,
     name ?? 'Folder $id',
     position,
     demandBasis,
     alwaysPlanned ? 1 : 0,
+    hueName,
+    iconName,
     archivedAtMicros,
   ],
 );

@@ -248,6 +248,129 @@ void main() {
     });
   });
 
+  group('the supplies-jump warning — the literal 100 → 500 case', () {
+    Future<String> soapWithHistoryAt100() async {
+      final folder = await cleaningFolderId();
+      final soap = await h.createItem(name: 'Dish soap');
+      await h.ok(
+        MoveItemToFolder(itemId: ItemId(soap), folderId: FolderId(folder)),
+      );
+      for (final (i, date) in [
+        '2026-05-01',
+        '2026-06-01',
+        '2026-07-01',
+      ].indexed) {
+        await closedEvent(
+          itemId: soap,
+          name: 'Small event $i',
+          date: date,
+          exposure: 100,
+          depletionMicros: 2000000,
+        );
+      }
+      return soap;
+    }
+
+    test('estimates learned at 100 people warn at a 500-person event — and '
+        'the number itself is untouched: no invented scaling', () async {
+      final soap = await soapWithHistoryAt100();
+      final big = await h.createEvent(
+        name: 'The big one',
+        scheduledDate: '2026-09-01',
+        plannedExposure: 500,
+        plannedItemIds: [soap],
+      );
+
+      final line = (await generate(big)).lines.single;
+      expect(line.demandBasis, DemandBasis.perEvent);
+      expect(
+        line.warnings,
+        contains(
+          'This estimate comes from much smaller events — bring more than '
+          'usual and count what you use.',
+        ),
+      );
+      expect(
+        line.expectedUseMicros,
+        2000000,
+        reason: 'still the median — a warning, never arithmetic',
+      );
+      expect(line.loadMicros, 3000000);
+
+      // Snapshot-persisted like every other warning: the stored row carries
+      // it, not just this in-memory view.
+      final stored = await h.db
+          .customSelect('SELECT warnings_json FROM forecast_lines')
+          .getSingle();
+      expect(
+        stored.read<String>('warnings_json'),
+        contains('much smaller events'),
+      );
+    });
+
+    test('exactly 2× the largest observed exposure is still inside the '
+        'learned range: no warning at 200', () async {
+      final soap = await soapWithHistoryAt100();
+      final event = await h.createEvent(
+        name: 'Twice the size',
+        scheduledDate: '2026-09-01',
+        plannedExposure: 200,
+        plannedItemIds: [soap],
+      );
+      final line = (await generate(event)).lines.single;
+      expect(
+        line.warnings.any((w) => w.contains('much smaller events')),
+        isFalse,
+      );
+    });
+
+    test('a per-person line never carries it — scaling is that basis\'s own '
+        'arithmetic', () async {
+      final soap = await h.createItem(name: 'Dish soap');
+      await closedEvent(
+        itemId: soap,
+        name: 'Small event',
+        date: '2026-07-01',
+        exposure: 100,
+        depletionMicros: 2000000,
+      );
+      final big = await h.createEvent(
+        name: 'The big one',
+        scheduledDate: '2026-09-01',
+        plannedExposure: 500,
+        plannedItemIds: [soap],
+      );
+      final line = (await generate(big)).lines.single;
+      expect(line.demandBasis, DemandBasis.perPerson);
+      expect(
+        line.warnings.any((w) => w.contains('much smaller events')),
+        isFalse,
+      );
+    });
+
+    test('a per-event cold start (no evidence) has no learned range to be '
+        'outside of', () async {
+      final folder = await cleaningFolderId();
+      final soap = await h.ok(
+        CreateItem(
+          name: 'Dish soap',
+          folderId: FolderId(folder),
+          perEventBaseline: Quantity.whole(2),
+        ),
+      );
+      final big = await h.createEvent(
+        name: 'First ever',
+        plannedExposure: 500,
+        plannedItemIds: [soap.createdRecordIds.first],
+      );
+      final line = (await generate(big)).lines.single;
+      expect(
+        line.warnings.any((w) => w.contains('much smaller events')),
+        isFalse,
+      );
+    });
+  });
+
   group('the basis is part of the stored record', () {
     test('every line stores its basis; flipping an item goes stale, and '
         'regeneration changes the number', () async {

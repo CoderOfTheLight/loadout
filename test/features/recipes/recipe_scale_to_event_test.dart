@@ -162,15 +162,20 @@ void main() {
       findsOneWidget,
     );
 
-    // Each ingredient in two exact columns: per batch, and for all 3.
+    // The scale header (spec §6): the multiplier as one prominent chip and
+    // the resulting amount as the glance figure — 3 × 10 = 30, exact.
     Finder inSheet(Finder finder) =>
         find.descendant(of: find.byType(RecipeScaleSheet), matching: finder);
-    expect(inSheet(find.text('For 3 batches')), findsOneWidget);
+    expect(inSheet(find.text('×3 batches')), findsOneWidget);
+    expect(inSheet(find.text('Makes 30')), findsOneWidget);
+
+    // Each ingredient row: the scaled total is the big figure, the
+    // per-batch amount reads as its caption — both exact.
     expect(inSheet(find.text('Beans')), findsOneWidget);
-    expect(inSheet(find.text('3')), findsOneWidget); // per batch
+    expect(inSheet(find.text('3 per batch')), findsOneWidget);
     expect(inSheet(find.text('9')), findsOneWidget); // for all batches
     expect(inSheet(find.text('Tomatoes')), findsOneWidget);
-    expect(inSheet(find.text('2.5')), findsOneWidget);
+    expect(inSheet(find.text('2.5 per batch')), findsOneWidget);
     expect(inSheet(find.text('7.5')), findsOneWidget);
 
     // A view only: the saved recipe did not change.

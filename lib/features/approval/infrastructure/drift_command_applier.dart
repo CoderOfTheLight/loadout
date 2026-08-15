@@ -285,6 +285,7 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
       RenameFolder() => await _renameFolder(command, now),
       ReorderFolders() => await _reorderFolders(command, now),
       ArchiveFolder() => await _archiveFolder(command, now),
+      SetFolderAppearance() => await _setFolderAppearance(command, now),
       SetFolderBasis() => await _setFolderBasis(command, now),
       MoveItemToFolder() => await _moveItemsToFolderIds(
         [command.itemId as String],
@@ -448,11 +449,28 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
             position: position,
             demandBasis: c.demandBasis.dbValue,
             alwaysPlanned: Value(c.alwaysPlanned),
+            hueName: Value(c.hue?.dbValue),
+            iconName: Value(c.iconName),
             createdAtMicros: now,
             updatedAtMicros: now,
           ),
         );
     return _Effects([id]);
+  }
+
+  Future<_Effects> _setFolderAppearance(SetFolderAppearance c, int now) async {
+    await (_db.update(
+      _db.folders,
+    )..where((f) => f.id.equals(c.folderId as String))).write(
+      FoldersCompanion(
+        hueName: c.hue == null ? const Value.absent() : Value(c.hue!.dbValue),
+        iconName: c.iconName == null
+            ? const Value.absent()
+            : Value(c.iconName!),
+        updatedAtMicros: Value(now),
+      ),
+    );
+    return const _Effects([]);
   }
 
   Future<_Effects> _renameFolder(RenameFolder c, int now) async {

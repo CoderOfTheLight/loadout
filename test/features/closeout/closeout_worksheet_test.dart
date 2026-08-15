@@ -45,7 +45,7 @@ void main() {
     // Exposure prefilled from the planned estimate, with the caption.
     expect(find.text('150'), findsOneWidget);
     expect(find.textContaining('Estimate was 150'), findsOneWidget);
-    expect(find.text('0 of 1 items confirmed'), findsOneWidget);
+    expect(find.text('0 of 1 confirmed'), findsOneWidget);
 
     // Open the worksheet and fill loaded/returned/waste.
     await tester.ensureVisible(find.textContaining('Worksheet'));
@@ -60,7 +60,7 @@ void main() {
     expect(find.text('Depletion: 7'), findsOneWidget);
     expect(find.textContaining('Depletion excludes waste'), findsOneWidget);
     expect(find.widgetWithText(TextFormField, 'Depletion'), findsNothing);
-    expect(find.text('1 of 1 items confirmed'), findsOneWidget);
+    expect(find.text('1 of 1 confirmed'), findsOneWidget);
 
     // Live recompute; a negative worksheet warns and blocks confirm.
     await tester.enterText(
@@ -75,7 +75,7 @@ void main() {
     expect(
       tester
           .widget<FilledButton>(
-            find.widgetWithText(FilledButton, 'Confirm closeout'),
+            find.widgetWithText(FilledButton, 'Finish closeout'),
           )
           .onPressed,
       isNull,
@@ -86,14 +86,28 @@ void main() {
     expect(find.text('Depletion: 7'), findsOneWidget);
 
     // Confirm via the confirmation sheet.
-    await tester.tap(find.text('Confirm closeout'));
+    await tester.tap(find.text('Finish closeout'));
     await tester.pumpAndSettle();
     expect(
       find.text('This becomes the history your forecasts learn from.'),
       findsOneWidget,
     );
     await tester.tap(find.text('Confirm'));
+    // The one per-session celebration (spec §4): the check disc and one
+    // line of owner-register copy, then it dismisses itself.
+    for (
+      var i = 0;
+      i < 60 && find.textContaining('All squared away').evaluate().isEmpty;
+      i++
+    ) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(
+      find.text('All squared away — 1 of 1 accounted for.'),
+      findsOneWidget,
+    );
     await tester.pumpAndSettle();
+    expect(find.textContaining('All squared away'), findsNothing);
 
     // Popped back to the detail screen; the event is closed. Negative
     // on-hand (nothing was ever received) warns without blocking (§5).
@@ -191,9 +205,9 @@ void main() {
       find.textContaining('nothing will be recorded for this item'),
       findsOneWidget,
     );
-    expect(find.text('2 of 3 items confirmed'), findsOneWidget);
+    expect(find.text('2 of 3 confirmed'), findsOneWidget);
 
-    await tester.tap(find.text('Confirm closeout'));
+    await tester.tap(find.text('Finish closeout'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Confirm'));
     await tester.pumpAndSettle();

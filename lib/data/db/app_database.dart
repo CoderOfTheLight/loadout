@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 
+import '../../core/folder_appearance.dart';
 import '../../core/ids.dart';
 import 'daos/closeout_dao.dart';
 import 'daos/command_dao.dart';
@@ -62,7 +63,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(NativeDatabase super.executor);
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -116,8 +117,10 @@ class AppDatabase extends _$AppDatabase {
         // owner's tidy-up flow, never from migration); every items /
         // forecast_lines addition is a nullable column whose NULL means
         // "unanswered": unfiled, inherit, no baseline. Nothing moves, no
-        // number changes, until the owner acts.
-        await m.createTable(folders);
+        // number changes, until the owner acts. Created from the frozen v3
+        // SQL, not the migrator: the Dart table grew v4 columns, and this
+        // block must land exactly v3 (see schemaV3FoldersCreate).
+        await customStatement(schemaV3FoldersCreate);
         await m.addColumn(items, items.folderId);
         await m.addColumn(items, items.demandBasis);
         await m.addColumn(items, items.perEventBaselineMicros);
@@ -136,6 +139,14 @@ class AppDatabase extends _$AppDatabase {
         for (final sql in schemaV3Indices) {
           await customStatement(sql);
         }
+      }
+      if (from < 4 && to >= 4) {
+        // v4: folder appearance (design-spec §3). Two nullable columns whose
+        // NULL means "never chose": effective hue is assigned by position
+        // order, effective icon by the starter-name table. Existing folders
+        // keep every byte and simply render their effective defaults.
+        await m.addColumn(folders, folders.hueName);
+        await m.addColumn(folders, folders.iconName);
       }
     },
     beforeOpen: (details) async {
@@ -195,16 +206,24 @@ class AppDatabase extends _$AppDatabase {
   /// item is Unfiled and forecasts are byte-identical to v2.
   /// `always_planned` starts false everywhere: "comes along to every event"
   /// is the owner's call, suggested on screen, never assumed.
+  ///
+  /// Each starter also gets its lead-reconciliation identity (v4): hue and
+  /// icon from [starterFolderAppearance], each of the eight hues exactly
+  /// once. Stored explicitly, not left to the effective defaults, so a
+  /// renamed starter keeps the identity the owner has learned.
   Future<void> _seedStarterFolders() async {
     final nowMicros = DateTime.now().toUtc().microsecondsSinceEpoch;
     for (var i = 0; i < starterFolders.length; i++) {
       final (name, basis) = starterFolders[i];
+      final appearance = starterFolderAppearance[name]!;
       await into(folders).insert(
         FoldersCompanion.insert(
           id: newUlid(),
           name: name,
           position: i,
           demandBasis: basis,
+          hueName: Value(appearance.hue.dbValue),
+          iconName: Value(appearance.iconName),
           createdAtMicros: nowMicros,
           updatedAtMicros: nowMicros,
         ),

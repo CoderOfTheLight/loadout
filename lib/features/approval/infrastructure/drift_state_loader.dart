@@ -134,6 +134,7 @@ final class DriftStateLoader {
           RenameFolder() ||
           ReorderFolders() ||
           ArchiveFolder() ||
+          SetFolderAppearance() ||
           SetFolderBasis() ||
           MoveItemToFolder() ||
           MoveItemsToFolder():

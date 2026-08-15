@@ -19,6 +19,8 @@ void main() {
 
     await h.pumpScreen(tester, const RecipeListScreen());
 
+    // Empty-state tone (spec §2): warm first line, instructive second.
+    expect(find.text('Nothing on the menu yet'), findsOneWidget);
     expect(
       find.text(
         'Recipes let Loadout plan production later. '

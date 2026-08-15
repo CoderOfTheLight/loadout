@@ -107,7 +107,7 @@ void main() {
     expect(line.loadMicros, 3000000);
     expect(line.demandBasis, isNull);
     expect(line.baselinePerEventMicros, isNull);
-    expect(db.schemaVersion, 3);
+    expect(db.schemaVersion, 4);
   });
 
   test('a fresh database seeds the eight starter folders in packing order; '

@@ -16,6 +16,7 @@ import '../../../app/providers.dart';
 import '../../../app/theme.dart';
 import '../../../app/widgets/content_column.dart';
 import '../../../app/widgets/empty_state.dart';
+import '../../../app/widgets/folder_chip.dart';
 import '../../catalog/application/catalog_service.dart';
 import '../../catalog/domain/folder.dart';
 import '../application/event_service.dart';
@@ -315,10 +316,12 @@ class _EventDetailBody extends ConsumerWidget {
 }
 
 /// The planned list in the same folder sections every list reads in
-/// (proposal §3): headers carry per-section counts ("Disposables · 12"),
-/// folder order, Unfiled last. Items whose folder is unknown (or archived)
-/// fall into Unfiled; while no folders exist at all the list renders flat,
-/// exactly as it did before folders.
+/// (proposal §3): headers carry the folder's 40 dp identity chip
+/// (design-spec §3: large chips on event-detail folder groupings) and the
+/// per-section count ("Disposables · 12"), folder order, Unfiled last.
+/// Items whose folder is unknown (or archived) fall into Unfiled; while no
+/// folders exist at all the list renders flat, exactly as it did before
+/// folders.
 class _PlannedItemSections extends ConsumerWidget {
   const _PlannedItemSections({required this.plannedItems});
 
@@ -350,9 +353,22 @@ class _PlannedItemSections extends ConsumerWidget {
           if (folders.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 4, bottom: 8),
-              child: Text(
-                folderSectionLabel(section.folder, section.entries.length),
-                style: theme.textTheme.titleSmall,
+              child: Row(
+                children: [
+                  if (section.folder case final folder?) ...[
+                    FolderChip.forFolder(folder),
+                    const SizedBox(width: Space.m),
+                  ],
+                  Expanded(
+                    child: Text(
+                      folderSectionLabel(
+                        section.folder,
+                        section.entries.length,
+                      ),
+                      style: theme.textTheme.titleMedium,
+                    ),
+                  ),
+                ],
               ),
             ),
           Wrap(

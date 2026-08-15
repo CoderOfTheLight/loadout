@@ -205,22 +205,40 @@ class _ForecastLineDetailScreenState
           _assumptionsCard(theme, snapshot, line, unit, exposureLabel),
           if (line.warnings.isNotEmpty) ...[
             _sectionTitle(theme, 'Warnings'),
+            // Verbatim stored warnings — engine and application-layer notes
+            // alike — on the semantic amber container (spec §5), the same
+            // visual weight the review screen gives them.
             for (final warning in line.warnings)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(
-                      Icons.warning_amber_outlined,
-                      size: 20,
-                      color: theme.colorScheme.onTertiaryContainer,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(warning, style: theme.textTheme.bodyMedium),
-                    ),
-                  ],
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: StatusColors.of(context).warning,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.warning_amber_outlined,
+                        size: 20,
+                        color: StatusColors.of(context).onWarning,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          warning,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: StatusColors.of(context).onWarning,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
           ],

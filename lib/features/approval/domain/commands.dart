@@ -1,3 +1,4 @@
+import '../../../core/folder_appearance.dart';
 import '../../../core/ids.dart';
 import '../../../core/quantity.dart';
 import '../../../core/time.dart';
@@ -139,6 +140,8 @@ final class CreateFolder extends WorkspaceCommand {
     required this.name,
     required this.demandBasis,
     this.alwaysPlanned = false,
+    this.hue,
+    this.iconName,
   });
 
   final String name;
@@ -148,6 +151,14 @@ final class CreateFolder extends WorkspaceCommand {
 
   /// "Comes along to every event": live items pre-added on event creation.
   final bool alwaysPlanned;
+
+  /// v4: the chosen hue from the eight-name palette; null = never chose
+  /// (effective hue is assigned by position order at display time).
+  final FolderHue? hue;
+
+  /// v4: the chosen icon from the curated grid (validator-enforced
+  /// membership); null = never chose (effective icon by starter name).
+  final String? iconName;
 }
 
 final class RenameFolder extends WorkspaceCommand {
@@ -173,6 +184,21 @@ final class ArchiveFolder extends WorkspaceCommand {
   /// the same transaction. Nothing is deleted; wanting it back means
   /// creating a folder with the same name (the live-name index frees it).
   final FolderId folderId;
+}
+
+/// v4: sets a folder's hue and/or icon (the folder-editor sheet's swatch row
+/// and icon grid). Appearance is identity, not state — it never touches
+/// numbers, and like [SetFolderBasis] it is a plain in-place update.
+final class SetFolderAppearance extends WorkspaceCommand {
+  const SetFolderAppearance({required this.folderId, this.hue, this.iconName});
+
+  final FolderId folderId;
+
+  /// Null leaves the hue alone. At least one field must be set.
+  final FolderHue? hue;
+
+  /// Null leaves the icon alone.
+  final String? iconName;
 }
 
 final class SetFolderBasis extends WorkspaceCommand {

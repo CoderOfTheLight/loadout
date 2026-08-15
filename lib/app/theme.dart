@@ -23,6 +23,8 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../core/folder_appearance.dart';
+
 /// Seed for both brightnesses (design §9).
 const Color loadoutSeedColor = Color(0xff356859);
 
@@ -48,6 +50,37 @@ abstract final class Radii {
   static const double card = 16;
   static const double control = 14;
   static const double small = 12;
+}
+
+/// Numerals are a first-class role (design-spec §5): anywhere a quantity or
+/// count is read at arm's length it is set in one of exactly three styles,
+/// always tabular so columns align and ticking counts don't jitter.
+abstract final class Numerals {
+  /// Quantities and counts: lining, equal-width digits so columns align
+  /// and ticking counts don't jitter.
+  static const tabular = [FontFeature.tabularFigures()];
+
+  /// Row quantity — the trailing count on a data row (item rows, activity):
+  /// `titleLarge` at w600. 16 pt numerals fail the arm's-length glance;
+  /// 20 clears the older-adult floor with margin.
+  static TextStyle? rowQuantity(TextTheme text) => text.titleLarge?.copyWith(
+    fontWeight: FontWeight.w600,
+    fontFeatures: tabular,
+  );
+
+  /// Glance number — a scaled recipe quantity, the closeout fraction:
+  /// `headlineSmall` at w600 (the 22 pt touchscreen-glance figure).
+  static TextStyle? glance(TextTheme text) => text.headlineSmall?.copyWith(
+    fontWeight: FontWeight.w600,
+    fontFeatures: tabular,
+  );
+
+  /// Hero number — the Home lead tile's one big figure: `displaySmall` at
+  /// w700. At most one per screen.
+  static TextStyle? hero(TextTheme text) => text.displaySmall?.copyWith(
+    fontWeight: FontWeight.w700,
+    fontFeatures: tabular,
+  );
 }
 
 /// Warm neutral ramp for light mode — paper, not printer paper.
@@ -151,16 +184,20 @@ TextTheme _loadoutTextTheme(TextTheme base) => base.copyWith(
     fontWeight: FontWeight.w600,
     letterSpacing: 0,
   ),
-  // The "eyebrow": small, wide, bold. Section labels only.
+  // The "eyebrow": small, wide, bold. Section labels only — all-caps is
+  // acceptable ONLY because eyebrows are 1-3 words; never extend uppercase
+  // to titles or buttons (NIA warns against caps for emphasis).
   titleSmall: base.titleSmall?.copyWith(
-    fontSize: 13,
+    fontSize: 13.5,
     height: 1.3,
     fontWeight: FontWeight.w700,
     letterSpacing: 0.7,
   ),
   bodyLarge: base.bodyLarge?.copyWith(fontSize: 16, height: 1.45),
   bodyMedium: base.bodyMedium?.copyWith(fontSize: 14.5, height: 1.45),
-  bodySmall: base.bodySmall?.copyWith(fontSize: 12.5, height: 1.4),
+  // Captions that merely repeat information ONLY — never the sole carrier
+  // of meaning: 13 sits below the 13-14.5 pt older-adult reading floor.
+  bodySmall: base.bodySmall?.copyWith(fontSize: 13, height: 1.4),
   labelLarge: base.labelLarge?.copyWith(
     fontSize: 15,
     fontWeight: FontWeight.w600,
@@ -169,6 +206,136 @@ TextTheme _loadoutTextTheme(TextTheme base) => base.copyWith(
   labelMedium: base.labelMedium?.copyWith(fontWeight: FontWeight.w600),
   labelSmall: base.labelSmall?.copyWith(fontWeight: FontWeight.w600),
 );
+
+// ----------------------------------------------------------- folder palette
+
+/// The eight hue SEEDS (design-spec §3), tuned to sit with the app seed on
+/// warm paper. Indexed by [FolderHue] table order. Seeds, not final colors:
+/// the shipped (tint, ink) pairs are derived from these per brightness.
+const Map<FolderHue, Color> folderHueSeeds = {
+  FolderHue.fern: Color(0xFF356859),
+  FolderHue.lake: Color(0xFF31628D),
+  FolderHue.plum: Color(0xFF7A4E7E),
+  FolderHue.berry: Color(0xFF95455C),
+  FolderHue.clay: Color(0xFF9A4F2E),
+  FolderHue.honey: Color(0xFF8A6C1F),
+  FolderHue.olive: Color(0xFF6D7239),
+  FolderHue.stone: Color(0xFF6E6459),
+};
+
+/// One folder hue's shipped pair: [tint] fills the chip, [ink] draws the
+/// icon on it. Derived, never hand-tuned, so contrast holds by construction.
+@immutable
+final class FolderColors {
+  const FolderColors({required this.tint, required this.ink});
+
+  final Color tint;
+  final Color ink;
+}
+
+/// The eight precomputed (tint, ink) pairs, derived ONCE at theme build via
+/// `ColorScheme.fromSeed(seed).primaryContainer / onPrimaryContainer` —
+/// M3's tonal construction carries the WCAG contrast the repo's theme tests
+/// measure, in both brightnesses. Widgets read `FolderPalette.of(context)`
+/// (or `Theme.of(context).extension<FolderPalette>()`) and never derive.
+@immutable
+final class FolderPalette extends ThemeExtension<FolderPalette> {
+  const FolderPalette._(this._pairs);
+
+  /// Derives all eight pairs for [brightness]. Called once per theme build.
+  factory FolderPalette.derive(Brightness brightness) => FolderPalette._([
+    for (final hue in FolderHue.values)
+      _pairFromSeed(folderHueSeeds[hue]!, brightness),
+  ]);
+
+  static FolderColors _pairFromSeed(Color seed, Brightness brightness) {
+    final scheme = ColorScheme.fromSeed(
+      seedColor: seed,
+      brightness: brightness,
+    );
+    return FolderColors(
+      tint: scheme.primaryContainer,
+      ink: scheme.onPrimaryContainer,
+    );
+  }
+
+  /// Indexed by [FolderHue.index]; always exactly eight entries.
+  final List<FolderColors> _pairs;
+
+  /// The pair for [hue] — pass a folder's `effectiveHue`.
+  FolderColors pair(FolderHue hue) => _pairs[hue.index];
+
+  /// Convenience for widgets: the palette on the ambient theme.
+  static FolderPalette of(BuildContext context) =>
+      Theme.of(context).extension<FolderPalette>()!;
+
+  @override
+  FolderPalette copyWith({List<FolderColors>? pairs}) =>
+      FolderPalette._(pairs ?? _pairs);
+
+  @override
+  FolderPalette lerp(ThemeExtension<FolderPalette>? other, double t) {
+    if (other is! FolderPalette) return this;
+    return FolderPalette._([
+      for (var i = 0; i < _pairs.length; i++)
+        FolderColors(
+          tint: Color.lerp(_pairs[i].tint, other._pairs[i].tint, t)!,
+          ink: Color.lerp(_pairs[i].ink, other._pairs[i].ink, t)!,
+        ),
+    ]);
+  }
+}
+
+// ------------------------------------------------------------ status colors
+
+/// Seed for the amber "warning" status pair (design-spec §5): the one hue in
+/// the state grammar the M3 scheme does not already carry.
+const Color statusWarningSeed = Color(0xFF9A6A00);
+
+/// Semantic status tokens (design-spec §5): the amber warning container
+/// pair, derived by the same §3 method as the folder palette. This completes
+/// the state vocabulary — neutral, amber, red (`ColorScheme.error`), green
+/// (the scheme's own primary/primaryContainer) — never a fifth.
+@immutable
+final class StatusColors extends ThemeExtension<StatusColors> {
+  const StatusColors({required this.warning, required this.onWarning});
+
+  factory StatusColors.derive(Brightness brightness) {
+    final scheme = ColorScheme.fromSeed(
+      seedColor: statusWarningSeed,
+      brightness: brightness,
+    );
+    return StatusColors(
+      warning: scheme.primaryContainer,
+      onWarning: scheme.onPrimaryContainer,
+    );
+  }
+
+  /// Amber container fill for "due soon" / "doesn't add up" surfaces.
+  final Color warning;
+
+  /// Ink that reads on [warning].
+  final Color onWarning;
+
+  /// Convenience for widgets: the tokens on the ambient theme.
+  static StatusColors of(BuildContext context) =>
+      Theme.of(context).extension<StatusColors>()!;
+
+  @override
+  StatusColors copyWith({Color? warning, Color? onWarning}) => StatusColors(
+    warning: warning ?? this.warning,
+    onWarning: onWarning ?? this.onWarning,
+  );
+
+  @override
+  StatusColors lerp(ThemeExtension<StatusColors>? other, double t) {
+    if (other is! StatusColors) return this;
+    return StatusColors(
+      warning: Color.lerp(warning, other.warning, t)!,
+      onWarning: Color.lerp(onWarning, other.onWarning, t)!,
+    );
+  }
+}
 
 ThemeData loadoutTheme(Brightness brightness) {
   final scheme = loadoutColorScheme(brightness);
@@ -186,6 +353,12 @@ ThemeData loadoutTheme(Brightness brightness) {
     textTheme: text,
     scaffoldBackgroundColor: scheme.surface,
     canvasColor: scheme.surface,
+
+    // Precomputed per brightness so widgets never derive at build time.
+    extensions: <ThemeExtension<dynamic>>[
+      FolderPalette.derive(brightness),
+      StatusColors.derive(brightness),
+    ],
 
     // App bar: flat, on the page's own surface, separated by a hairline
     // instead of a shadow that vanishes outdoors.

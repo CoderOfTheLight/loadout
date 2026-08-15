@@ -48,8 +48,11 @@ class _RecipeListScreenState extends ConsumerState<RecipeListScreen> {
 
   Widget _buildLoaded(List<RecipeSummary> all) {
     if (all.isEmpty) {
+      // Empty-state tone (design-spec §2): warm first line in the owner's
+      // register, instructive second line, same tinted-disc skeleton.
       return EmptyState(
         icon: Icons.menu_book_outlined,
+        title: 'Nothing on the menu yet',
         message:
             'Recipes let Loadout plan production later. '
             'Enter one by hand — takes a minute.',

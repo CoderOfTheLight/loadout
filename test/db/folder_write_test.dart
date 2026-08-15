@@ -11,6 +11,7 @@ library;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:loadout/core/errors.dart';
+import 'package:loadout/core/folder_appearance.dart';
 import 'package:loadout/core/ids.dart';
 import 'package:loadout/core/quantity.dart';
 import 'package:loadout/core/unit_ratio.dart';
@@ -259,6 +260,166 @@ void main() {
           (await h.err(SetFolderBasis(folderId: FolderId(ids[5])))).message,
           contains('set the demand basis'),
         );
+      },
+    );
+  });
+
+  group('folder appearance (v4)', () {
+    test('CreateFolder stores the chosen hue and icon; the entity reads them '
+        'back typed', () async {
+      final receipt = await h.ok(
+        const CreateFolder(
+          name: 'Van shelf',
+          demandBasis: DemandBasis.perEvent,
+          hue: FolderHue.lake,
+          iconName: 'shopping_basket',
+        ),
+      );
+      final id = receipt.createdRecordIds.single;
+      final row = (await h.db.folderDao.byId(id))!;
+      expect(row.hueName, 'lake');
+      expect(row.iconName, 'shopping_basket');
+
+      final folders = await catalog.watchFolders().first;
+      final entity = folders.singleWhere((f) => f.id as String == id);
+      expect(entity.hue, FolderHue.lake);
+      expect(entity.iconName, 'shopping_basket');
+      expect(entity.effectiveHue, FolderHue.lake);
+      expect(entity.effectiveIconName, 'shopping_basket');
+    });
+
+    test('CreateFolder refuses an icon outside the curated grid', () async {
+      final error = await h.err(
+        const CreateFolder(
+          name: 'Van shelf',
+          demandBasis: DemandBasis.perPerson,
+          iconName: 'rocket_launch',
+        ),
+      );
+      expect(error, isA<ValidationError>());
+      expect(error.message, contains('curated'));
+    });
+
+    test('SetFolderAppearance updates hue, icon, or both; each leaves the '
+        'other alone', () async {
+      final ids = await liveFolderIdsInOrder();
+      final drinks = ids[4]; // 'Drinks': lake + local_drink from the seed
+      await h.ok(
+        SetFolderAppearance(folderId: FolderId(drinks), hue: FolderHue.plum),
+      );
+      var row = (await h.db.folderDao.byId(drinks))!;
+      expect(row.hueName, 'plum');
+      expect(row.iconName, 'local_drink', reason: 'left alone');
+
+      await h.ok(
+        SetFolderAppearance(folderId: FolderId(drinks), iconName: 'liquor'),
+      );
+      row = (await h.db.folderDao.byId(drinks))!;
+      expect(row.hueName, 'plum', reason: 'left alone');
+      expect(row.iconName, 'liquor');
+
+      final receipt = await h.ok(
+        SetFolderAppearance(
+          folderId: FolderId(drinks),
+          hue: FolderHue.honey,
+          iconName: 'coffee',
+        ),
+      );
+      row = (await h.db.folderDao.byId(drinks))!;
+      expect(row.hueName, 'honey');
+      expect(row.iconName, 'coffee');
+      expect(
+        (await h.commandRow(receipt.commandId as String)).kind,
+        'SetFolderAppearance',
+      );
+    });
+
+    test('SetFolderAppearance rejects neither-set, a non-curated icon, an '
+        'archived folder, and an unknown folder', () async {
+      final ids = await liveFolderIdsInOrder();
+      expect(
+        (await h.err(SetFolderAppearance(folderId: FolderId(ids[0])))).message,
+        contains('set the hue'),
+      );
+      expect(
+        (await h.err(
+          SetFolderAppearance(folderId: FolderId(ids[0]), iconName: 'pets'),
+        )).message,
+        contains('curated'),
+      );
+      await h.ok(ArchiveFolder(FolderId(ids[0])));
+      expect(
+        (await h.err(
+          SetFolderAppearance(folderId: FolderId(ids[0]), hue: FolderHue.fern),
+        )).message,
+        contains('archived'),
+      );
+      expect(
+        await h.err(
+          SetFolderAppearance(
+            folderId: FolderId('F'.padRight(26, '0')),
+            hue: FolderHue.fern,
+          ),
+        ),
+        isA<NotFoundError>(),
+      );
+    });
+
+    test('a folder that never chose renders the effective defaults: hue by '
+        'position order, icon by starter name else inventory_2', () async {
+      // Ninth folder, no appearance: position 8 wraps to the first hue.
+      final created = await h.ok(
+        const CreateFolder(
+          name: 'Van shelf',
+          demandBasis: DemandBasis.perEvent,
+        ),
+      );
+      final id = created.createdRecordIds.single;
+      final row = (await h.db.folderDao.byId(id))!;
+      expect(row.hueName, isNull);
+      expect(row.iconName, isNull);
+      var folders = await catalog.watchFolders().first;
+      final bare = folders.singleWhere((f) => f.id as String == id);
+      expect(bare.effectiveHue, FolderHue.byPosition(8));
+      expect(bare.effectiveHue, FolderHue.fern, reason: 'position 8 wraps');
+      expect(bare.effectiveIconName, fallbackFolderIconName);
+
+      // A bare folder carrying a starter NAME gets the starter icon —
+      // case-insensitively, the way a migrated tidy-up folder would.
+      final ids = await liveFolderIdsInOrder();
+      await h.ok(ArchiveFolder(FolderId(ids[4]))); // frees 'Drinks'
+      final drinks = await h.ok(
+        const CreateFolder(name: 'drinks', demandBasis: DemandBasis.perPerson),
+      );
+      folders = await catalog.watchFolders().first;
+      final revived = folders.singleWhere(
+        (f) => f.id as String == drinks.createdRecordIds.single,
+      );
+      expect(revived.effectiveIconName, 'local_drink');
+    });
+
+    test(
+      'the service surface threads appearance through create and set',
+      () async {
+        final created = await catalog.createFolder(
+          name: 'Merch',
+          demandBasis: DemandBasis.perPerson,
+          hue: FolderHue.berry,
+          iconName: 'sell',
+        );
+        final id = created.fold((v) => v, (e) => fail(e.message));
+        var row = (await h.db.folderDao.byId(id))!;
+        expect(row.hueName, 'berry');
+        expect(row.iconName, 'sell');
+
+        final set = await catalog.setFolderAppearance(
+          folderId: id,
+          hue: FolderHue.stone,
+        );
+        set.fold((_) {}, (e) => fail(e.message));
+        row = (await h.db.folderDao.byId(id))!;
+        expect(row.hueName, 'stone');
+        expect(row.iconName, 'sell');
       },
     );
   });

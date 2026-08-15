@@ -1267,6 +1267,39 @@ class $FoldersTable extends Folders with TableInfo<$FoldersTable, Folder> {
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _hueNameMeta = const VerificationMeta(
+    'hueName',
+  );
+  @override
+  late final GeneratedColumn<String> hueName = GeneratedColumn<String>(
+    'hue_name',
+    aliasedName,
+    true,
+    check: () => hueName.isIn([
+      'fern',
+      'lake',
+      'plum',
+      'berry',
+      'clay',
+      'honey',
+      'olive',
+      'stone',
+    ]),
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _iconNameMeta = const VerificationMeta(
+    'iconName',
+  );
+  @override
+  late final GeneratedColumn<String> iconName = GeneratedColumn<String>(
+    'icon_name',
+    aliasedName,
+    true,
+    check: () => ComparableExpr(iconName.length).isBetweenValues(1, 40),
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _archivedAtMicrosMeta = const VerificationMeta(
     'archivedAtMicros',
   );
@@ -1307,6 +1340,8 @@ class $FoldersTable extends Folders with TableInfo<$FoldersTable, Folder> {
     position,
     demandBasis,
     alwaysPlanned,
+    hueName,
+    iconName,
     archivedAtMicros,
     createdAtMicros,
     updatedAtMicros,
@@ -1362,6 +1397,18 @@ class $FoldersTable extends Folders with TableInfo<$FoldersTable, Folder> {
           data['always_planned']!,
           _alwaysPlannedMeta,
         ),
+      );
+    }
+    if (data.containsKey('hue_name')) {
+      context.handle(
+        _hueNameMeta,
+        hueName.isAcceptableOrUnknown(data['hue_name']!, _hueNameMeta),
+      );
+    }
+    if (data.containsKey('icon_name')) {
+      context.handle(
+        _iconNameMeta,
+        iconName.isAcceptableOrUnknown(data['icon_name']!, _iconNameMeta),
       );
     }
     if (data.containsKey('archived_at_micros')) {
@@ -1424,6 +1471,14 @@ class $FoldersTable extends Folders with TableInfo<$FoldersTable, Folder> {
         DriftSqlType.bool,
         data['${effectivePrefix}always_planned'],
       )!,
+      hueName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}hue_name'],
+      ),
+      iconName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}icon_name'],
+      ),
       archivedAtMicros: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}archived_at_micros'],
@@ -1451,6 +1506,15 @@ class Folder extends DataClass implements Insertable<Folder> {
   final int position;
   final String demandBasis;
   final bool alwaysPlanned;
+
+  /// v4. One of the eight named hues (spec §3's bounded palette); the CHECK
+  /// list mirrors [FolderHue] exactly.
+  final String? hueName;
+
+  /// v4. A curated Material glyph name; membership in the ~32-name grid is
+  /// validator-enforced (the grid may grow without a migration), SQL only
+  /// bounds the length.
+  final String? iconName;
   final int? archivedAtMicros;
   final int createdAtMicros;
   final int updatedAtMicros;
@@ -1460,6 +1524,8 @@ class Folder extends DataClass implements Insertable<Folder> {
     required this.position,
     required this.demandBasis,
     required this.alwaysPlanned,
+    this.hueName,
+    this.iconName,
     this.archivedAtMicros,
     required this.createdAtMicros,
     required this.updatedAtMicros,
@@ -1472,6 +1538,12 @@ class Folder extends DataClass implements Insertable<Folder> {
     map['position'] = Variable<int>(position);
     map['demand_basis'] = Variable<String>(demandBasis);
     map['always_planned'] = Variable<bool>(alwaysPlanned);
+    if (!nullToAbsent || hueName != null) {
+      map['hue_name'] = Variable<String>(hueName);
+    }
+    if (!nullToAbsent || iconName != null) {
+      map['icon_name'] = Variable<String>(iconName);
+    }
     if (!nullToAbsent || archivedAtMicros != null) {
       map['archived_at_micros'] = Variable<int>(archivedAtMicros);
     }
@@ -1487,6 +1559,12 @@ class Folder extends DataClass implements Insertable<Folder> {
       position: Value(position),
       demandBasis: Value(demandBasis),
       alwaysPlanned: Value(alwaysPlanned),
+      hueName: hueName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(hueName),
+      iconName: iconName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(iconName),
       archivedAtMicros: archivedAtMicros == null && nullToAbsent
           ? const Value.absent()
           : Value(archivedAtMicros),
@@ -1506,6 +1584,8 @@ class Folder extends DataClass implements Insertable<Folder> {
       position: serializer.fromJson<int>(json['position']),
       demandBasis: serializer.fromJson<String>(json['demandBasis']),
       alwaysPlanned: serializer.fromJson<bool>(json['alwaysPlanned']),
+      hueName: serializer.fromJson<String?>(json['hueName']),
+      iconName: serializer.fromJson<String?>(json['iconName']),
       archivedAtMicros: serializer.fromJson<int?>(json['archivedAtMicros']),
       createdAtMicros: serializer.fromJson<int>(json['createdAtMicros']),
       updatedAtMicros: serializer.fromJson<int>(json['updatedAtMicros']),
@@ -1520,6 +1600,8 @@ class Folder extends DataClass implements Insertable<Folder> {
       'position': serializer.toJson<int>(position),
       'demandBasis': serializer.toJson<String>(demandBasis),
       'alwaysPlanned': serializer.toJson<bool>(alwaysPlanned),
+      'hueName': serializer.toJson<String?>(hueName),
+      'iconName': serializer.toJson<String?>(iconName),
       'archivedAtMicros': serializer.toJson<int?>(archivedAtMicros),
       'createdAtMicros': serializer.toJson<int>(createdAtMicros),
       'updatedAtMicros': serializer.toJson<int>(updatedAtMicros),
@@ -1532,6 +1614,8 @@ class Folder extends DataClass implements Insertable<Folder> {
     int? position,
     String? demandBasis,
     bool? alwaysPlanned,
+    Value<String?> hueName = const Value.absent(),
+    Value<String?> iconName = const Value.absent(),
     Value<int?> archivedAtMicros = const Value.absent(),
     int? createdAtMicros,
     int? updatedAtMicros,
@@ -1541,6 +1625,8 @@ class Folder extends DataClass implements Insertable<Folder> {
     position: position ?? this.position,
     demandBasis: demandBasis ?? this.demandBasis,
     alwaysPlanned: alwaysPlanned ?? this.alwaysPlanned,
+    hueName: hueName.present ? hueName.value : this.hueName,
+    iconName: iconName.present ? iconName.value : this.iconName,
     archivedAtMicros: archivedAtMicros.present
         ? archivedAtMicros.value
         : this.archivedAtMicros,
@@ -1558,6 +1644,8 @@ class Folder extends DataClass implements Insertable<Folder> {
       alwaysPlanned: data.alwaysPlanned.present
           ? data.alwaysPlanned.value
           : this.alwaysPlanned,
+      hueName: data.hueName.present ? data.hueName.value : this.hueName,
+      iconName: data.iconName.present ? data.iconName.value : this.iconName,
       archivedAtMicros: data.archivedAtMicros.present
           ? data.archivedAtMicros.value
           : this.archivedAtMicros,
@@ -1578,6 +1666,8 @@ class Folder extends DataClass implements Insertable<Folder> {
           ..write('position: $position, ')
           ..write('demandBasis: $demandBasis, ')
           ..write('alwaysPlanned: $alwaysPlanned, ')
+          ..write('hueName: $hueName, ')
+          ..write('iconName: $iconName, ')
           ..write('archivedAtMicros: $archivedAtMicros, ')
           ..write('createdAtMicros: $createdAtMicros, ')
           ..write('updatedAtMicros: $updatedAtMicros')
@@ -1592,6 +1682,8 @@ class Folder extends DataClass implements Insertable<Folder> {
     position,
     demandBasis,
     alwaysPlanned,
+    hueName,
+    iconName,
     archivedAtMicros,
     createdAtMicros,
     updatedAtMicros,
@@ -1605,6 +1697,8 @@ class Folder extends DataClass implements Insertable<Folder> {
           other.position == this.position &&
           other.demandBasis == this.demandBasis &&
           other.alwaysPlanned == this.alwaysPlanned &&
+          other.hueName == this.hueName &&
+          other.iconName == this.iconName &&
           other.archivedAtMicros == this.archivedAtMicros &&
           other.createdAtMicros == this.createdAtMicros &&
           other.updatedAtMicros == this.updatedAtMicros);
@@ -1616,6 +1710,8 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
   final Value<int> position;
   final Value<String> demandBasis;
   final Value<bool> alwaysPlanned;
+  final Value<String?> hueName;
+  final Value<String?> iconName;
   final Value<int?> archivedAtMicros;
   final Value<int> createdAtMicros;
   final Value<int> updatedAtMicros;
@@ -1626,6 +1722,8 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
     this.position = const Value.absent(),
     this.demandBasis = const Value.absent(),
     this.alwaysPlanned = const Value.absent(),
+    this.hueName = const Value.absent(),
+    this.iconName = const Value.absent(),
     this.archivedAtMicros = const Value.absent(),
     this.createdAtMicros = const Value.absent(),
     this.updatedAtMicros = const Value.absent(),
@@ -1637,6 +1735,8 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
     required int position,
     required String demandBasis,
     this.alwaysPlanned = const Value.absent(),
+    this.hueName = const Value.absent(),
+    this.iconName = const Value.absent(),
     this.archivedAtMicros = const Value.absent(),
     required int createdAtMicros,
     required int updatedAtMicros,
@@ -1653,6 +1753,8 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
     Expression<int>? position,
     Expression<String>? demandBasis,
     Expression<bool>? alwaysPlanned,
+    Expression<String>? hueName,
+    Expression<String>? iconName,
     Expression<int>? archivedAtMicros,
     Expression<int>? createdAtMicros,
     Expression<int>? updatedAtMicros,
@@ -1664,6 +1766,8 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
       if (position != null) 'position': position,
       if (demandBasis != null) 'demand_basis': demandBasis,
       if (alwaysPlanned != null) 'always_planned': alwaysPlanned,
+      if (hueName != null) 'hue_name': hueName,
+      if (iconName != null) 'icon_name': iconName,
       if (archivedAtMicros != null) 'archived_at_micros': archivedAtMicros,
       if (createdAtMicros != null) 'created_at_micros': createdAtMicros,
       if (updatedAtMicros != null) 'updated_at_micros': updatedAtMicros,
@@ -1677,6 +1781,8 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
     Value<int>? position,
     Value<String>? demandBasis,
     Value<bool>? alwaysPlanned,
+    Value<String?>? hueName,
+    Value<String?>? iconName,
     Value<int?>? archivedAtMicros,
     Value<int>? createdAtMicros,
     Value<int>? updatedAtMicros,
@@ -1688,6 +1794,8 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
       position: position ?? this.position,
       demandBasis: demandBasis ?? this.demandBasis,
       alwaysPlanned: alwaysPlanned ?? this.alwaysPlanned,
+      hueName: hueName ?? this.hueName,
+      iconName: iconName ?? this.iconName,
       archivedAtMicros: archivedAtMicros ?? this.archivedAtMicros,
       createdAtMicros: createdAtMicros ?? this.createdAtMicros,
       updatedAtMicros: updatedAtMicros ?? this.updatedAtMicros,
@@ -1713,6 +1821,12 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
     if (alwaysPlanned.present) {
       map['always_planned'] = Variable<bool>(alwaysPlanned.value);
     }
+    if (hueName.present) {
+      map['hue_name'] = Variable<String>(hueName.value);
+    }
+    if (iconName.present) {
+      map['icon_name'] = Variable<String>(iconName.value);
+    }
     if (archivedAtMicros.present) {
       map['archived_at_micros'] = Variable<int>(archivedAtMicros.value);
     }
@@ -1736,6 +1850,8 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
           ..write('position: $position, ')
           ..write('demandBasis: $demandBasis, ')
           ..write('alwaysPlanned: $alwaysPlanned, ')
+          ..write('hueName: $hueName, ')
+          ..write('iconName: $iconName, ')
           ..write('archivedAtMicros: $archivedAtMicros, ')
           ..write('createdAtMicros: $createdAtMicros, ')
           ..write('updatedAtMicros: $updatedAtMicros, ')
@@ -11271,6 +11387,8 @@ typedef $$FoldersTableCreateCompanionBuilder =
       required int position,
       required String demandBasis,
       Value<bool> alwaysPlanned,
+      Value<String?> hueName,
+      Value<String?> iconName,
       Value<int?> archivedAtMicros,
       required int createdAtMicros,
       required int updatedAtMicros,
@@ -11283,6 +11401,8 @@ typedef $$FoldersTableUpdateCompanionBuilder =
       Value<int> position,
       Value<String> demandBasis,
       Value<bool> alwaysPlanned,
+      Value<String?> hueName,
+      Value<String?> iconName,
       Value<int?> archivedAtMicros,
       Value<int> createdAtMicros,
       Value<int> updatedAtMicros,
@@ -11344,6 +11464,16 @@ class $$FoldersTableFilterComposer
 
   ColumnFilters<bool> get alwaysPlanned => $composableBuilder(
     column: $table.alwaysPlanned,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get hueName => $composableBuilder(
+    column: $table.hueName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get iconName => $composableBuilder(
+    column: $table.iconName,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -11422,6 +11552,16 @@ class $$FoldersTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get hueName => $composableBuilder(
+    column: $table.hueName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get iconName => $composableBuilder(
+    column: $table.iconName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get archivedAtMicros => $composableBuilder(
     column: $table.archivedAtMicros,
     builder: (column) => ColumnOrderings(column),
@@ -11465,6 +11605,12 @@ class $$FoldersTableAnnotationComposer
     column: $table.alwaysPlanned,
     builder: (column) => column,
   );
+
+  GeneratedColumn<String> get hueName =>
+      $composableBuilder(column: $table.hueName, builder: (column) => column);
+
+  GeneratedColumn<String> get iconName =>
+      $composableBuilder(column: $table.iconName, builder: (column) => column);
 
   GeneratedColumn<int> get archivedAtMicros => $composableBuilder(
     column: $table.archivedAtMicros,
@@ -11540,6 +11686,8 @@ class $$FoldersTableTableManager
                 Value<int> position = const Value.absent(),
                 Value<String> demandBasis = const Value.absent(),
                 Value<bool> alwaysPlanned = const Value.absent(),
+                Value<String?> hueName = const Value.absent(),
+                Value<String?> iconName = const Value.absent(),
                 Value<int?> archivedAtMicros = const Value.absent(),
                 Value<int> createdAtMicros = const Value.absent(),
                 Value<int> updatedAtMicros = const Value.absent(),
@@ -11550,6 +11698,8 @@ class $$FoldersTableTableManager
                 position: position,
                 demandBasis: demandBasis,
                 alwaysPlanned: alwaysPlanned,
+                hueName: hueName,
+                iconName: iconName,
                 archivedAtMicros: archivedAtMicros,
                 createdAtMicros: createdAtMicros,
                 updatedAtMicros: updatedAtMicros,
@@ -11562,6 +11712,8 @@ class $$FoldersTableTableManager
                 required int position,
                 required String demandBasis,
                 Value<bool> alwaysPlanned = const Value.absent(),
+                Value<String?> hueName = const Value.absent(),
+                Value<String?> iconName = const Value.absent(),
                 Value<int?> archivedAtMicros = const Value.absent(),
                 required int createdAtMicros,
                 required int updatedAtMicros,
@@ -11572,6 +11724,8 @@ class $$FoldersTableTableManager
                 position: position,
                 demandBasis: demandBasis,
                 alwaysPlanned: alwaysPlanned,
+                hueName: hueName,
+                iconName: iconName,
                 archivedAtMicros: archivedAtMicros,
                 createdAtMicros: createdAtMicros,
                 updatedAtMicros: updatedAtMicros,

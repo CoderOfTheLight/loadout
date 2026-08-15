@@ -71,6 +71,32 @@ List<ConfirmedObservation> perEventObservations(
       o,
 ]);
 
+/// The supplies-jump rule (owner-approved): a per-event estimate deliberately
+/// ignores attendance, so when the upcoming event is far outside the range
+/// the estimate was learned from — more than TWICE the largest exposure among
+/// its confirmed evidence — the line says so out loud. A warning, never
+/// arithmetic: no scaling math is invented, the median stays the estimate.
+///
+/// Uses the REAL stored exposures (the evidence rows), not the mapped
+/// exposure-1 observations the engine sees.
+bool perEventSuppliesJump({
+  required int upcomingExposure,
+  required Iterable<int> observedExposures,
+}) {
+  var largest = 0;
+  for (final exposure in observedExposures) {
+    if (exposure > largest) largest = exposure;
+  }
+  return largest > 0 && upcomingExposure > 2 * largest;
+}
+
+/// The stored line warning for a supplies jump, persisted on the snapshot
+/// line beside the engine's own warnings like every other application-layer
+/// note.
+const String perEventSuppliesJumpWarning =
+    'This estimate comes from much smaller events — bring more than usual '
+    'and count what you use.';
+
 /// The machine-readable rule tag recorded in a snapshot's assumptions.
 const String perEventRuleTag = 'per_event_median_exposure_1';
 

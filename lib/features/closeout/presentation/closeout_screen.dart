@@ -14,6 +14,15 @@
 /// The line cards read in the same folder sections as every other list
 /// (proposal §3), and per-event lines start as "didn't count it" — see
 /// closeout_line_card.dart.
+///
+/// Design-spec §4 treatment: a pinned progress header under the app bar
+/// (determinate bar + "23 of 60 confirmed" in tabular `titleMedium` on
+/// opaque `surfaceContainerLow`); section headers with the 24 dp folder
+/// chip whose fraction morphs into a filled "Done" chip when the section
+/// completes; a plain 64 dp "Finish closeout" button whose friction is the
+/// enablement rule, never a gesture; and THE one per-session celebration on
+/// commit success — a check disc scaling in, one medium haptic, one line of
+/// copy. Once. Never per row.
 library;
 
 import 'dart:async';
@@ -27,6 +36,7 @@ import '../../../app/theme.dart';
 import '../../../app/unit_display.dart';
 import '../../../app/widgets/content_column.dart';
 import '../../../app/widgets/empty_state.dart';
+import '../../../app/widgets/folder_chip.dart';
 import '../../../core/quantity.dart';
 import '../../../core/quantity_codec.dart';
 import '../../approval/domain/proposal.dart';
@@ -341,6 +351,12 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
 
   int get _confirmedCount => _lines.where((line) => line.confirmed).length;
 
+  int get _doneCount => _lines.where((line) => line.done).length;
+
+  /// Lines still neither confirmed nor deliberately skipped — the bottom
+  /// bar's "2 items not confirmed yet" summary.
+  int get _remainingCount => _lines.length - _doneCount;
+
   Future<void> _confirmFlow(String exposureLabel) async {
     final proceed = await showModalBottomSheet<bool>(
       context: context,
@@ -390,26 +406,39 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
         ? await service.revise(draft)
         : await service.confirm(draft);
     if (!mounted) return;
-    result.fold(
-      (receipt) {
-        _confirmed = true;
-        _autosave?.cancel();
-        final messenger = ScaffoldMessenger.of(context);
-        messenger.showSnackBar(
-          SnackBar(content: Text(_receiptMessage(receipt))),
-        );
-        final navigator = Navigator.of(context);
-        if (navigator.canPop()) navigator.pop();
-      },
-      (_) {
-        setState(() => _submitting = false);
-        // Content-free by design (§9.1).
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Couldn't record this closeout. Try again."),
-          ),
-        );
-      },
+    final receipt = result.fold<CommandReceipt?>((value) => value, (_) => null);
+    if (receipt != null) {
+      _confirmed = true;
+      _autosave?.cancel();
+      final messenger = ScaffoldMessenger.of(context);
+      final navigator = Navigator.of(context);
+      // The session commit's haptic (§7: mediumImpact, commit only).
+      unawaited(HapticFeedback.mediumImpact());
+      await _showCelebration();
+      messenger.showSnackBar(SnackBar(content: Text(_receiptMessage(receipt))));
+      if (navigator.canPop()) navigator.pop();
+    } else {
+      setState(() => _submitting = false);
+      // Content-free by design (§9.1).
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Couldn't record this closeout. Try again."),
+        ),
+      );
+    }
+  }
+
+  /// The ONE per-session celebration (spec §4): a check disc scaling in and
+  /// one line of owner-register copy, self-dismissing. Never stacked,
+  /// never per row — it runs only here, on commit success.
+  Future<void> _showCelebration() {
+    if (_lines.isEmpty || !mounted) return Future<void>.value();
+    return showDialog<void>(
+      context: context,
+      builder: (_) => _CloseoutCelebration(
+        confirmedCount: _confirmedCount,
+        totalCount: _lines.length,
+      ),
     );
   }
 
@@ -478,107 +507,341 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
     return Scaffold(
       appBar: AppBar(title: Text(title)),
       body: SafeArea(
-        child: SingleChildScrollView(
-          child: ContentColumn(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (_revising) ...[
-                  Card(
-                    child: ListTile(
-                      leading: const Icon(Icons.history_outlined),
-                      title: Text(
-                        'Confirming appends revision $_nextRevision.',
-                      ),
-                      subtitle: const Text(
-                        'Earlier revisions stay on record; inventory is '
-                        'corrected with mirroring reversals.',
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-                TextFormField(
-                  controller: _exposure,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  decoration: InputDecoration(
-                    labelText: 'Confirmed $exposureLabel',
-                    helperText: _plannedExposure == null
-                        ? 'How many people actually came?'
-                        : 'How many people actually came? '
-                              'Estimate was $_plannedExposure.',
-                    border: const OutlineInputBorder(),
-                  ),
-                  onChanged: (_) => _touched(),
-                ),
-                const SizedBox(height: 16),
-                if (_lines.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Text(
-                      'This event has no planned items — only the confirmed '
-                      '$exposureLabel will be recorded.',
-                      style: theme.textTheme.bodyMedium,
-                    ),
-                  )
-                else
-                  for (final section in sectionEntriesByFolder(
-                    entries: _lines,
-                    folders: _folders,
-                    folderIdOf: (line) => line.folderId,
-                  )) ...[
-                    if (_folders.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Text(
-                          folderSectionLabel(
-                            section.folder,
-                            section.entries.length,
-                          ),
-                          style: theme.textTheme.titleSmall,
-                        ),
-                      ),
-                    for (final line in section.entries)
-                      CloseoutLineCard(line: line, onChanged: _touched),
-                  ],
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _note,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    labelText: 'Note (optional)',
-                    border: OutlineInputBorder(),
-                  ),
-                  onChanged: (_) => _touched(),
-                ),
-                const SizedBox(height: 24),
-              ],
-            ),
-          ),
+        child: Column(
+          children: [
+            // Pinned progress header (§4): determinate bar + the fraction
+            // in tabular titleMedium, on opaque surfaceContainerLow with a
+            // hairline — the floor speaks in "23 of 60", never a percent.
+            if (_lines.isNotEmpty) _progressHeader(theme),
+            Expanded(child: _formBody(theme, exposureLabel)),
+          ],
         ),
       ),
-      bottomNavigationBar: FormActionBar(
+      bottomNavigationBar: _actionBar(theme, exposureLabel),
+    );
+  }
+
+  Widget _progressHeader(ThemeData theme) {
+    final scheme = theme.colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        border: Border(bottom: BorderSide(color: scheme.outlineVariant)),
+      ),
+      child: Column(
+        children: [
+          LinearProgressIndicator(
+            value: _lines.isEmpty ? 0 : _doneCount / _lines.length,
+            minHeight: 4,
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Space.l,
+              vertical: Space.s + 2,
+            ),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '$_confirmedCount of ${_lines.length} confirmed',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontFeatures: Numerals.tabular,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _formBody(ThemeData theme, String exposureLabel) {
+    return SingleChildScrollView(
+      child: ContentColumn(
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (_revising) ...[
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.history_outlined),
+                  title: Text('Confirming appends revision $_nextRevision.'),
+                  subtitle: const Text(
+                    'Earlier revisions stay on record; inventory is '
+                    'corrected with mirroring reversals.',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+            TextFormField(
+              controller: _exposure,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: InputDecoration(
+                labelText: 'Confirmed $exposureLabel',
+                helperText: _plannedExposure == null
+                    ? 'How many people actually came?'
+                    : 'How many people actually came? '
+                          'Estimate was $_plannedExposure.',
+                border: const OutlineInputBorder(),
+              ),
+              onChanged: (_) => _touched(),
+            ),
+            const SizedBox(height: 16),
+            if (_lines.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  'This event has no planned items — only the confirmed '
+                  '$exposureLabel will be recorded.',
+                  style: theme.textTheme.bodyMedium,
+                ),
+              )
+            else
+              for (final section in sectionEntriesByFolder(
+                entries: _lines,
+                folders: _folders,
+                folderIdOf: (line) => line.folderId,
+              )) ...[
+                if (_folders.isNotEmpty)
+                  _SectionHeader(
+                    folder: section.folder,
+                    doneCount: section.entries
+                        .where((line) => line.done)
+                        .length,
+                    totalCount: section.entries.length,
+                  ),
+                for (final line in section.entries)
+                  CloseoutLineCard(line: line, onChanged: _touched),
+              ],
+            const SizedBox(height: 8),
+            TextField(
+              controller: _note,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Note (optional)',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (_) => _touched(),
+            ),
+            const SizedBox(height: 24),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The commit bar (§4): a summary line while lines remain, then a plain
+  /// 64 dp labeled button — friction is the enablement rule plus the
+  /// confirmation sheet, never a hold or a gesture.
+  Widget _actionBar(ThemeData theme, String exposureLabel) {
+    return FormActionBar(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (_remainingCount > 0) ...[
             Text(
-              '$_confirmedCount of ${_lines.length} items confirmed',
+              '$_remainingCount item${_remainingCount == 1 ? '' : 's'} '
+              'not confirmed yet',
               textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontFeatures: Numerals.tabular,
+              ),
             ),
             const SizedBox(height: 8),
-            FilledButton(
-              style: FilledButton.styleFrom(minimumSize: primaryButtonMinSize),
-              onPressed: _canConfirm ? () => _confirmFlow(exposureLabel) : null,
-              child: _submitting
-                  ? const SizedBox(
-                      height: 24,
-                      width: 24,
-                      child: CircularProgressIndicator(strokeWidth: 2.5),
-                    )
-                  : Text(_revising ? 'Confirm revision' : 'Confirm closeout'),
+          ],
+          FilledButton(
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(64),
+            ),
+            onPressed: _canConfirm ? () => _confirmFlow(exposureLabel) : null,
+            child: _submitting
+                ? const SizedBox(
+                    height: 24,
+                    width: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2.5),
+                  )
+                : Text(_revising ? 'Confirm revision' : 'Finish closeout'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One §4 section header on the closeout: 24 dp folder chip + name, and a
+/// live "1 of 3" fraction that morphs into a filled check chip reading
+/// "Done" the moment every line in the section is handled — fractions
+/// always, percentages never.
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({
+    required this.folder,
+    required this.doneCount,
+    required this.totalCount,
+  });
+
+  final Folder? folder;
+  final int doneCount;
+  final int totalCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final complete = doneCount == totalCount;
+    final disabled = MediaQuery.disableAnimationsOf(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 8),
+      child: Row(
+        children: [
+          if (folder != null) ...[
+            FolderChip.forFolder(folder!, size: FolderChipSize.small),
+            const SizedBox(width: Space.s + 2),
+          ],
+          Expanded(
+            child: Text(
+              folder?.name ?? 'Unfiled',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.titleMedium,
+            ),
+          ),
+          AnimatedSwitcher(
+            // Section-complete morph (§7): 200 ms fade + scale.
+            duration: disabled
+                ? Duration.zero
+                : const Duration(milliseconds: 200),
+            transitionBuilder: (child, animation) => FadeTransition(
+              opacity: animation,
+              child: ScaleTransition(
+                scale: Tween<double>(begin: 0.9, end: 1).animate(animation),
+                child: child,
+              ),
+            ),
+            child: complete
+                ? Container(
+                    key: const ValueKey('section-done'),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: Space.m,
+                      vertical: Space.xs,
+                    ),
+                    decoration: BoxDecoration(
+                      color: scheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(Radii.small),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.check,
+                          size: 16,
+                          color: scheme.onPrimaryContainer,
+                        ),
+                        const SizedBox(width: Space.xs),
+                        Text(
+                          'Done',
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            color: scheme.onPrimaryContainer,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : Text(
+                    '$doneCount of $totalCount',
+                    key: const ValueKey('section-fraction'),
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      fontFeatures: Numerals.tabular,
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The §4 celebration: a 48 dp check in a `primaryContainer` disc scaling
+/// in (0.6 → 1.0, 350 ms, easeOutBack) with one line of owner-register
+/// copy, dismissing itself after a beat. One per session; nothing loops.
+class _CloseoutCelebration extends StatefulWidget {
+  const _CloseoutCelebration({
+    required this.confirmedCount,
+    required this.totalCount,
+  });
+
+  final int confirmedCount;
+  final int totalCount;
+
+  @override
+  State<_CloseoutCelebration> createState() => _CloseoutCelebrationState();
+}
+
+class _CloseoutCelebrationState extends State<_CloseoutCelebration> {
+  double _scale = 0.6;
+  Timer? _dismiss;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        setState(() => _scale = 1);
+      }
+    });
+    _dismiss = Timer(const Duration(milliseconds: 1400), () {
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _dismiss?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Dialog(
+      child: Padding(
+        padding: const EdgeInsets.all(Space.xl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedScale(
+              scale: _scale,
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 350),
+              curve: Curves.easeOutBack,
+              child: Container(
+                width: 96,
+                height: 96,
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.check,
+                  size: 48,
+                  color: scheme.onPrimaryContainer,
+                ),
+              ),
+            ),
+            const SizedBox(height: Space.l),
+            Text(
+              'All squared away — ${widget.confirmedCount} of '
+              '${widget.totalCount} accounted for.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontFeatures: Numerals.tabular,
+              ),
             ),
           ],
         ),

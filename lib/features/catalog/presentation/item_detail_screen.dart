@@ -229,11 +229,13 @@ class _OnHandCard extends StatelessWidget {
                     Icon(Icons.warning_amber_outlined, color: scheme.error),
                     const SizedBox(width: 8),
                   ],
+                  // Glance-number role (spec §5): tabular headlineSmall —
+                  // the 22 pt touchscreen-glance figure.
                   Text(
                     formatCount(onHandMicros, item.unit),
-                    style: theme.textTheme.headlineMedium?.copyWith(
-                      color: negative ? scheme.error : null,
-                    ),
+                    style: Numerals.glance(
+                      theme.textTheme,
+                    )?.copyWith(color: negative ? scheme.error : null),
                   ),
                 ],
               ),
@@ -286,7 +288,11 @@ class _MovementRow extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            Text(quantity, style: theme.textTheme.titleMedium?.merge(struck)),
+            // Row-quantity role (spec §4): tabular titleLarge.
+            Text(
+              quantity,
+              style: Numerals.rowQuantity(theme.textTheme)?.merge(struck),
+            ),
             if (corrected)
               Text(
                 'Corrected',

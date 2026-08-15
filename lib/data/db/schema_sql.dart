@@ -16,6 +16,27 @@ const schemaV1Indices = <String>[
   'CREATE INDEX idx_overrides_snapshot ON forecast_overrides (snapshot_id, item_id, id)',
 ];
 
+/// The `folders` table exactly as schema v3 shipped it. The `from < 3`
+/// onUpgrade block runs THIS, not `Migrator.createTable`, because the
+/// migrator always builds the CURRENT Dart shape — which grew appearance
+/// columns in v4 — and a stepwise migration must land each version's exact
+/// schema (the SchemaVerifier tests stop at intermediate versions). The v4
+/// block then ALTERs the two columns on, identically for a phone climbing
+/// v2 → v4 and one that was already on v3.
+const schemaV3FoldersCreate =
+    'CREATE TABLE IF NOT EXISTS "folders" ('
+    '"id" TEXT NOT NULL, '
+    '"name" TEXT NOT NULL, '
+    '"position" INTEGER NOT NULL CHECK("position" >= 0), '
+    '"demand_basis" TEXT NOT NULL '
+    "CHECK(\"demand_basis\" IN ('per_person', 'per_event')), "
+    '"always_planned" INTEGER NOT NULL DEFAULT 0 '
+    'CHECK ("always_planned" IN (0, 1)), '
+    '"archived_at_micros" INTEGER NULL, '
+    '"created_at_micros" INTEGER NOT NULL, '
+    '"updated_at_micros" INTEGER NOT NULL, '
+    'PRIMARY KEY ("id"))';
+
 /// v3 (folders): run by onCreate on fresh databases and by the `from < 3`
 /// onUpgrade block on migrated ones — the same statements either way, so a
 /// migrated phone ends up with exactly the fresh-install indices.

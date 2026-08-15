@@ -78,10 +78,11 @@ Future<Map<String, String>> folderIdsByName(AppHarness h) async {
 Future<AppHarness> startWorkspace(WidgetTester tester) async => (await tester
     .runAsync(() => AppHarness.start(state: AppHarnessState.workspace)))!;
 
-/// A text inside the sectioned list itself — never the identically-labeled
-/// jump chip above it.
+/// A text inside the sectioned list itself (headers + rows live inside
+/// SliverMainAxisGroups) — never the identically-labeled jump chip in the
+/// floating search region.
 Finder inList(String text) => find.descendant(
-  of: find.byType(CustomScrollView),
+  of: find.byType(SliverMainAxisGroup),
   matching: find.text(text),
 );
 
@@ -276,18 +277,32 @@ void main() {
     await h.pumpScreen(tester, const ItemListScreen());
     expect(inList('Minestrone (batch)'), findsOneWidget);
 
+    // The header chevron is a single rotating glyph (spec §4:
+    // AnimatedRotation), pointing down while expanded.
+    AnimatedRotation chevron() => tester.widget<AnimatedRotation>(
+      find.descendant(
+        of: find.ancestor(
+          of: inList('Cooked on site'),
+          matching: find.byType(Row),
+        ),
+        matching: find.byType(AnimatedRotation),
+      ),
+    );
+    expect(chevron().turns, 0);
+
     await tester.tap(inList('Cooked on site'));
     await tester.pumpAndSettle();
 
-    // Collapsed: rows gone, count still on the header.
+    // Collapsed: rows gone, chevron rotated to point right, count still on
+    // the header.
     expect(inList('Minestrone (batch)'), findsNothing);
-    expect(find.byIcon(Icons.chevron_right), findsOneWidget);
+    expect(chevron().turns, -0.25);
     expect(inList('1'), findsOneWidget);
 
     // Leaving the list and coming back keeps the collapse (same session).
     await h.pumpScreen(tester, const ItemListScreen());
     expect(inList('Minestrone (batch)'), findsNothing);
-    expect(find.byIcon(Icons.chevron_right), findsOneWidget);
+    expect(chevron().turns, -0.25);
 
     // Tapping again expands.
     await tester.tap(inList('Cooked on site'));
@@ -346,13 +361,9 @@ void main() {
     expect(inList('Sales table'), findsNothing);
 
     // The chip row jumps to the last folder. Its chip sits past the right
-    // edge, so bring it into view first.
-    final chipRow = find.byType(ListView);
-    await tester.dragUntilVisible(
-      find.text('Sales table'),
-      chipRow,
-      const Offset(-200, 0),
-    );
+    // edge of the horizontal jump row, so bring it into view first.
+    expect(find.byKey(itemListJumpRowKey), findsOneWidget);
+    await tester.ensureVisible(find.text('Sales table'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Sales table'));
     await tester.pumpAndSettle();
