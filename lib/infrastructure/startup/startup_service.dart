@@ -239,7 +239,16 @@ final class StartupService implements DatabaseHost {
         if (isCipherMissingError(e)) {
           // Build misconfiguration (plain SQLite loaded): refuse to run.
           _diag.event(DiagEvent.dbCipherMissing);
+          rethrow;
         }
+        // Anything else that stops the open — a migration failure above
+        // all — must leave a trace. The v5 rollout died silently here: the
+        // diagnostic log showed only the startup sweep, and the actual
+        // error had to be dug out with a profile build's console.
+        _diag.event(
+          DiagEvent.migrationFail,
+          errorType: e.runtimeType.toString(),
+        );
         rethrow;
       }
     }
