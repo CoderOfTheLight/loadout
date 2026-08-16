@@ -124,6 +124,13 @@ void main() {
                     itemId: tomatoes,
                     quantityPerBatch: Quantity.fromMicros(2500000), // 2.5
                   ),
+                  // v5: a FREE line (no catalog link) with a display-only
+                  // unit label scales exactly like a linked one.
+                  RecipeFormLine(
+                    name: 'Secret spice',
+                    unitLabel: 'tsp',
+                    quantityPerBatch: Quantity.fromMicros(500000), // 0.5
+                  ),
                 ],
               ),
             ),
@@ -177,6 +184,10 @@ void main() {
     expect(inSheet(find.text('Tomatoes')), findsOneWidget);
     expect(inSheet(find.text('2.5 per batch')), findsOneWidget);
     expect(inSheet(find.text('7.5')), findsOneWidget);
+    // The free line scales under its own name with its display-only label.
+    expect(inSheet(find.text('Secret spice')), findsOneWidget);
+    expect(inSheet(find.text('0.5 tsp per batch')), findsOneWidget);
+    expect(inSheet(find.text('1.5 tsp')), findsOneWidget);
 
     // A view only: the saved recipe did not change.
     final detail = (await tester.runAsync(

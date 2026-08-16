@@ -1,12 +1,15 @@
 /// `/items/:itemId` (design §9 ItemDetailScreen): derived truth for one
 /// item.
 ///
-/// Header (name, optional group and "one serves N people"); **You have**
-/// stat from `stockPositionProvider` (signed, warning badge when negative); quick
-/// actions "Record movement" → `/movements/new?itemId=…` and "Count" →
+/// Header (name, the folder it lives in — chip + name, spec §3: identity is
+/// always chip AND name — and optional group / "one serves N people");
+/// **You have** stat from `stockPositionProvider` (signed, warning badge
+/// when negative, display unit label after the amount); quick actions
+/// "Record movement" → `/movements/new?itemId=…` and "Count" →
 /// `?kind=count`; day-grouped movement history preview with reversed rows
 /// struck-through and labeled "Corrected" (history never hidden); menu:
-/// Edit, Archive/Unarchive via `CatalogService.setArchived`.
+/// Edit, the first-class "Move to folder…" (picker → `MoveItemToFolder`),
+/// Archive/Unarchive via `CatalogService.setArchived`.
 library;
 
 import 'package:flutter/material.dart';
@@ -18,11 +21,16 @@ import '../../../app/theme.dart';
 import '../../../app/unit_display.dart';
 import '../../../app/widgets/content_column.dart';
 import '../../../app/widgets/empty_state.dart';
+import '../../../app/widgets/folder_chip.dart';
 import '../../../app/widgets/warning_banner.dart';
 import '../../../core/result.dart';
 import '../../inventory/application/inventory_service.dart';
+import '../domain/folder.dart';
 import '../domain/item.dart';
 import 'catalog_format.dart';
+import 'catalog_providers.dart';
+import 'folder_picker_sheet.dart';
+import 'unfiled_chip.dart';
 
 class ItemDetailScreen extends ConsumerStatefulWidget {
   const ItemDetailScreen({super.key, required this.itemId});
@@ -40,6 +48,31 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
     itemId: widget.itemId,
     limit: 30,
   );
+
+  /// The first-class "Move to folder…" (owner's feedback): the folder
+  /// picker over the live folders, then the single `MoveItemToFolder`
+  /// command — works no matter how many items share the current folder.
+  Future<void> _moveToFolder(Item item) async {
+    final pick = await showFolderPickerSheet(
+      context,
+      selectedFolderId: item.folderId?.value,
+    );
+    if (pick == null || !mounted || pick.folderId == item.folderId?.value) {
+      return;
+    }
+    final result = await ref
+        .read(catalogServiceProvider)
+        .moveItemToFolder(itemId: widget.itemId, folderId: pick.folderId);
+    if (!mounted) {
+      return;
+    }
+    if (result case Err()) {
+      // Content-free by design (§9): no names or quantities in errors.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Couldn't move this item. Try again.")),
+      );
+    }
+  }
 
   Future<void> _setArchived(bool archived) async {
     final result = await ref
@@ -82,6 +115,13 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
         ref.watch(movementLogProvider(_historyFilter)).valueOrNull ??
         const <MovementView>[];
     final theme = Theme.of(context);
+    Folder? folder;
+    for (final candidate
+        in ref.watch(folderListProvider).valueOrNull ?? const <Folder>[]) {
+      if (candidate.id.value == item.folderId?.value) {
+        folder = candidate;
+      }
+    }
     final headerCaption = [
       if (item.category != null) item.category!,
       if (item.servesPerUnit != null)
@@ -98,12 +138,21 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
               switch (action) {
                 case 'edit':
                   context.push('/items/${widget.itemId}/edit');
+                case 'move':
+                  _moveToFolder(item);
                 case 'archive':
                   _setArchived(!item.isArchived);
               }
             },
             itemBuilder: (_) => [
               const PopupMenuItem(value: 'edit', child: Text('Edit')),
+              PopupMenuItem(
+                value: 'move',
+                // The command refuses archived items; the menu says so by
+                // being disabled rather than failing after the tap.
+                enabled: !item.isArchived,
+                child: const Text('Move to folder…'),
+              ),
               PopupMenuItem(
                 value: 'archive',
                 child: Text(item.isArchived ? 'Unarchive' : 'Archive'),
@@ -118,6 +167,25 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // Where it lives (spec §3: identity is chip AND name).
+                Row(
+                  children: [
+                    if (folder != null)
+                      FolderChip.forFolder(folder, size: FolderChipSize.small)
+                    else
+                      const UnfiledChip(size: FolderChipSize.small),
+                    const SizedBox(width: Space.s + 2),
+                    Expanded(
+                      child: Text(
+                        folder?.name ?? 'Unfiled',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
                 if (headerCaption.isNotEmpty) ...[
                   Text(headerCaption, style: theme.textTheme.bodyMedium),
                   const SizedBox(height: 16),
@@ -215,7 +283,8 @@ class _OnHandCard extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: Semantics(
           label:
-              'You have ${formatCount(onHandMicros, item.unit)}'
+              'You have '
+              '${formatAmount(onHandMicros, item.unit, item.unitLabel)}'
               '${negative ? ', negative' : ''}',
           excludeSemantics: true,
           child: Column(
@@ -230,9 +299,10 @@ class _OnHandCard extends StatelessWidget {
                     const SizedBox(width: 8),
                   ],
                   // Glance-number role (spec §5): tabular headlineSmall —
-                  // the 22 pt touchscreen-glance figure.
+                  // the 22 pt touchscreen-glance figure, with the display
+                  // label after the amount ("12 packages").
                   Text(
-                    formatCount(onHandMicros, item.unit),
+                    formatAmount(onHandMicros, item.unit, item.unitLabel),
                     style: Numerals.glance(
                       theme.textTheme,
                     )?.copyWith(color: negative ? scheme.error : null),

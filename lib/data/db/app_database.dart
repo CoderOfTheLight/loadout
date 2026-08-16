@@ -38,6 +38,7 @@ const String seedAppVersion = '1.0.0+1';
     Recipes,
     RecipeRevisions,
     RecipeLines,
+    RecipeLinesV2,
     ForecastSnapshots,
     ForecastLines,
     ForecastEvidence,
@@ -63,7 +64,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(NativeDatabase super.executor);
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -76,6 +77,9 @@ class AppDatabase extends _$AppDatabase {
         await customStatement(sql);
       }
       for (final sql in schemaV3Indices) {
+        await customStatement(sql);
+      }
+      for (final sql in schemaV5RecipeLinesV2Triggers) {
         await customStatement(sql);
       }
       await _seedV1(); // same transaction
@@ -147,6 +151,39 @@ class AppDatabase extends _$AppDatabase {
         // keep every byte and simply render their effective defaults.
         await m.addColumn(folders, folders.hueName);
         await m.addColumn(folders, folders.iconName);
+      }
+      if (from < 5 && to >= 5) {
+        // v5: unit labels + recipe decoupling. Three moves, each honest
+        // about what its table is:
+        //
+        // (1) items.unit_label — plain nullable ADD COLUMN; every v4 row
+        //     rides byte for byte, NULL = no label, nothing displays
+        //     differently until the owner types one.
+        await m.addColumn(items, items.unitLabel);
+        // (2) recipe_lines is trigger-enforced APPEND-ONLY, so it can be
+        //     neither widened (ingredient_item_id is NOT NULL) nor
+        //     backfilled in place. recipe_lines_v2 supersedes it: created
+        //     here, every legacy row COPIED in (INSERT is legal on an
+        //     append-only table) with ingredient_name backfilled from the
+        //     linked item's name and the link kept; the legacy table stays
+        //     byte-intact as the historical record and stops being read.
+        //     NOTE: createTable builds the CURRENT Dart shape — exactly v5
+        //     today. If a later version alters this table, freeze this
+        //     block to v5 SQL the way schemaV3FoldersCreate froze folders.
+        await m.createTable(recipeLinesV2);
+        for (final sql in schemaV5RecipeLinesV2Triggers) {
+          await customStatement(sql);
+        }
+        await customStatement(schemaV5RecipeLinesBackfill);
+        // (3) recipes.output_item_id NOT NULL → NULLABLE ("not added to
+        //     items yet"). recipes is mutable master data — no append-only
+        //     triggers, absent from appendOnlyTables — so the documented
+        //     SQLite copy-rewrite (drift TableMigration) is legal here;
+        //     every row is copied byte for byte. The partial unique index
+        //     drops with the old table and is recreated verbatim; NULLs
+        //     never collide in it. Same current-Dart-shape caveat as (2).
+        await m.alterTable(TableMigration(recipes));
+        await customStatement(schemaV5RecipesOutputIndex);
       }
     },
     beforeOpen: (details) async {

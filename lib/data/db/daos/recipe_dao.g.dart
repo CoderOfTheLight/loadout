@@ -8,7 +8,7 @@ mixin _$RecipeDaoMixin on DatabaseAccessor<AppDatabase> {
   $ItemsTable get items => attachedDatabase.items;
   $RecipesTable get recipes => attachedDatabase.recipes;
   $RecipeRevisionsTable get recipeRevisions => attachedDatabase.recipeRevisions;
-  $RecipeLinesTable get recipeLines => attachedDatabase.recipeLines;
+  $RecipeLinesV2Table get recipeLinesV2 => attachedDatabase.recipeLinesV2;
   RecipeDaoManager get managers => RecipeDaoManager(this);
 }
 
@@ -26,6 +26,6 @@ class RecipeDaoManager {
         _db.attachedDatabase,
         _db.recipeRevisions,
       );
-  $$RecipeLinesTableTableManager get recipeLines =>
-      $$RecipeLinesTableTableManager(_db.attachedDatabase, _db.recipeLines);
+  $$RecipeLinesV2TableTableManager get recipeLinesV2 =>
+      $$RecipeLinesV2TableTableManager(_db.attachedDatabase, _db.recipeLinesV2);
 }

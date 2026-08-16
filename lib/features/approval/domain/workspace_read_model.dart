@@ -169,17 +169,52 @@ final class CloseoutState {
 final class RecipeState {
   const RecipeState({
     required this.id,
-    required this.outputItemId,
+    required this.name,
+    this.outputItemId,
     required this.archived,
     required this.latestRevision,
+    this.latestRevisionId,
+    this.currentLines = const [],
   });
 
   final String id;
-  final String outputItemId;
+
+  /// The recipe's own name — becomes the output item's name when the recipe
+  /// is added to the item list (v5 AddRecipeToItems).
+  final String name;
+
+  /// v5: null = "not added to the item list yet".
+  final String? outputItemId;
   final bool archived;
 
   /// 0 when the recipe has no revisions yet (never true for stored rows).
   final int latestRevision;
+
+  /// Id of the latest revision's row; null only when [latestRevision] is 0.
+  final String? latestRevisionId;
+
+  /// The latest revision's lines in line-index order — what
+  /// AddRecipeToItems / Link / Unlink validate and act against.
+  final List<RecipeLineState> currentLines;
+}
+
+/// One stored recipe line as the validator and applier see it (v5).
+final class RecipeLineState {
+  const RecipeLineState({
+    required this.lineIndex,
+    required this.name,
+    this.unitLabel,
+    this.ingredientItemId,
+  });
+
+  final int lineIndex;
+  final String name;
+  final String? unitLabel;
+
+  /// Null = free (unlinked) line.
+  final String? ingredientItemId;
+
+  bool get isLinked => ingredientItemId != null;
 }
 
 final class SnapshotState {

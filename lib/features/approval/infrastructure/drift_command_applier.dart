@@ -313,9 +313,12 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
       CorrectMovement() => await _correctMovement(command, commandId, state),
       RecordCloseout() => await _recordCloseout(command, commandId, now),
       ReviseCloseout() => await _reviseCloseout(command, commandId, now, state),
-      CreateRecipe() => await _createRecipe(command, now),
+      CreateRecipe() => await _createRecipe(command, now, state),
       AddRecipeRevision() => await _addRecipeRevision(command, now, state),
       SetRecipeArchived() => await _setRecipeArchived(command, now, state),
+      AddRecipeToItems() => await _addRecipeToItems(command, now, state),
+      LinkRecipeLineToItem() => await _linkRecipeLine(command, state),
+      UnlinkRecipeLine() => await _unlinkRecipeLine(command, state),
       SaveForecastSnapshot() => await _saveSnapshot(command, commandId, now),
       OverrideForecastLine() => await _overrideLine(command, now),
     };
@@ -352,6 +355,7 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
             name: c.name.trim(),
             unit: c.unit.dbValue,
             packSizeMicros: c.packSize.micros,
+            unitLabel: Value(c.unitLabel?.trim()),
             servesPerUnitMicros: Value(c.servesPerUnit?.micros),
             perPersonNumerator: Value(c.perPersonRatio?.numerator),
             perPersonDenominator: Value(c.perPersonRatio?.denominator),
@@ -386,6 +390,11 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
         packSizeMicros: c.packSize == null
             ? const Value.absent()
             : Value(c.packSize!.micros),
+        unitLabel: switch (c) {
+          UpdateItem(unitLabel: final label?) => Value(label.trim()),
+          UpdateItem(clearUnitLabel: true) => const Value(null),
+          _ => const Value.absent(),
+        },
         servesPerUnitMicros: switch (c) {
           UpdateItem(servesPerUnit: final serves?) => Value(serves.micros),
           UpdateItem(clearServesPerUnit: true) => const Value(null),
@@ -904,14 +913,18 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
 
   // ------------------------------------------------------------- recipes
 
-  Future<_Effects> _createRecipe(CreateRecipe c, int now) async {
+  Future<_Effects> _createRecipe(
+    CreateRecipe c,
+    int now,
+    PrefetchedState state,
+  ) async {
     final recipeId = _ids.newId();
     await _db
         .into(_db.recipes)
         .insert(
           RecipesCompanion.insert(
             id: recipeId,
-            outputItemId: c.outputItemId as String,
+            outputItemId: Value(c.outputItemId as String?),
             name: c.name.trim(),
             createdAtMicros: now,
           ),
@@ -921,6 +934,7 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
       revision: 1,
       draft: c.firstRevision,
       now: now,
+      state: state,
     );
     return _Effects([recipeId, revisionId]);
   }
@@ -936,6 +950,7 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
       revision: recipe.latestRevision + 1,
       draft: c.revision,
       now: now,
+      state: state,
     );
     return _Effects([revisionId]);
   }
@@ -945,6 +960,7 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
     required int revision,
     required RecipeRevisionDraft draft,
     required int now,
+    required PrefetchedState state,
   }) async {
     final revisionId = _ids.newId();
     await _db
@@ -963,18 +979,124 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
         );
     for (var i = 0; i < draft.lines.length; i++) {
       final line = draft.lines[i];
+      // Every stored line carries a name: the draft's own, or a snapshot of
+      // the linked item's name — so unlinking can never orphan the line.
+      // The validator guarantees one of the two exists.
+      final name =
+          line.name?.trim() ??
+          state.item(line.ingredientItemId! as String)!.name;
       await _db
-          .into(_db.recipeLines)
+          .into(_db.recipeLinesV2)
           .insert(
-            RecipeLinesCompanion.insert(
+            RecipeLinesV2Companion.insert(
               revisionId: revisionId,
               lineIndex: i,
-              ingredientItemId: line.ingredientItemId as String,
+              ingredientName: name,
+              unitLabel: Value(line.unitLabel?.trim()),
+              ingredientItemId: Value(line.ingredientItemId as String?),
               quantityPerBatchMicros: line.quantityPerBatch.micros,
             ),
           );
     }
     return revisionId;
+  }
+
+  /// v5: the recipe joins the item list — its output item is created in the
+  /// chosen folder, `recipes.output_item_id` is bound, and each chosen free
+  /// line gets an item created (in ITS chosen folder) and linked, all inside
+  /// this one command transaction. Receipt ids: output item first, then the
+  /// ingredient items in the order they were chosen.
+  Future<_Effects> _addRecipeToItems(
+    AddRecipeToItems c,
+    int now,
+    PrefetchedState state,
+  ) async {
+    final recipe = state.recipe(c.recipeId as String)!;
+    final outputItemId = _ids.newId();
+    await _db
+        .into(_db.items)
+        .insert(
+          ItemsCompanion.insert(
+            id: outputItemId,
+            name: recipe.name.trim(),
+            unit: 'each',
+            packSizeMicros: 1000000,
+            folderId: Value(c.folderId as String?),
+            createdAtMicros: now,
+            updatedAtMicros: now,
+          ),
+        );
+    await (_db.update(_db.recipes)..where((r) => r.id.equals(recipe.id))).write(
+      RecipesCompanion(outputItemId: Value(outputItemId)),
+    );
+    final createdIds = <String>[outputItemId];
+    for (final ingredient in c.ingredients) {
+      final line = recipe.currentLines.firstWhere(
+        (l) => l.lineIndex == ingredient.lineIndex,
+      );
+      final itemId = _ids.newId();
+      await _db
+          .into(_db.items)
+          .insert(
+            ItemsCompanion.insert(
+              id: itemId,
+              name: line.name.trim(),
+              unit: 'each',
+              packSizeMicros: 1000000,
+              unitLabel: Value(line.unitLabel),
+              folderId: Value(ingredient.folderId as String?),
+              createdAtMicros: now,
+              updatedAtMicros: now,
+            ),
+          );
+      await _writeLineLink(
+        revisionId: recipe.latestRevisionId!,
+        lineIndex: ingredient.lineIndex,
+        itemId: itemId,
+      );
+      createdIds.add(itemId);
+    }
+    return _Effects(createdIds);
+  }
+
+  Future<_Effects> _linkRecipeLine(
+    LinkRecipeLineToItem c,
+    PrefetchedState state,
+  ) async {
+    final recipe = state.recipe(c.recipeId as String)!;
+    await _writeLineLink(
+      revisionId: recipe.latestRevisionId!,
+      lineIndex: c.lineIndex,
+      itemId: c.itemId as String,
+    );
+    return const _Effects([]);
+  }
+
+  Future<_Effects> _unlinkRecipeLine(
+    UnlinkRecipeLine c,
+    PrefetchedState state,
+  ) async {
+    final recipe = state.recipe(c.recipeId as String)!;
+    await _writeLineLink(
+      revisionId: recipe.latestRevisionId!,
+      lineIndex: c.lineIndex,
+      itemId: null,
+    );
+    return const _Effects([]);
+  }
+
+  /// The ONLY legal UPDATE on `recipe_lines_v2` — the link column; the
+  /// limited-update trigger aborts anything wider.
+  Future<void> _writeLineLink({
+    required String revisionId,
+    required int lineIndex,
+    required String? itemId,
+  }) async {
+    await (_db.update(_db.recipeLinesV2)..where(
+          (l) =>
+              l.revisionId.equals(revisionId) & l.lineIndex.equals(lineIndex),
+        ))
+        .write(RecipeLinesV2Companion(ingredientItemId: Value(itemId)));
   }
 
   Future<_Effects> _setRecipeArchived(

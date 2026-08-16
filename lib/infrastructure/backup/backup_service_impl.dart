@@ -600,14 +600,41 @@ final class BackupServiceImpl implements BackupService {
   /// Cycle detection over live recipes' latest revisions (output item →
   /// ingredient items), deterministic iteration order. Local equivalent of
   /// the domain-layer recipe-graph guard, run against the payload SQL.
+  ///
+  /// v5 payloads carry `recipe_lines_v2` (a superset of the frozen legacy
+  /// table, links nullable, outputs nullable); pre-v5 payloads only
+  /// `recipe_lines`. The payload is validated at ITS stored version — before
+  /// any migration — so pick the table by existence.
   bool _hasRecipeCycle(Database db) {
+    final hasV2 =
+        db
+                .select(
+                  "SELECT COUNT(*) AS c FROM sqlite_master "
+                  "WHERE type = 'table' AND name = 'recipe_lines_v2'",
+                )
+                .first['c']!
+            as int >
+        0;
     final edges = db.select(
-      'SELECT r.output_item_id AS output, l.ingredient_item_id AS ingredient '
-      'FROM recipes r '
-      'JOIN recipe_revisions rr ON rr.recipe_id = r.id '
-      'JOIN recipe_lines l ON l.revision_id = rr.id '
-      'WHERE r.archived_at_micros IS NULL AND rr.revision = '
-      '(SELECT max(revision) FROM recipe_revisions WHERE recipe_id = r.id)',
+      hasV2
+          ? 'SELECT r.output_item_id AS output, '
+                'l.ingredient_item_id AS ingredient '
+                'FROM recipes r '
+                'JOIN recipe_revisions rr ON rr.recipe_id = r.id '
+                'JOIN recipe_lines_v2 l ON l.revision_id = rr.id '
+                'WHERE r.archived_at_micros IS NULL '
+                'AND r.output_item_id IS NOT NULL '
+                'AND l.ingredient_item_id IS NOT NULL AND rr.revision = '
+                '(SELECT max(revision) FROM recipe_revisions '
+                'WHERE recipe_id = r.id)'
+          : 'SELECT r.output_item_id AS output, '
+                'l.ingredient_item_id AS ingredient '
+                'FROM recipes r '
+                'JOIN recipe_revisions rr ON rr.recipe_id = r.id '
+                'JOIN recipe_lines l ON l.revision_id = rr.id '
+                'WHERE r.archived_at_micros IS NULL AND rr.revision = '
+                '(SELECT max(revision) FROM recipe_revisions '
+                'WHERE recipe_id = r.id)',
     );
     final adjacency = <String, List<String>>{};
     for (final row in edges) {

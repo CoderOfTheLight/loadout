@@ -2017,6 +2017,18 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _unitLabelMeta = const VerificationMeta(
+    'unitLabel',
+  );
+  @override
+  late final GeneratedColumn<String> unitLabel = GeneratedColumn<String>(
+    'unit_label',
+    aliasedName,
+    true,
+    check: () => ComparableExpr(unitLabel.length).isBetweenValues(1, 24),
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _archivedAtMicrosMeta = const VerificationMeta(
     'archivedAtMicros',
   );
@@ -2064,6 +2076,7 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
     perEventBaselineMicros,
     perPersonNumerator,
     perPersonDenominator,
+    unitLabel,
     archivedAtMicros,
     createdAtMicros,
     updatedAtMicros,
@@ -2175,6 +2188,12 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
         ),
       );
     }
+    if (data.containsKey('unit_label')) {
+      context.handle(
+        _unitLabelMeta,
+        unitLabel.isAcceptableOrUnknown(data['unit_label']!, _unitLabelMeta),
+      );
+    }
     if (data.containsKey('archived_at_micros')) {
       context.handle(
         _archivedAtMicrosMeta,
@@ -2263,6 +2282,10 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
         DriftSqlType.int,
         data['${effectivePrefix}per_person_denominator'],
       ),
+      unitLabel: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}unit_label'],
+      ),
       archivedAtMicros: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}archived_at_micros'],
@@ -2323,6 +2346,14 @@ class Item extends DataClass implements Insertable<Item> {
   /// Mutually exclusive with serves_per_unit_micros (validator-enforced).
   final int? perPersonNumerator;
   final int? perPersonDenominator;
+
+  /// v5. Optional DISPLAY label for the amount ("tsp", "cup", "lbs",
+  /// "package") — free text, suggestion-chip assisted on the form. The app
+  /// NEVER converts between units and never does unit arithmetic; forecasting
+  /// works on the bare amounts exactly as before. NULL = counted things, no
+  /// label shown. Nullable + column-level CHECK only, so the v5 ALTER TABLE
+  /// ADD COLUMN carries the constraint and v4 rows ride it byte for byte.
+  final String? unitLabel;
   final int? archivedAtMicros;
   final int createdAtMicros;
   final int updatedAtMicros;
@@ -2339,6 +2370,7 @@ class Item extends DataClass implements Insertable<Item> {
     this.perEventBaselineMicros,
     this.perPersonNumerator,
     this.perPersonDenominator,
+    this.unitLabel,
     this.archivedAtMicros,
     required this.createdAtMicros,
     required this.updatedAtMicros,
@@ -2371,6 +2403,9 @@ class Item extends DataClass implements Insertable<Item> {
     }
     if (!nullToAbsent || perPersonDenominator != null) {
       map['per_person_denominator'] = Variable<int>(perPersonDenominator);
+    }
+    if (!nullToAbsent || unitLabel != null) {
+      map['unit_label'] = Variable<String>(unitLabel);
     }
     if (!nullToAbsent || archivedAtMicros != null) {
       map['archived_at_micros'] = Variable<int>(archivedAtMicros);
@@ -2408,6 +2443,9 @@ class Item extends DataClass implements Insertable<Item> {
       perPersonDenominator: perPersonDenominator == null && nullToAbsent
           ? const Value.absent()
           : Value(perPersonDenominator),
+      unitLabel: unitLabel == null && nullToAbsent
+          ? const Value.absent()
+          : Value(unitLabel),
       archivedAtMicros: archivedAtMicros == null && nullToAbsent
           ? const Value.absent()
           : Value(archivedAtMicros),
@@ -2440,6 +2478,7 @@ class Item extends DataClass implements Insertable<Item> {
       perPersonDenominator: serializer.fromJson<int?>(
         json['perPersonDenominator'],
       ),
+      unitLabel: serializer.fromJson<String?>(json['unitLabel']),
       archivedAtMicros: serializer.fromJson<int?>(json['archivedAtMicros']),
       createdAtMicros: serializer.fromJson<int>(json['createdAtMicros']),
       updatedAtMicros: serializer.fromJson<int>(json['updatedAtMicros']),
@@ -2461,6 +2500,7 @@ class Item extends DataClass implements Insertable<Item> {
       'perEventBaselineMicros': serializer.toJson<int?>(perEventBaselineMicros),
       'perPersonNumerator': serializer.toJson<int?>(perPersonNumerator),
       'perPersonDenominator': serializer.toJson<int?>(perPersonDenominator),
+      'unitLabel': serializer.toJson<String?>(unitLabel),
       'archivedAtMicros': serializer.toJson<int?>(archivedAtMicros),
       'createdAtMicros': serializer.toJson<int>(createdAtMicros),
       'updatedAtMicros': serializer.toJson<int>(updatedAtMicros),
@@ -2480,6 +2520,7 @@ class Item extends DataClass implements Insertable<Item> {
     Value<int?> perEventBaselineMicros = const Value.absent(),
     Value<int?> perPersonNumerator = const Value.absent(),
     Value<int?> perPersonDenominator = const Value.absent(),
+    Value<String?> unitLabel = const Value.absent(),
     Value<int?> archivedAtMicros = const Value.absent(),
     int? createdAtMicros,
     int? updatedAtMicros,
@@ -2504,6 +2545,7 @@ class Item extends DataClass implements Insertable<Item> {
     perPersonDenominator: perPersonDenominator.present
         ? perPersonDenominator.value
         : this.perPersonDenominator,
+    unitLabel: unitLabel.present ? unitLabel.value : this.unitLabel,
     archivedAtMicros: archivedAtMicros.present
         ? archivedAtMicros.value
         : this.archivedAtMicros,
@@ -2536,6 +2578,7 @@ class Item extends DataClass implements Insertable<Item> {
       perPersonDenominator: data.perPersonDenominator.present
           ? data.perPersonDenominator.value
           : this.perPersonDenominator,
+      unitLabel: data.unitLabel.present ? data.unitLabel.value : this.unitLabel,
       archivedAtMicros: data.archivedAtMicros.present
           ? data.archivedAtMicros.value
           : this.archivedAtMicros,
@@ -2563,6 +2606,7 @@ class Item extends DataClass implements Insertable<Item> {
           ..write('perEventBaselineMicros: $perEventBaselineMicros, ')
           ..write('perPersonNumerator: $perPersonNumerator, ')
           ..write('perPersonDenominator: $perPersonDenominator, ')
+          ..write('unitLabel: $unitLabel, ')
           ..write('archivedAtMicros: $archivedAtMicros, ')
           ..write('createdAtMicros: $createdAtMicros, ')
           ..write('updatedAtMicros: $updatedAtMicros')
@@ -2584,6 +2628,7 @@ class Item extends DataClass implements Insertable<Item> {
     perEventBaselineMicros,
     perPersonNumerator,
     perPersonDenominator,
+    unitLabel,
     archivedAtMicros,
     createdAtMicros,
     updatedAtMicros,
@@ -2604,6 +2649,7 @@ class Item extends DataClass implements Insertable<Item> {
           other.perEventBaselineMicros == this.perEventBaselineMicros &&
           other.perPersonNumerator == this.perPersonNumerator &&
           other.perPersonDenominator == this.perPersonDenominator &&
+          other.unitLabel == this.unitLabel &&
           other.archivedAtMicros == this.archivedAtMicros &&
           other.createdAtMicros == this.createdAtMicros &&
           other.updatedAtMicros == this.updatedAtMicros);
@@ -2622,6 +2668,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
   final Value<int?> perEventBaselineMicros;
   final Value<int?> perPersonNumerator;
   final Value<int?> perPersonDenominator;
+  final Value<String?> unitLabel;
   final Value<int?> archivedAtMicros;
   final Value<int> createdAtMicros;
   final Value<int> updatedAtMicros;
@@ -2639,6 +2686,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     this.perEventBaselineMicros = const Value.absent(),
     this.perPersonNumerator = const Value.absent(),
     this.perPersonDenominator = const Value.absent(),
+    this.unitLabel = const Value.absent(),
     this.archivedAtMicros = const Value.absent(),
     this.createdAtMicros = const Value.absent(),
     this.updatedAtMicros = const Value.absent(),
@@ -2657,6 +2705,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     this.perEventBaselineMicros = const Value.absent(),
     this.perPersonNumerator = const Value.absent(),
     this.perPersonDenominator = const Value.absent(),
+    this.unitLabel = const Value.absent(),
     this.archivedAtMicros = const Value.absent(),
     required int createdAtMicros,
     required int updatedAtMicros,
@@ -2680,6 +2729,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     Expression<int>? perEventBaselineMicros,
     Expression<int>? perPersonNumerator,
     Expression<int>? perPersonDenominator,
+    Expression<String>? unitLabel,
     Expression<int>? archivedAtMicros,
     Expression<int>? createdAtMicros,
     Expression<int>? updatedAtMicros,
@@ -2702,6 +2752,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
         'per_person_numerator': perPersonNumerator,
       if (perPersonDenominator != null)
         'per_person_denominator': perPersonDenominator,
+      if (unitLabel != null) 'unit_label': unitLabel,
       if (archivedAtMicros != null) 'archived_at_micros': archivedAtMicros,
       if (createdAtMicros != null) 'created_at_micros': createdAtMicros,
       if (updatedAtMicros != null) 'updated_at_micros': updatedAtMicros,
@@ -2722,6 +2773,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     Value<int?>? perEventBaselineMicros,
     Value<int?>? perPersonNumerator,
     Value<int?>? perPersonDenominator,
+    Value<String?>? unitLabel,
     Value<int?>? archivedAtMicros,
     Value<int>? createdAtMicros,
     Value<int>? updatedAtMicros,
@@ -2741,6 +2793,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
           perEventBaselineMicros ?? this.perEventBaselineMicros,
       perPersonNumerator: perPersonNumerator ?? this.perPersonNumerator,
       perPersonDenominator: perPersonDenominator ?? this.perPersonDenominator,
+      unitLabel: unitLabel ?? this.unitLabel,
       archivedAtMicros: archivedAtMicros ?? this.archivedAtMicros,
       createdAtMicros: createdAtMicros ?? this.createdAtMicros,
       updatedAtMicros: updatedAtMicros ?? this.updatedAtMicros,
@@ -2789,6 +2842,9 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     if (perPersonDenominator.present) {
       map['per_person_denominator'] = Variable<int>(perPersonDenominator.value);
     }
+    if (unitLabel.present) {
+      map['unit_label'] = Variable<String>(unitLabel.value);
+    }
     if (archivedAtMicros.present) {
       map['archived_at_micros'] = Variable<int>(archivedAtMicros.value);
     }
@@ -2819,6 +2875,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
           ..write('perEventBaselineMicros: $perEventBaselineMicros, ')
           ..write('perPersonNumerator: $perPersonNumerator, ')
           ..write('perPersonDenominator: $perPersonDenominator, ')
+          ..write('unitLabel: $unitLabel, ')
           ..write('archivedAtMicros: $archivedAtMicros, ')
           ..write('createdAtMicros: $createdAtMicros, ')
           ..write('updatedAtMicros: $updatedAtMicros, ')
@@ -6048,9 +6105,9 @@ class $RecipesTable extends Recipes with TableInfo<$RecipesTable, Recipe> {
   late final GeneratedColumn<String> outputItemId = GeneratedColumn<String>(
     'output_item_id',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.string,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
     defaultConstraints: GeneratedColumn.constraintIsAlways(
       'REFERENCES items (id) ON DELETE RESTRICT',
     ),
@@ -6123,8 +6180,6 @@ class $RecipesTable extends Recipes with TableInfo<$RecipesTable, Recipe> {
           _outputItemIdMeta,
         ),
       );
-    } else if (isInserting) {
-      context.missing(_outputItemIdMeta);
     }
     if (data.containsKey('name')) {
       context.handle(
@@ -6170,7 +6225,7 @@ class $RecipesTable extends Recipes with TableInfo<$RecipesTable, Recipe> {
       outputItemId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}output_item_id'],
-      )!,
+      ),
       name: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}name'],
@@ -6194,13 +6249,13 @@ class $RecipesTable extends Recipes with TableInfo<$RecipesTable, Recipe> {
 
 class Recipe extends DataClass implements Insertable<Recipe> {
   final String id;
-  final String outputItemId;
+  final String? outputItemId;
   final String name;
   final int? archivedAtMicros;
   final int createdAtMicros;
   const Recipe({
     required this.id,
-    required this.outputItemId,
+    this.outputItemId,
     required this.name,
     this.archivedAtMicros,
     required this.createdAtMicros,
@@ -6209,7 +6264,9 @@ class Recipe extends DataClass implements Insertable<Recipe> {
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['id'] = Variable<String>(id);
-    map['output_item_id'] = Variable<String>(outputItemId);
+    if (!nullToAbsent || outputItemId != null) {
+      map['output_item_id'] = Variable<String>(outputItemId);
+    }
     map['name'] = Variable<String>(name);
     if (!nullToAbsent || archivedAtMicros != null) {
       map['archived_at_micros'] = Variable<int>(archivedAtMicros);
@@ -6221,7 +6278,9 @@ class Recipe extends DataClass implements Insertable<Recipe> {
   RecipesCompanion toCompanion(bool nullToAbsent) {
     return RecipesCompanion(
       id: Value(id),
-      outputItemId: Value(outputItemId),
+      outputItemId: outputItemId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(outputItemId),
       name: Value(name),
       archivedAtMicros: archivedAtMicros == null && nullToAbsent
           ? const Value.absent()
@@ -6237,7 +6296,7 @@ class Recipe extends DataClass implements Insertable<Recipe> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return Recipe(
       id: serializer.fromJson<String>(json['id']),
-      outputItemId: serializer.fromJson<String>(json['outputItemId']),
+      outputItemId: serializer.fromJson<String?>(json['outputItemId']),
       name: serializer.fromJson<String>(json['name']),
       archivedAtMicros: serializer.fromJson<int?>(json['archivedAtMicros']),
       createdAtMicros: serializer.fromJson<int>(json['createdAtMicros']),
@@ -6248,7 +6307,7 @@ class Recipe extends DataClass implements Insertable<Recipe> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'id': serializer.toJson<String>(id),
-      'outputItemId': serializer.toJson<String>(outputItemId),
+      'outputItemId': serializer.toJson<String?>(outputItemId),
       'name': serializer.toJson<String>(name),
       'archivedAtMicros': serializer.toJson<int?>(archivedAtMicros),
       'createdAtMicros': serializer.toJson<int>(createdAtMicros),
@@ -6257,13 +6316,13 @@ class Recipe extends DataClass implements Insertable<Recipe> {
 
   Recipe copyWith({
     String? id,
-    String? outputItemId,
+    Value<String?> outputItemId = const Value.absent(),
     String? name,
     Value<int?> archivedAtMicros = const Value.absent(),
     int? createdAtMicros,
   }) => Recipe(
     id: id ?? this.id,
-    outputItemId: outputItemId ?? this.outputItemId,
+    outputItemId: outputItemId.present ? outputItemId.value : this.outputItemId,
     name: name ?? this.name,
     archivedAtMicros: archivedAtMicros.present
         ? archivedAtMicros.value
@@ -6314,7 +6373,7 @@ class Recipe extends DataClass implements Insertable<Recipe> {
 
 class RecipesCompanion extends UpdateCompanion<Recipe> {
   final Value<String> id;
-  final Value<String> outputItemId;
+  final Value<String?> outputItemId;
   final Value<String> name;
   final Value<int?> archivedAtMicros;
   final Value<int> createdAtMicros;
@@ -6329,13 +6388,12 @@ class RecipesCompanion extends UpdateCompanion<Recipe> {
   });
   RecipesCompanion.insert({
     required String id,
-    required String outputItemId,
+    this.outputItemId = const Value.absent(),
     required String name,
     this.archivedAtMicros = const Value.absent(),
     required int createdAtMicros,
     this.rowid = const Value.absent(),
   }) : id = Value(id),
-       outputItemId = Value(outputItemId),
        name = Value(name),
        createdAtMicros = Value(createdAtMicros);
   static Insertable<Recipe> custom({
@@ -6358,7 +6416,7 @@ class RecipesCompanion extends UpdateCompanion<Recipe> {
 
   RecipesCompanion copyWith({
     Value<String>? id,
-    Value<String>? outputItemId,
+    Value<String?>? outputItemId,
     Value<String>? name,
     Value<int?>? archivedAtMicros,
     Value<int>? createdAtMicros,
@@ -7288,6 +7346,473 @@ class RecipeLinesCompanion extends UpdateCompanion<RecipeLine> {
     return (StringBuffer('RecipeLinesCompanion(')
           ..write('revisionId: $revisionId, ')
           ..write('lineIndex: $lineIndex, ')
+          ..write('ingredientItemId: $ingredientItemId, ')
+          ..write('quantityPerBatchMicros: $quantityPerBatchMicros, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $RecipeLinesV2Table extends RecipeLinesV2
+    with TableInfo<$RecipeLinesV2Table, RecipeLineV2> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $RecipeLinesV2Table(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _revisionIdMeta = const VerificationMeta(
+    'revisionId',
+  );
+  @override
+  late final GeneratedColumn<String> revisionId = GeneratedColumn<String>(
+    'revision_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES recipe_revisions (id) ON DELETE RESTRICT',
+    ),
+  );
+  static const VerificationMeta _lineIndexMeta = const VerificationMeta(
+    'lineIndex',
+  );
+  @override
+  late final GeneratedColumn<int> lineIndex = GeneratedColumn<int>(
+    'line_index',
+    aliasedName,
+    false,
+    check: () => ComparableExpr(lineIndex).isBiggerOrEqualValue(0),
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _ingredientNameMeta = const VerificationMeta(
+    'ingredientName',
+  );
+  @override
+  late final GeneratedColumn<String> ingredientName = GeneratedColumn<String>(
+    'ingredient_name',
+    aliasedName,
+    false,
+    check: () => ComparableExpr(ingredientName.length).isBetweenValues(1, 120),
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _unitLabelMeta = const VerificationMeta(
+    'unitLabel',
+  );
+  @override
+  late final GeneratedColumn<String> unitLabel = GeneratedColumn<String>(
+    'unit_label',
+    aliasedName,
+    true,
+    check: () => ComparableExpr(unitLabel.length).isBetweenValues(1, 24),
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _ingredientItemIdMeta = const VerificationMeta(
+    'ingredientItemId',
+  );
+  @override
+  late final GeneratedColumn<String> ingredientItemId = GeneratedColumn<String>(
+    'ingredient_item_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES items (id) ON DELETE RESTRICT',
+    ),
+  );
+  static const VerificationMeta _quantityPerBatchMicrosMeta =
+      const VerificationMeta('quantityPerBatchMicros');
+  @override
+  late final GeneratedColumn<int> quantityPerBatchMicros = GeneratedColumn<int>(
+    'quantity_per_batch_micros',
+    aliasedName,
+    false,
+    check: () => ComparableExpr(quantityPerBatchMicros).isBiggerThanValue(0),
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    revisionId,
+    lineIndex,
+    ingredientName,
+    unitLabel,
+    ingredientItemId,
+    quantityPerBatchMicros,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'recipe_lines_v2';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<RecipeLineV2> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('revision_id')) {
+      context.handle(
+        _revisionIdMeta,
+        revisionId.isAcceptableOrUnknown(data['revision_id']!, _revisionIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_revisionIdMeta);
+    }
+    if (data.containsKey('line_index')) {
+      context.handle(
+        _lineIndexMeta,
+        lineIndex.isAcceptableOrUnknown(data['line_index']!, _lineIndexMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_lineIndexMeta);
+    }
+    if (data.containsKey('ingredient_name')) {
+      context.handle(
+        _ingredientNameMeta,
+        ingredientName.isAcceptableOrUnknown(
+          data['ingredient_name']!,
+          _ingredientNameMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_ingredientNameMeta);
+    }
+    if (data.containsKey('unit_label')) {
+      context.handle(
+        _unitLabelMeta,
+        unitLabel.isAcceptableOrUnknown(data['unit_label']!, _unitLabelMeta),
+      );
+    }
+    if (data.containsKey('ingredient_item_id')) {
+      context.handle(
+        _ingredientItemIdMeta,
+        ingredientItemId.isAcceptableOrUnknown(
+          data['ingredient_item_id']!,
+          _ingredientItemIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('quantity_per_batch_micros')) {
+      context.handle(
+        _quantityPerBatchMicrosMeta,
+        quantityPerBatchMicros.isAcceptableOrUnknown(
+          data['quantity_per_batch_micros']!,
+          _quantityPerBatchMicrosMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_quantityPerBatchMicrosMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {revisionId, lineIndex};
+  @override
+  RecipeLineV2 map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return RecipeLineV2(
+      revisionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}revision_id'],
+      )!,
+      lineIndex: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}line_index'],
+      )!,
+      ingredientName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}ingredient_name'],
+      )!,
+      unitLabel: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}unit_label'],
+      ),
+      ingredientItemId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}ingredient_item_id'],
+      ),
+      quantityPerBatchMicros: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}quantity_per_batch_micros'],
+      )!,
+    );
+  }
+
+  @override
+  $RecipeLinesV2Table createAlias(String alias) {
+    return $RecipeLinesV2Table(attachedDatabase, alias);
+  }
+}
+
+class RecipeLineV2 extends DataClass implements Insertable<RecipeLineV2> {
+  final String revisionId;
+  final int lineIndex;
+
+  /// The line's own name — the pasted/typed text, or a snapshot of the
+  /// linked item's name at write time. Display prefers the live item name on
+  /// linked lines; this is what remains when a line is unlinked.
+  final String ingredientName;
+
+  /// Display label for the amount ("tsp", "cup", "lbs"); never converted,
+  /// never computed with. Same 24-char bound as `items.unit_label`.
+  final String? unitLabel;
+
+  /// Optional catalog link; NULL = free line. The ONLY mutable column.
+  final String? ingredientItemId;
+  final int quantityPerBatchMicros;
+  const RecipeLineV2({
+    required this.revisionId,
+    required this.lineIndex,
+    required this.ingredientName,
+    this.unitLabel,
+    this.ingredientItemId,
+    required this.quantityPerBatchMicros,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['revision_id'] = Variable<String>(revisionId);
+    map['line_index'] = Variable<int>(lineIndex);
+    map['ingredient_name'] = Variable<String>(ingredientName);
+    if (!nullToAbsent || unitLabel != null) {
+      map['unit_label'] = Variable<String>(unitLabel);
+    }
+    if (!nullToAbsent || ingredientItemId != null) {
+      map['ingredient_item_id'] = Variable<String>(ingredientItemId);
+    }
+    map['quantity_per_batch_micros'] = Variable<int>(quantityPerBatchMicros);
+    return map;
+  }
+
+  RecipeLinesV2Companion toCompanion(bool nullToAbsent) {
+    return RecipeLinesV2Companion(
+      revisionId: Value(revisionId),
+      lineIndex: Value(lineIndex),
+      ingredientName: Value(ingredientName),
+      unitLabel: unitLabel == null && nullToAbsent
+          ? const Value.absent()
+          : Value(unitLabel),
+      ingredientItemId: ingredientItemId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(ingredientItemId),
+      quantityPerBatchMicros: Value(quantityPerBatchMicros),
+    );
+  }
+
+  factory RecipeLineV2.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return RecipeLineV2(
+      revisionId: serializer.fromJson<String>(json['revisionId']),
+      lineIndex: serializer.fromJson<int>(json['lineIndex']),
+      ingredientName: serializer.fromJson<String>(json['ingredientName']),
+      unitLabel: serializer.fromJson<String?>(json['unitLabel']),
+      ingredientItemId: serializer.fromJson<String?>(json['ingredientItemId']),
+      quantityPerBatchMicros: serializer.fromJson<int>(
+        json['quantityPerBatchMicros'],
+      ),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'revisionId': serializer.toJson<String>(revisionId),
+      'lineIndex': serializer.toJson<int>(lineIndex),
+      'ingredientName': serializer.toJson<String>(ingredientName),
+      'unitLabel': serializer.toJson<String?>(unitLabel),
+      'ingredientItemId': serializer.toJson<String?>(ingredientItemId),
+      'quantityPerBatchMicros': serializer.toJson<int>(quantityPerBatchMicros),
+    };
+  }
+
+  RecipeLineV2 copyWith({
+    String? revisionId,
+    int? lineIndex,
+    String? ingredientName,
+    Value<String?> unitLabel = const Value.absent(),
+    Value<String?> ingredientItemId = const Value.absent(),
+    int? quantityPerBatchMicros,
+  }) => RecipeLineV2(
+    revisionId: revisionId ?? this.revisionId,
+    lineIndex: lineIndex ?? this.lineIndex,
+    ingredientName: ingredientName ?? this.ingredientName,
+    unitLabel: unitLabel.present ? unitLabel.value : this.unitLabel,
+    ingredientItemId: ingredientItemId.present
+        ? ingredientItemId.value
+        : this.ingredientItemId,
+    quantityPerBatchMicros:
+        quantityPerBatchMicros ?? this.quantityPerBatchMicros,
+  );
+  RecipeLineV2 copyWithCompanion(RecipeLinesV2Companion data) {
+    return RecipeLineV2(
+      revisionId: data.revisionId.present
+          ? data.revisionId.value
+          : this.revisionId,
+      lineIndex: data.lineIndex.present ? data.lineIndex.value : this.lineIndex,
+      ingredientName: data.ingredientName.present
+          ? data.ingredientName.value
+          : this.ingredientName,
+      unitLabel: data.unitLabel.present ? data.unitLabel.value : this.unitLabel,
+      ingredientItemId: data.ingredientItemId.present
+          ? data.ingredientItemId.value
+          : this.ingredientItemId,
+      quantityPerBatchMicros: data.quantityPerBatchMicros.present
+          ? data.quantityPerBatchMicros.value
+          : this.quantityPerBatchMicros,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RecipeLineV2(')
+          ..write('revisionId: $revisionId, ')
+          ..write('lineIndex: $lineIndex, ')
+          ..write('ingredientName: $ingredientName, ')
+          ..write('unitLabel: $unitLabel, ')
+          ..write('ingredientItemId: $ingredientItemId, ')
+          ..write('quantityPerBatchMicros: $quantityPerBatchMicros')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    revisionId,
+    lineIndex,
+    ingredientName,
+    unitLabel,
+    ingredientItemId,
+    quantityPerBatchMicros,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is RecipeLineV2 &&
+          other.revisionId == this.revisionId &&
+          other.lineIndex == this.lineIndex &&
+          other.ingredientName == this.ingredientName &&
+          other.unitLabel == this.unitLabel &&
+          other.ingredientItemId == this.ingredientItemId &&
+          other.quantityPerBatchMicros == this.quantityPerBatchMicros);
+}
+
+class RecipeLinesV2Companion extends UpdateCompanion<RecipeLineV2> {
+  final Value<String> revisionId;
+  final Value<int> lineIndex;
+  final Value<String> ingredientName;
+  final Value<String?> unitLabel;
+  final Value<String?> ingredientItemId;
+  final Value<int> quantityPerBatchMicros;
+  final Value<int> rowid;
+  const RecipeLinesV2Companion({
+    this.revisionId = const Value.absent(),
+    this.lineIndex = const Value.absent(),
+    this.ingredientName = const Value.absent(),
+    this.unitLabel = const Value.absent(),
+    this.ingredientItemId = const Value.absent(),
+    this.quantityPerBatchMicros = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  RecipeLinesV2Companion.insert({
+    required String revisionId,
+    required int lineIndex,
+    required String ingredientName,
+    this.unitLabel = const Value.absent(),
+    this.ingredientItemId = const Value.absent(),
+    required int quantityPerBatchMicros,
+    this.rowid = const Value.absent(),
+  }) : revisionId = Value(revisionId),
+       lineIndex = Value(lineIndex),
+       ingredientName = Value(ingredientName),
+       quantityPerBatchMicros = Value(quantityPerBatchMicros);
+  static Insertable<RecipeLineV2> custom({
+    Expression<String>? revisionId,
+    Expression<int>? lineIndex,
+    Expression<String>? ingredientName,
+    Expression<String>? unitLabel,
+    Expression<String>? ingredientItemId,
+    Expression<int>? quantityPerBatchMicros,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (revisionId != null) 'revision_id': revisionId,
+      if (lineIndex != null) 'line_index': lineIndex,
+      if (ingredientName != null) 'ingredient_name': ingredientName,
+      if (unitLabel != null) 'unit_label': unitLabel,
+      if (ingredientItemId != null) 'ingredient_item_id': ingredientItemId,
+      if (quantityPerBatchMicros != null)
+        'quantity_per_batch_micros': quantityPerBatchMicros,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  RecipeLinesV2Companion copyWith({
+    Value<String>? revisionId,
+    Value<int>? lineIndex,
+    Value<String>? ingredientName,
+    Value<String?>? unitLabel,
+    Value<String?>? ingredientItemId,
+    Value<int>? quantityPerBatchMicros,
+    Value<int>? rowid,
+  }) {
+    return RecipeLinesV2Companion(
+      revisionId: revisionId ?? this.revisionId,
+      lineIndex: lineIndex ?? this.lineIndex,
+      ingredientName: ingredientName ?? this.ingredientName,
+      unitLabel: unitLabel ?? this.unitLabel,
+      ingredientItemId: ingredientItemId ?? this.ingredientItemId,
+      quantityPerBatchMicros:
+          quantityPerBatchMicros ?? this.quantityPerBatchMicros,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (revisionId.present) {
+      map['revision_id'] = Variable<String>(revisionId.value);
+    }
+    if (lineIndex.present) {
+      map['line_index'] = Variable<int>(lineIndex.value);
+    }
+    if (ingredientName.present) {
+      map['ingredient_name'] = Variable<String>(ingredientName.value);
+    }
+    if (unitLabel.present) {
+      map['unit_label'] = Variable<String>(unitLabel.value);
+    }
+    if (ingredientItemId.present) {
+      map['ingredient_item_id'] = Variable<String>(ingredientItemId.value);
+    }
+    if (quantityPerBatchMicros.present) {
+      map['quantity_per_batch_micros'] = Variable<int>(
+        quantityPerBatchMicros.value,
+      );
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RecipeLinesV2Companion(')
+          ..write('revisionId: $revisionId, ')
+          ..write('lineIndex: $lineIndex, ')
+          ..write('ingredientName: $ingredientName, ')
+          ..write('unitLabel: $unitLabel, ')
           ..write('ingredientItemId: $ingredientItemId, ')
           ..write('quantityPerBatchMicros: $quantityPerBatchMicros, ')
           ..write('rowid: $rowid')
@@ -10396,6 +10921,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     this,
   );
   late final $RecipeLinesTable recipeLines = $RecipeLinesTable(this);
+  late final $RecipeLinesV2Table recipeLinesV2 = $RecipeLinesV2Table(this);
   late final $ForecastSnapshotsTable forecastSnapshots =
       $ForecastSnapshotsTable(this);
   late final $ForecastLinesTable forecastLines = $ForecastLinesTable(this);
@@ -10432,6 +10958,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     recipes,
     recipeRevisions,
     recipeLines,
+    recipeLinesV2,
     forecastSnapshots,
     forecastLines,
     forecastEvidence,
@@ -11794,6 +12321,7 @@ typedef $$ItemsTableCreateCompanionBuilder =
       Value<int?> perEventBaselineMicros,
       Value<int?> perPersonNumerator,
       Value<int?> perPersonDenominator,
+      Value<String?> unitLabel,
       Value<int?> archivedAtMicros,
       required int createdAtMicros,
       required int updatedAtMicros,
@@ -11813,6 +12341,7 @@ typedef $$ItemsTableUpdateCompanionBuilder =
       Value<int?> perEventBaselineMicros,
       Value<int?> perPersonNumerator,
       Value<int?> perPersonDenominator,
+      Value<String?> unitLabel,
       Value<int?> archivedAtMicros,
       Value<int> createdAtMicros,
       Value<int> updatedAtMicros,
@@ -11929,6 +12458,24 @@ final class $$ItemsTableReferences
         );
 
     final cache = $_typedResult.readTableOrNull(_recipeLinesRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<$RecipeLinesV2Table, List<RecipeLineV2>>
+  _recipeLinesV2RefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.recipeLinesV2,
+    aliasName: 'items__id__recipe_lines_v2__ingredient_item_id',
+  );
+
+  $$RecipeLinesV2TableProcessedTableManager get recipeLinesV2Refs {
+    final manager = $$RecipeLinesV2TableTableManager($_db, $_db.recipeLinesV2)
+        .filter(
+          (f) => f.ingredientItemId.id.sqlEquals($_itemColumn<String>('id')!),
+        );
+
+    final cache = $_typedResult.readTableOrNull(_recipeLinesV2RefsTable($_db));
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: cache),
     );
@@ -12054,6 +12601,11 @@ class $$ItemsTableFilterComposer extends Composer<_$AppDatabase, $ItemsTable> {
 
   ColumnFilters<int> get perPersonDenominator => $composableBuilder(
     column: $table.perPersonDenominator,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get unitLabel => $composableBuilder(
+    column: $table.unitLabel,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -12220,6 +12772,31 @@ class $$ItemsTableFilterComposer extends Composer<_$AppDatabase, $ItemsTable> {
     return f(composer);
   }
 
+  Expression<bool> recipeLinesV2Refs(
+    Expression<bool> Function($$RecipeLinesV2TableFilterComposer f) f,
+  ) {
+    final $$RecipeLinesV2TableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.recipeLinesV2,
+      getReferencedColumn: (t) => t.ingredientItemId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$RecipeLinesV2TableFilterComposer(
+            $db: $db,
+            $table: $db.recipeLinesV2,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
   Expression<bool> forecastLinesRefs(
     Expression<bool> Function($$ForecastLinesTableFilterComposer f) f,
   ) {
@@ -12360,6 +12937,11 @@ class $$ItemsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get unitLabel => $composableBuilder(
+    column: $table.unitLabel,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get archivedAtMicros => $composableBuilder(
     column: $table.archivedAtMicros,
     builder: (column) => ColumnOrderings(column),
@@ -12452,6 +13034,9 @@ class $$ItemsTableAnnotationComposer
     column: $table.perPersonDenominator,
     builder: (column) => column,
   );
+
+  GeneratedColumn<String> get unitLabel =>
+      $composableBuilder(column: $table.unitLabel, builder: (column) => column);
 
   GeneratedColumn<int> get archivedAtMicros => $composableBuilder(
     column: $table.archivedAtMicros,
@@ -12617,6 +13202,31 @@ class $$ItemsTableAnnotationComposer
     return f(composer);
   }
 
+  Expression<T> recipeLinesV2Refs<T extends Object>(
+    Expression<T> Function($$RecipeLinesV2TableAnnotationComposer a) f,
+  ) {
+    final $$RecipeLinesV2TableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.recipeLinesV2,
+      getReferencedColumn: (t) => t.ingredientItemId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$RecipeLinesV2TableAnnotationComposer(
+            $db: $db,
+            $table: $db.recipeLinesV2,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
   Expression<T> forecastLinesRefs<T extends Object>(
     Expression<T> Function($$ForecastLinesTableAnnotationComposer a) f,
   ) {
@@ -12714,6 +13324,7 @@ class $$ItemsTableTableManager
             bool closeoutLinesRefs,
             bool recipesRefs,
             bool recipeLinesRefs,
+            bool recipeLinesV2Refs,
             bool forecastLinesRefs,
             bool forecastEvidenceRefs,
             bool forecastOverridesRefs,
@@ -12744,6 +13355,7 @@ class $$ItemsTableTableManager
                 Value<int?> perEventBaselineMicros = const Value.absent(),
                 Value<int?> perPersonNumerator = const Value.absent(),
                 Value<int?> perPersonDenominator = const Value.absent(),
+                Value<String?> unitLabel = const Value.absent(),
                 Value<int?> archivedAtMicros = const Value.absent(),
                 Value<int> createdAtMicros = const Value.absent(),
                 Value<int> updatedAtMicros = const Value.absent(),
@@ -12761,6 +13373,7 @@ class $$ItemsTableTableManager
                 perEventBaselineMicros: perEventBaselineMicros,
                 perPersonNumerator: perPersonNumerator,
                 perPersonDenominator: perPersonDenominator,
+                unitLabel: unitLabel,
                 archivedAtMicros: archivedAtMicros,
                 createdAtMicros: createdAtMicros,
                 updatedAtMicros: updatedAtMicros,
@@ -12780,6 +13393,7 @@ class $$ItemsTableTableManager
                 Value<int?> perEventBaselineMicros = const Value.absent(),
                 Value<int?> perPersonNumerator = const Value.absent(),
                 Value<int?> perPersonDenominator = const Value.absent(),
+                Value<String?> unitLabel = const Value.absent(),
                 Value<int?> archivedAtMicros = const Value.absent(),
                 required int createdAtMicros,
                 required int updatedAtMicros,
@@ -12797,6 +13411,7 @@ class $$ItemsTableTableManager
                 perEventBaselineMicros: perEventBaselineMicros,
                 perPersonNumerator: perPersonNumerator,
                 perPersonDenominator: perPersonDenominator,
+                unitLabel: unitLabel,
                 archivedAtMicros: archivedAtMicros,
                 createdAtMicros: createdAtMicros,
                 updatedAtMicros: updatedAtMicros,
@@ -12816,6 +13431,7 @@ class $$ItemsTableTableManager
                 closeoutLinesRefs = false,
                 recipesRefs = false,
                 recipeLinesRefs = false,
+                recipeLinesV2Refs = false,
                 forecastLinesRefs = false,
                 forecastEvidenceRefs = false,
                 forecastOverridesRefs = false,
@@ -12828,6 +13444,7 @@ class $$ItemsTableTableManager
                     if (closeoutLinesRefs) db.closeoutLines,
                     if (recipesRefs) db.recipes,
                     if (recipeLinesRefs) db.recipeLines,
+                    if (recipeLinesV2Refs) db.recipeLinesV2,
                     if (forecastLinesRefs) db.forecastLines,
                     if (forecastEvidenceRefs) db.forecastEvidence,
                     if (forecastOverridesRefs) db.forecastOverrides,
@@ -12959,6 +13576,27 @@ class $$ItemsTableTableManager
                               ),
                           typedResults: items,
                         ),
+                      if (recipeLinesV2Refs)
+                        await $_getPrefetchedData<
+                          Item,
+                          $ItemsTable,
+                          RecipeLineV2
+                        >(
+                          currentTable: table,
+                          referencedTable: $$ItemsTableReferences
+                              ._recipeLinesV2RefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$ItemsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).recipeLinesV2Refs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.ingredientItemId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
                       if (forecastLinesRefs)
                         await $_getPrefetchedData<
                           Item,
@@ -13049,6 +13687,7 @@ typedef $$ItemsTableProcessedTableManager =
         bool closeoutLinesRefs,
         bool recipesRefs,
         bool recipeLinesRefs,
+        bool recipeLinesV2Refs,
         bool forecastLinesRefs,
         bool forecastEvidenceRefs,
         bool forecastOverridesRefs,
@@ -16848,7 +17487,7 @@ typedef $$CloseoutDraftsTableProcessedTableManager =
 typedef $$RecipesTableCreateCompanionBuilder =
     RecipesCompanion Function({
       required String id,
-      required String outputItemId,
+      Value<String?> outputItemId,
       required String name,
       Value<int?> archivedAtMicros,
       required int createdAtMicros,
@@ -16857,7 +17496,7 @@ typedef $$RecipesTableCreateCompanionBuilder =
 typedef $$RecipesTableUpdateCompanionBuilder =
     RecipesCompanion Function({
       Value<String> id,
-      Value<String> outputItemId,
+      Value<String?> outputItemId,
       Value<String> name,
       Value<int?> archivedAtMicros,
       Value<int> createdAtMicros,
@@ -16871,9 +17510,9 @@ final class $$RecipesTableReferences
   static $ItemsTable _outputItemIdTable(_$AppDatabase db) =>
       db.items.createAlias('recipes__output_item_id__items__id');
 
-  $$ItemsTableProcessedTableManager get outputItemId {
-    final $_column = $_itemColumn<String>('output_item_id')!;
-
+  $$ItemsTableProcessedTableManager? get outputItemId {
+    final $_column = $_itemColumn<String>('output_item_id');
+    if ($_column == null) return null;
     final manager = $$ItemsTableTableManager(
       $_db,
       $_db.items,
@@ -17140,7 +17779,7 @@ class $$RecipesTableTableManager
           updateCompanionCallback:
               ({
                 Value<String> id = const Value.absent(),
-                Value<String> outputItemId = const Value.absent(),
+                Value<String?> outputItemId = const Value.absent(),
                 Value<String> name = const Value.absent(),
                 Value<int?> archivedAtMicros = const Value.absent(),
                 Value<int> createdAtMicros = const Value.absent(),
@@ -17156,7 +17795,7 @@ class $$RecipesTableTableManager
           createCompanionCallback:
               ({
                 required String id,
-                required String outputItemId,
+                Value<String?> outputItemId = const Value.absent(),
                 required String name,
                 Value<int?> archivedAtMicros = const Value.absent(),
                 required int createdAtMicros,
@@ -17329,6 +17968,24 @@ final class $$RecipeRevisionsTableReferences
       manager.$state.copyWith(prefetchedData: cache),
     );
   }
+
+  static MultiTypedResultKey<$RecipeLinesV2Table, List<RecipeLineV2>>
+  _recipeLinesV2RefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.recipeLinesV2,
+    aliasName: 'recipe_revisions__id__recipe_lines_v2__revision_id',
+  );
+
+  $$RecipeLinesV2TableProcessedTableManager get recipeLinesV2Refs {
+    final manager = $$RecipeLinesV2TableTableManager(
+      $_db,
+      $_db.recipeLinesV2,
+    ).filter((f) => f.revisionId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_recipeLinesV2RefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
 }
 
 class $$RecipeRevisionsTableFilterComposer
@@ -17414,6 +18071,31 @@ class $$RecipeRevisionsTableFilterComposer
           }) => $$RecipeLinesTableFilterComposer(
             $db: $db,
             $table: $db.recipeLines,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> recipeLinesV2Refs(
+    Expression<bool> Function($$RecipeLinesV2TableFilterComposer f) f,
+  ) {
+    final $$RecipeLinesV2TableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.recipeLinesV2,
+      getReferencedColumn: (t) => t.revisionId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$RecipeLinesV2TableFilterComposer(
+            $db: $db,
+            $table: $db.recipeLinesV2,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -17577,6 +18259,31 @@ class $$RecipeRevisionsTableAnnotationComposer
     );
     return f(composer);
   }
+
+  Expression<T> recipeLinesV2Refs<T extends Object>(
+    Expression<T> Function($$RecipeLinesV2TableAnnotationComposer a) f,
+  ) {
+    final $$RecipeLinesV2TableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.recipeLinesV2,
+      getReferencedColumn: (t) => t.revisionId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$RecipeLinesV2TableAnnotationComposer(
+            $db: $db,
+            $table: $db.recipeLinesV2,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$RecipeRevisionsTableTableManager
@@ -17592,7 +18299,11 @@ class $$RecipeRevisionsTableTableManager
           $$RecipeRevisionsTableUpdateCompanionBuilder,
           (RecipeRevision, $$RecipeRevisionsTableReferences),
           RecipeRevision,
-          PrefetchHooks Function({bool recipeId, bool recipeLinesRefs})
+          PrefetchHooks Function({
+            bool recipeId,
+            bool recipeLinesRefs,
+            bool recipeLinesV2Refs,
+          })
         > {
   $$RecipeRevisionsTableTableManager(
     _$AppDatabase db,
@@ -17659,69 +18370,100 @@ class $$RecipeRevisionsTableTableManager
                 ),
               )
               .toList(),
-          prefetchHooksCallback: ({recipeId = false, recipeLinesRefs = false}) {
-            return PrefetchHooks(
-              db: db,
-              explicitlyWatchedTables: [if (recipeLinesRefs) db.recipeLines],
-              addJoins:
-                  <
-                    T extends TableManagerState<
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic
-                    >
-                  >(state) {
-                    if (recipeId) {
-                      state =
-                          state.withJoin(
-                                currentTable: table,
-                                currentColumn: table.recipeId,
-                                referencedTable:
-                                    $$RecipeRevisionsTableReferences
-                                        ._recipeIdTable(db),
-                                referencedColumn:
-                                    $$RecipeRevisionsTableReferences
-                                        ._recipeIdTable(db)
-                                        .id,
-                              )
-                              as T;
-                    }
+          prefetchHooksCallback:
+              ({
+                recipeId = false,
+                recipeLinesRefs = false,
+                recipeLinesV2Refs = false,
+              }) {
+                return PrefetchHooks(
+                  db: db,
+                  explicitlyWatchedTables: [
+                    if (recipeLinesRefs) db.recipeLines,
+                    if (recipeLinesV2Refs) db.recipeLinesV2,
+                  ],
+                  addJoins:
+                      <
+                        T extends TableManagerState<
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic
+                        >
+                      >(state) {
+                        if (recipeId) {
+                          state =
+                              state.withJoin(
+                                    currentTable: table,
+                                    currentColumn: table.recipeId,
+                                    referencedTable:
+                                        $$RecipeRevisionsTableReferences
+                                            ._recipeIdTable(db),
+                                    referencedColumn:
+                                        $$RecipeRevisionsTableReferences
+                                            ._recipeIdTable(db)
+                                            .id,
+                                  )
+                                  as T;
+                        }
 
-                    return state;
+                        return state;
+                      },
+                  getPrefetchedDataCallback: (items) async {
+                    return [
+                      if (recipeLinesRefs)
+                        await $_getPrefetchedData<
+                          RecipeRevision,
+                          $RecipeRevisionsTable,
+                          RecipeLine
+                        >(
+                          currentTable: table,
+                          referencedTable: $$RecipeRevisionsTableReferences
+                              ._recipeLinesRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$RecipeRevisionsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).recipeLinesRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.revisionId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (recipeLinesV2Refs)
+                        await $_getPrefetchedData<
+                          RecipeRevision,
+                          $RecipeRevisionsTable,
+                          RecipeLineV2
+                        >(
+                          currentTable: table,
+                          referencedTable: $$RecipeRevisionsTableReferences
+                              ._recipeLinesV2RefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$RecipeRevisionsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).recipeLinesV2Refs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.revisionId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                    ];
                   },
-              getPrefetchedDataCallback: (items) async {
-                return [
-                  if (recipeLinesRefs)
-                    await $_getPrefetchedData<
-                      RecipeRevision,
-                      $RecipeRevisionsTable,
-                      RecipeLine
-                    >(
-                      currentTable: table,
-                      referencedTable: $$RecipeRevisionsTableReferences
-                          ._recipeLinesRefsTable(db),
-                      managerFromTypedResult: (p0) =>
-                          $$RecipeRevisionsTableReferences(
-                            db,
-                            table,
-                            p0,
-                          ).recipeLinesRefs,
-                      referencedItemsForCurrentItem: (item, referencedItems) =>
-                          referencedItems.where((e) => e.revisionId == item.id),
-                      typedResults: items,
-                    ),
-                ];
+                );
               },
-            );
-          },
         ),
       );
 }
@@ -17738,7 +18480,11 @@ typedef $$RecipeRevisionsTableProcessedTableManager =
       $$RecipeRevisionsTableUpdateCompanionBuilder,
       (RecipeRevision, $$RecipeRevisionsTableReferences),
       RecipeRevision,
-      PrefetchHooks Function({bool recipeId, bool recipeLinesRefs})
+      PrefetchHooks Function({
+        bool recipeId,
+        bool recipeLinesRefs,
+        bool recipeLinesV2Refs,
+      })
     >;
 typedef $$RecipeLinesTableCreateCompanionBuilder =
     RecipeLinesCompanion Function({
@@ -18130,6 +18876,442 @@ typedef $$RecipeLinesTableProcessedTableManager =
       $$RecipeLinesTableUpdateCompanionBuilder,
       (RecipeLine, $$RecipeLinesTableReferences),
       RecipeLine,
+      PrefetchHooks Function({bool revisionId, bool ingredientItemId})
+    >;
+typedef $$RecipeLinesV2TableCreateCompanionBuilder =
+    RecipeLinesV2Companion Function({
+      required String revisionId,
+      required int lineIndex,
+      required String ingredientName,
+      Value<String?> unitLabel,
+      Value<String?> ingredientItemId,
+      required int quantityPerBatchMicros,
+      Value<int> rowid,
+    });
+typedef $$RecipeLinesV2TableUpdateCompanionBuilder =
+    RecipeLinesV2Companion Function({
+      Value<String> revisionId,
+      Value<int> lineIndex,
+      Value<String> ingredientName,
+      Value<String?> unitLabel,
+      Value<String?> ingredientItemId,
+      Value<int> quantityPerBatchMicros,
+      Value<int> rowid,
+    });
+
+final class $$RecipeLinesV2TableReferences
+    extends BaseReferences<_$AppDatabase, $RecipeLinesV2Table, RecipeLineV2> {
+  $$RecipeLinesV2TableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $RecipeRevisionsTable _revisionIdTable(_$AppDatabase db) => db
+      .recipeRevisions
+      .createAlias('recipe_lines_v2__revision_id__recipe_revisions__id');
+
+  $$RecipeRevisionsTableProcessedTableManager get revisionId {
+    final $_column = $_itemColumn<String>('revision_id')!;
+
+    final manager = $$RecipeRevisionsTableTableManager(
+      $_db,
+      $_db.recipeRevisions,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_revisionIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static $ItemsTable _ingredientItemIdTable(_$AppDatabase db) =>
+      db.items.createAlias('recipe_lines_v2__ingredient_item_id__items__id');
+
+  $$ItemsTableProcessedTableManager? get ingredientItemId {
+    final $_column = $_itemColumn<String>('ingredient_item_id');
+    if ($_column == null) return null;
+    final manager = $$ItemsTableTableManager(
+      $_db,
+      $_db.items,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_ingredientItemIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$RecipeLinesV2TableFilterComposer
+    extends Composer<_$AppDatabase, $RecipeLinesV2Table> {
+  $$RecipeLinesV2TableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get lineIndex => $composableBuilder(
+    column: $table.lineIndex,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ingredientName => $composableBuilder(
+    column: $table.ingredientName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get unitLabel => $composableBuilder(
+    column: $table.unitLabel,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get quantityPerBatchMicros => $composableBuilder(
+    column: $table.quantityPerBatchMicros,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$RecipeRevisionsTableFilterComposer get revisionId {
+    final $$RecipeRevisionsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.revisionId,
+      referencedTable: $db.recipeRevisions,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$RecipeRevisionsTableFilterComposer(
+            $db: $db,
+            $table: $db.recipeRevisions,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$ItemsTableFilterComposer get ingredientItemId {
+    final $$ItemsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.ingredientItemId,
+      referencedTable: $db.items,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ItemsTableFilterComposer(
+            $db: $db,
+            $table: $db.items,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$RecipeLinesV2TableOrderingComposer
+    extends Composer<_$AppDatabase, $RecipeLinesV2Table> {
+  $$RecipeLinesV2TableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get lineIndex => $composableBuilder(
+    column: $table.lineIndex,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get ingredientName => $composableBuilder(
+    column: $table.ingredientName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get unitLabel => $composableBuilder(
+    column: $table.unitLabel,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get quantityPerBatchMicros => $composableBuilder(
+    column: $table.quantityPerBatchMicros,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$RecipeRevisionsTableOrderingComposer get revisionId {
+    final $$RecipeRevisionsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.revisionId,
+      referencedTable: $db.recipeRevisions,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$RecipeRevisionsTableOrderingComposer(
+            $db: $db,
+            $table: $db.recipeRevisions,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$ItemsTableOrderingComposer get ingredientItemId {
+    final $$ItemsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.ingredientItemId,
+      referencedTable: $db.items,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ItemsTableOrderingComposer(
+            $db: $db,
+            $table: $db.items,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$RecipeLinesV2TableAnnotationComposer
+    extends Composer<_$AppDatabase, $RecipeLinesV2Table> {
+  $$RecipeLinesV2TableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get lineIndex =>
+      $composableBuilder(column: $table.lineIndex, builder: (column) => column);
+
+  GeneratedColumn<String> get ingredientName => $composableBuilder(
+    column: $table.ingredientName,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get unitLabel =>
+      $composableBuilder(column: $table.unitLabel, builder: (column) => column);
+
+  GeneratedColumn<int> get quantityPerBatchMicros => $composableBuilder(
+    column: $table.quantityPerBatchMicros,
+    builder: (column) => column,
+  );
+
+  $$RecipeRevisionsTableAnnotationComposer get revisionId {
+    final $$RecipeRevisionsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.revisionId,
+      referencedTable: $db.recipeRevisions,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$RecipeRevisionsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.recipeRevisions,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$ItemsTableAnnotationComposer get ingredientItemId {
+    final $$ItemsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.ingredientItemId,
+      referencedTable: $db.items,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ItemsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.items,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$RecipeLinesV2TableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $RecipeLinesV2Table,
+          RecipeLineV2,
+          $$RecipeLinesV2TableFilterComposer,
+          $$RecipeLinesV2TableOrderingComposer,
+          $$RecipeLinesV2TableAnnotationComposer,
+          $$RecipeLinesV2TableCreateCompanionBuilder,
+          $$RecipeLinesV2TableUpdateCompanionBuilder,
+          (RecipeLineV2, $$RecipeLinesV2TableReferences),
+          RecipeLineV2,
+          PrefetchHooks Function({bool revisionId, bool ingredientItemId})
+        > {
+  $$RecipeLinesV2TableTableManager(_$AppDatabase db, $RecipeLinesV2Table table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$RecipeLinesV2TableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$RecipeLinesV2TableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$RecipeLinesV2TableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> revisionId = const Value.absent(),
+                Value<int> lineIndex = const Value.absent(),
+                Value<String> ingredientName = const Value.absent(),
+                Value<String?> unitLabel = const Value.absent(),
+                Value<String?> ingredientItemId = const Value.absent(),
+                Value<int> quantityPerBatchMicros = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => RecipeLinesV2Companion(
+                revisionId: revisionId,
+                lineIndex: lineIndex,
+                ingredientName: ingredientName,
+                unitLabel: unitLabel,
+                ingredientItemId: ingredientItemId,
+                quantityPerBatchMicros: quantityPerBatchMicros,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String revisionId,
+                required int lineIndex,
+                required String ingredientName,
+                Value<String?> unitLabel = const Value.absent(),
+                Value<String?> ingredientItemId = const Value.absent(),
+                required int quantityPerBatchMicros,
+                Value<int> rowid = const Value.absent(),
+              }) => RecipeLinesV2Companion.insert(
+                revisionId: revisionId,
+                lineIndex: lineIndex,
+                ingredientName: ingredientName,
+                unitLabel: unitLabel,
+                ingredientItemId: ingredientItemId,
+                quantityPerBatchMicros: quantityPerBatchMicros,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$RecipeLinesV2TableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback:
+              ({revisionId = false, ingredientItemId = false}) {
+                return PrefetchHooks(
+                  db: db,
+                  explicitlyWatchedTables: [],
+                  addJoins:
+                      <
+                        T extends TableManagerState<
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic
+                        >
+                      >(state) {
+                        if (revisionId) {
+                          state =
+                              state.withJoin(
+                                    currentTable: table,
+                                    currentColumn: table.revisionId,
+                                    referencedTable:
+                                        $$RecipeLinesV2TableReferences
+                                            ._revisionIdTable(db),
+                                    referencedColumn:
+                                        $$RecipeLinesV2TableReferences
+                                            ._revisionIdTable(db)
+                                            .id,
+                                  )
+                                  as T;
+                        }
+                        if (ingredientItemId) {
+                          state =
+                              state.withJoin(
+                                    currentTable: table,
+                                    currentColumn: table.ingredientItemId,
+                                    referencedTable:
+                                        $$RecipeLinesV2TableReferences
+                                            ._ingredientItemIdTable(db),
+                                    referencedColumn:
+                                        $$RecipeLinesV2TableReferences
+                                            ._ingredientItemIdTable(db)
+                                            .id,
+                                  )
+                                  as T;
+                        }
+
+                        return state;
+                      },
+                  getPrefetchedDataCallback: (items) async {
+                    return [];
+                  },
+                );
+              },
+        ),
+      );
+}
+
+typedef $$RecipeLinesV2TableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $RecipeLinesV2Table,
+      RecipeLineV2,
+      $$RecipeLinesV2TableFilterComposer,
+      $$RecipeLinesV2TableOrderingComposer,
+      $$RecipeLinesV2TableAnnotationComposer,
+      $$RecipeLinesV2TableCreateCompanionBuilder,
+      $$RecipeLinesV2TableUpdateCompanionBuilder,
+      (RecipeLineV2, $$RecipeLinesV2TableReferences),
+      RecipeLineV2,
       PrefetchHooks Function({bool revisionId, bool ingredientItemId})
     >;
 typedef $$ForecastSnapshotsTableCreateCompanionBuilder =
@@ -20877,6 +22059,8 @@ class $AppDatabaseManager {
       $$RecipeRevisionsTableTableManager(_db, _db.recipeRevisions);
   $$RecipeLinesTableTableManager get recipeLines =>
       $$RecipeLinesTableTableManager(_db, _db.recipeLines);
+  $$RecipeLinesV2TableTableManager get recipeLinesV2 =>
+      $$RecipeLinesV2TableTableManager(_db, _db.recipeLinesV2);
   $$ForecastSnapshotsTableTableManager get forecastSnapshots =>
       $$ForecastSnapshotsTableTableManager(_db, _db.forecastSnapshots);
   $$ForecastLinesTableTableManager get forecastLines =>

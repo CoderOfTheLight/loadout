@@ -3,8 +3,10 @@
 /// archive/unarchive via the menu, quick record-movement links.
 library;
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:loadout/app/providers.dart';
+import 'package:loadout/app/widgets/folder_chip.dart';
 import 'package:loadout/app/widgets/warning_banner.dart';
 import 'package:loadout/core/quantity.dart';
 import 'package:loadout/core/result.dart';
@@ -13,6 +15,7 @@ import 'package:loadout/features/approval/domain/proposal.dart';
 import 'package:loadout/features/catalog/application/catalog_service.dart';
 import 'package:loadout/features/catalog/domain/item.dart';
 import 'package:loadout/features/catalog/presentation/item_detail_screen.dart';
+import 'package:loadout/features/catalog/presentation/unfiled_chip.dart';
 import 'package:loadout/features/inventory/application/inventory_service.dart';
 import 'package:loadout/features/inventory/domain/movement.dart';
 import 'package:loadout/features/inventory/presentation/movement_entry_screen.dart';
@@ -243,6 +246,104 @@ void main() {
     );
     expect(entry.itemId, id);
     expect(entry.kind, isNull);
+  });
+
+  testWidgets('the header names where the item lives — folder chip and '
+      'name, neutral inbox for Unfiled — and the amount wears its label', (
+    tester,
+  ) async {
+    final h = (await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    ))!;
+    addTearDown(h.dispose);
+    final id = (await tester.runAsync(() async {
+      final folders = await h.read(catalogServiceProvider).watchFolders().first;
+      final bakery = folders
+          .firstWhere((folder) => folder.name == 'Bakery')
+          .id
+          .value;
+      final created = await h
+          .read(catalogServiceProvider)
+          .createItem(
+            ItemDraft(
+              name: 'Snack packs',
+              folderId: bakery,
+              unitLabel: 'packages',
+            ),
+          );
+      final itemId = (created as Ok<String>).value;
+      await seedMovement(h, itemId, whole: 12);
+      return itemId;
+    }))!;
+
+    await h.pumpScreen(tester, ItemDetailScreen(itemId: id));
+
+    expect(find.text('Bakery'), findsOneWidget);
+    expect(find.byType(FolderChip), findsOneWidget);
+    // The on-hand stat reads "12 packages" — label after the amount.
+    expect(find.text('12 packages'), findsOneWidget);
+
+    // Move it to Unfiled: the header follows, chip turns neutral.
+    await tester.tap(find.byTooltip('More options'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Move to folder…'));
+    await tester.pumpAndSettle();
+    // The Unfiled entry sits past the sheet's fold, below the 8 folders.
+    await tester.dragUntilVisible(
+      find.text('Unfiled'),
+      find.byType(ListView),
+      const Offset(0, -120),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Unfiled'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Unfiled'), findsOneWidget);
+    expect(find.byType(FolderChip), findsNothing);
+    expect(find.byType(UnfiledChip), findsOneWidget);
+    await h.flushTimers(tester);
+  });
+
+  testWidgets("Move to folder… in the menu moves a folder's ONLY item — "
+      'the first-class move, no edit form needed', (tester) async {
+    final h = (await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    ))!;
+    addTearDown(h.dispose);
+    final id = (await tester.runAsync(() async {
+      final folders = await h.read(catalogServiceProvider).watchFolders().first;
+      final bakery = folders
+          .firstWhere((folder) => folder.name == 'Bakery')
+          .id
+          .value;
+      final created = await h
+          .read(catalogServiceProvider)
+          .createItem(ItemDraft(name: 'Croissants', folderId: bakery));
+      return (created as Ok<String>).value;
+    }))!;
+
+    await h.pumpScreen(tester, ItemDetailScreen(itemId: id));
+    expect(find.text('Bakery'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('More options'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Move to folder…'));
+    await tester.pumpAndSettle();
+    expect(find.text('Choose a folder'), findsOneWidget);
+    await tester.tap(find.text('Drinks'));
+    await tester.pumpAndSettle();
+
+    final detail = await tester.runAsync(() => readDetail(h, id));
+    final folders = await tester.runAsync(
+      () => h.read(catalogServiceProvider).watchFolders().first,
+    );
+    expect(
+      detail!.item.folderId?.value,
+      folders!.firstWhere((folder) => folder.name == 'Drinks').id.value,
+    );
+    // The header follows the stream.
+    expect(find.text('Drinks'), findsOneWidget);
+    await h.flushTimers(tester);
   });
 
   testWidgets('unknown item id shows a fallback, not a crash', (tester) async {

@@ -1,7 +1,14 @@
 /// Pure tests for the paste-ingredients parser + matcher
 /// (`lib/features/recipes/presentation/ingredient_paste.dart`): quantity
-/// prefixes parsed only where unambiguous, exact-beats-contains matching,
-/// ambiguity never auto-resolved, sales-table items excluded.
+/// prefixes parsed only where unambiguous, measure words kept as display-
+/// only unit labels (v5 — never converted), fractions read exactly,
+/// exact-beats-contains matching, ambiguity never auto-resolved,
+/// sales-table items excluded.
+///
+/// Deliberately superseded pins (v5 unit-label ruling): "500g flour" and
+/// "2 dozen eggs" used to leave the amount blank because a weight or a
+/// dozen was not a count; with unit labels the amount is kept and the
+/// measure word becomes the label, displayed verbatim.
 library;
 
 import 'package:flutter_test/flutter_test.dart';
@@ -33,28 +40,46 @@ void main() {
       expect(line.name, 'Carrots');
     });
 
-    test('"3 bags onions" parses count 3, container word dropped', () {
+    test('"3 bags onions": amount 3, label "bags", container out of name', () {
       final line = parsePasteLine('3 bags onions')!;
       expect(line.quantityPerBatch, Quantity.whole(3));
+      expect(line.unitLabel, 'bags');
       expect(line.name, 'onions');
     });
 
     test('"2 packs of napkins" honours the optional "of"', () {
       final line = parsePasteLine('2 packs of napkins')!;
       expect(line.quantityPerBatch, Quantity.whole(2));
+      expect(line.unitLabel, 'packs');
       expect(line.name, 'napkins');
     });
 
     test('"1.5 tomato puree" parses an exact decimal count', () {
       final line = parsePasteLine('1.5 tomato puree')!;
       expect(line.quantityPerBatch!.micros, 1500000);
+      expect(line.unitLabel, isNull);
       expect(line.name, 'tomato puree');
     });
 
-    test('"500g flour" leaves the amount blank — a weight is not a count', () {
+    test('"500g flour": amount 500, label "g" — never converted', () {
       final line = parsePasteLine('500g flour')!;
-      expect(line.quantityPerBatch, isNull);
+      expect(line.quantityPerBatch, Quantity.whole(500));
+      expect(line.unitLabel, 'g');
       expect(line.name, 'flour');
+    });
+
+    test('"1 1/2 cups sugar": exact mixed fraction with its label', () {
+      final line = parsePasteLine('1 1/2 cups sugar')!;
+      expect(line.quantityPerBatch!.micros, 1500000);
+      expect(line.unitLabel, 'cups');
+      expect(line.name, 'sugar');
+    });
+
+    test('"1/2 lemon": a bare fraction is a plain amount', () {
+      final line = parsePasteLine('1/2 lemon')!;
+      expect(line.quantityPerBatch!.micros, 500000);
+      expect(line.unitLabel, isNull);
+      expect(line.name, 'lemon');
     });
 
     test('"2-3 onions" leaves the amount blank — a range is ambiguous', () {
@@ -63,10 +88,18 @@ void main() {
       expect(line.name, 'onions');
     });
 
-    test('"2 dozen eggs" leaves the amount blank', () {
+    test('"2 dozen eggs": amount 2 with the label "dozen", never 24', () {
       final line = parsePasteLine('2 dozen eggs')!;
-      expect(line.quantityPerBatch, isNull);
+      expect(line.quantityPerBatch, Quantity.whole(2));
+      expect(line.unitLabel, 'dozen');
       expect(line.name, 'eggs');
+    });
+
+    test('a bare measurement with no name stays one un-parsed name', () {
+      final line = parsePasteLine('500g')!;
+      expect(line.quantityPerBatch, isNull);
+      expect(line.unitLabel, isNull);
+      expect(line.name, '500g');
     });
 
     test('bullets and list numbering are stripped, not read as amounts', () {

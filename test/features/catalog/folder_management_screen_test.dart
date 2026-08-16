@@ -15,6 +15,7 @@ import 'package:loadout/features/catalog/domain/demand_basis.dart';
 import 'package:loadout/features/catalog/domain/folder.dart';
 import 'package:loadout/features/catalog/domain/item.dart';
 import 'package:loadout/features/catalog/presentation/folder_management_screen.dart';
+import 'package:loadout/features/catalog/presentation/unfiled_chip.dart';
 
 import '../../support/app_harness.dart';
 
@@ -341,5 +342,71 @@ void main() {
     // Let the stream event land in the widget tree before asserting on it.
     await tester.pumpAndSettle();
     expect(find.text('No folders yet'), findsNothing);
+  });
+
+  testWidgets('Unfiled is a fixed row after the folders: neutral chip, live '
+      'count, caption — no drag handle, no editor, never hidden', (
+    tester,
+  ) async {
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+
+    await h.pumpScreen(tester, const FolderManagementScreen());
+
+    // Present even at zero items, after the last draggable folder.
+    final unfiledRow = find.widgetWithText(ListTile, 'Unfiled');
+    await tester.scrollUntilVisible(
+      unfiledRow,
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    expect(unfiledRow, findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('Sales table')).dy,
+      lessThan(tester.getTopLeft(find.text('Unfiled')).dy),
+    );
+    // Identity: the neutral inbox chip, never a FolderChip; a one-line
+    // caption says what it is; the count starts at zero.
+    expect(
+      find.descendant(of: unfiledRow, matching: find.byType(UnfiledChip)),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: unfiledRow, matching: find.byType(FolderChip)),
+      findsNothing,
+    );
+    expect(find.textContaining('Items not yet in a folder'), findsOneWidget);
+    expect(
+      find.descendant(of: unfiledRow, matching: find.text('0')),
+      findsOneWidget,
+    );
+    // Not draggable: no drag handle on the fixed row (the 8 folder rows
+    // keep theirs).
+    expect(
+      find.descendant(
+        of: unfiledRow,
+        matching: find.byIcon(Icons.drag_indicator),
+      ),
+      findsNothing,
+    );
+    // Not editable: tapping opens no editor sheet.
+    await tester.tap(unfiledRow);
+    await tester.pumpAndSettle();
+    expect(find.byType(BottomSheet), findsNothing);
+
+    // The count is live: unfile an item and the row says 1.
+    await tester.runAsync(() async {
+      final created = await h
+          .read(catalogServiceProvider)
+          .createItem(const ItemDraft(name: 'Tortillas'));
+      expect(created, isA<Ok<String>>());
+    });
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(of: unfiledRow, matching: find.text('1')),
+      findsOneWidget,
+    );
+    await h.flushTimers(tester);
   });
 }

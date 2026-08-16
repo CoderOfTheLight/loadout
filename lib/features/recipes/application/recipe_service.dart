@@ -14,8 +14,8 @@ final class RecipeSummary {
   const RecipeSummary({
     required this.id,
     required this.name,
-    required this.outputItemId,
-    required this.outputItemName,
+    this.outputItemId,
+    this.outputItemName = '',
     required this.latestRevision,
     this.yieldMicros,
     this.yieldLabel,
@@ -25,13 +25,19 @@ final class RecipeSummary {
 
   final String id;
   final String name;
-  final String outputItemId;
+
+  /// v5: null until the recipe is added to the item list.
+  final String? outputItemId;
+
+  /// '' when the recipe has no output item yet.
   final String outputItemName;
   final int latestRevision;
   final int? yieldMicros;
   final String? yieldLabel;
   final int ingredientCount;
   final Instant? archivedAt;
+
+  bool get isInItems => outputItemId != null;
 }
 
 /// Full recipe with every revision (the detail screen's revision dropdown
@@ -60,6 +66,32 @@ abstract interface class RecipeService {
     required String recipeId,
     required bool archived,
   });
+
+  /// v5: puts the recipe on the item list — ONE command, ONE transaction:
+  /// creates the output item (named after the recipe) in [folderId] (null =
+  /// Unfiled), optionally creates + links items for the chosen free lines
+  /// (each into its own folder, null = Unfiled), and binds the recipe.
+  /// Returns the created output item's id. A recipe that is already in the
+  /// items list is rejected with a plain error.
+  Future<Result<String>> addToItems({
+    required String recipeId,
+    String? folderId,
+    List<({int lineIndex, String? folderId})> ingredients = const [],
+  });
+
+  /// v5: links a free line of the CURRENT revision to a live catalog item.
+  Future<Result<void>> linkLine({
+    required String recipeId,
+    required int lineIndex,
+    required String itemId,
+  });
+
+  /// v5: removes a line's catalog link; the line keeps its own name.
+  Future<Result<void>> unlinkLine({
+    required String recipeId,
+    required int lineIndex,
+  });
+
   Stream<List<RecipeSummary>> watchRecipes();
   Stream<RecipeDetail> watchRecipe(String recipeId);
 }
@@ -83,7 +115,9 @@ final class DriftRecipeService implements RecipeService {
   Future<Result<String>> createRecipe(RecipeFormDraft draft) async {
     final result = await _submit(
       CreateRecipe(
-        outputItemId: ItemId(draft.outputItemId),
+        outputItemId: draft.outputItemId == null
+            ? null
+            : ItemId(draft.outputItemId!),
         name: draft.name,
         firstRevision: _toRevisionDraft(draft),
       ),
@@ -92,6 +126,60 @@ final class DriftRecipeService implements RecipeService {
       (receipt) => Ok(receipt.createdRecordIds.first),
       Err.new,
     );
+  }
+
+  @override
+  Future<Result<String>> addToItems({
+    required String recipeId,
+    String? folderId,
+    List<({int lineIndex, String? folderId})> ingredients = const [],
+  }) async {
+    final result = await _submit(
+      AddRecipeToItems(
+        recipeId: RecipeId(recipeId),
+        folderId: folderId == null ? null : FolderId(folderId),
+        ingredients: [
+          for (final ingredient in ingredients)
+            AddRecipeIngredient(
+              lineIndex: ingredient.lineIndex,
+              folderId: ingredient.folderId == null
+                  ? null
+                  : FolderId(ingredient.folderId!),
+            ),
+        ],
+      ),
+    );
+    return result.fold(
+      (receipt) => Ok(receipt.createdRecordIds.first),
+      Err.new,
+    );
+  }
+
+  @override
+  Future<Result<void>> linkLine({
+    required String recipeId,
+    required int lineIndex,
+    required String itemId,
+  }) async {
+    final result = await _submit(
+      LinkRecipeLineToItem(
+        recipeId: RecipeId(recipeId),
+        lineIndex: lineIndex,
+        itemId: ItemId(itemId),
+      ),
+    );
+    return result.fold((_) => const Ok(null), Err.new);
+  }
+
+  @override
+  Future<Result<void>> unlinkLine({
+    required String recipeId,
+    required int lineIndex,
+  }) async {
+    final result = await _submit(
+      UnlinkRecipeLine(recipeId: RecipeId(recipeId), lineIndex: lineIndex),
+    );
+    return result.fold((_) => const Ok(null), Err.new);
   }
 
   @override
@@ -130,7 +218,7 @@ final class DriftRecipeService implements RecipeService {
       .watchTables('recipes.list', {
         _db.recipes,
         _db.recipeRevisions,
-        _db.recipeLines,
+        _db.recipeLinesV2,
         _db.items,
       })
       .asyncMap((_) => _loadSummaries());
@@ -140,7 +228,8 @@ final class DriftRecipeService implements RecipeService {
       .watchTables('recipes.detail', {
         _db.recipes,
         _db.recipeRevisions,
-        _db.recipeLines,
+        _db.recipeLinesV2,
+        _db.items,
       })
       .asyncMap((_) => _loadDetail(recipeId));
 
@@ -150,9 +239,11 @@ final class DriftRecipeService implements RecipeService {
     for (final recipe in recipes) {
       final latest = await _db.recipeDao.latestRevisionFor(recipe.id);
       final lines = latest == null
-          ? const <db.RecipeLine>[]
+          ? const <db.RecipeLineV2>[]
           : await _db.recipeDao.linesForRevision(latest.id);
-      final outputItem = await _db.itemDao.byId(recipe.outputItemId);
+      final outputItem = recipe.outputItemId == null
+          ? null
+          : await _db.itemDao.byId(recipe.outputItemId!);
       summaries.add(
         RecipeSummary(
           id: recipe.id,
@@ -181,7 +272,9 @@ final class DriftRecipeService implements RecipeService {
     return RecipeDetail(
       recipe: Recipe(
         id: RecipeId(recipe.id),
-        outputItemId: ItemId(recipe.outputItemId),
+        outputItemId: recipe.outputItemId == null
+            ? null
+            : ItemId(recipe.outputItemId!),
         name: recipe.name,
         archivedAt: recipe.archivedAtMicros == null
             ? null
@@ -204,7 +297,11 @@ final class DriftRecipeService implements RecipeService {
                 revision.id,
               ))
                 RecipeLine(
-                  ingredientItemId: ItemId(line.ingredientItemId),
+                  name: line.ingredientName,
+                  unitLabel: line.unitLabel,
+                  ingredientItemId: line.ingredientItemId == null
+                      ? null
+                      : ItemId(line.ingredientItemId!),
                   quantityPerBatch: Quantity.fromMicros(
                     line.quantityPerBatchMicros,
                   ),
@@ -223,7 +320,11 @@ final class DriftRecipeService implements RecipeService {
         lines: [
           for (final line in draft.lines)
             RecipeLineDraft(
-              ingredientItemId: ItemId(line.itemId),
+              name: line.name,
+              unitLabel: line.unitLabel,
+              ingredientItemId: line.itemId == null
+                  ? null
+                  : ItemId(line.itemId!),
               quantityPerBatch: line.quantityPerBatch,
             ),
         ],

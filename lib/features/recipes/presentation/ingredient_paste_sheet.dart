@@ -1,8 +1,10 @@
 /// "Paste ingredients" bottom sheet (proposal §3, recipe screen): paste
-/// multi-line text, review what each line matched, and ONLY on confirm are
-/// new items created (through the real `CatalogService`, into one folder
-/// picked once for the whole batch) and the resolved rows handed back to
-/// the form. Cancel/Back/dismiss write nothing at all.
+/// multi-line text, review what each line matched, and on confirm hand the
+/// resolved rows back to the form. v5 (recipe decoupling): NOTHING is
+/// created here any more — a matched line is handed back with its catalog
+/// LINK, every other kept line is a free line carrying its own text. Items
+/// are created later only if the owner asks ("Add to items"). Cancel/Back/
+/// dismiss hand back nothing.
 ///
 /// GATE 5 SEAM: the review stage renders `List<PasteCandidateLine>` — the
 /// producer-agnostic shape `ingredient_paste.dart` defines — so the OCR
@@ -15,15 +17,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
 import '../../../core/quantity_codec.dart';
-import '../../../core/result.dart';
 import '../../catalog/application/catalog_service.dart';
-import '../../catalog/domain/folder.dart';
 import '../../catalog/domain/item.dart';
 import 'ingredient_paste.dart';
 import 'recipe_catalog_filters.dart';
 
 /// Opens the sheet; resolves to the confirmed rows for the form to append,
-/// or null when dismissed without confirming (nothing was written then).
+/// or null when dismissed without confirming.
 Future<List<PastedIngredient>?> showIngredientPasteSheet(
   BuildContext context,
 ) => showModalBottomSheet<List<PastedIngredient>>(
@@ -46,14 +46,9 @@ class _IngredientPasteSheetState extends ConsumerState<IngredientPasteSheet> {
   /// Null while typing; parsed candidates once "Review" is pressed.
   List<PasteCandidateLine>? _candidates;
 
-  /// Per-candidate "create this one" ticks (unmatched lines only).
-  final Map<int, bool> _create = {};
-
-  /// Sentinel for "Unfiled" in the folder picker (null is not a usable
-  /// dropdown value).
-  static const String _unfiled = '';
-  String _createFolderId = _unfiled;
-  bool _submitting = false;
+  /// Per-candidate "keep this one" ticks (unmatched lines only — they
+  /// become FREE lines on the form, no item is created).
+  final Map<int, bool> _keep = {};
 
   @override
   void dispose() {
@@ -67,7 +62,7 @@ class _IngredientPasteSheetState extends ConsumerState<IngredientPasteSheet> {
     for (var i = 0; i < candidates.length; i++) {
       count += switch (candidates[i].status) {
         PasteLineStatus.matched || PasteLineStatus.ambiguous => 1,
-        PasteLineStatus.unmatched => (_create[i] ?? false) ? 1 : 0,
+        PasteLineStatus.unmatched => (_keep[i] ?? false) ? 1 : 0,
         PasteLineStatus.excluded => 0,
       };
     }
@@ -82,26 +77,21 @@ class _IngredientPasteSheetState extends ConsumerState<IngredientPasteSheet> {
     );
     setState(() {
       _candidates = candidates;
-      _create.clear();
+      _keep.clear();
       for (var i = 0; i < candidates.length; i++) {
         if (candidates[i].status == PasteLineStatus.unmatched) {
-          _create[i] = true;
+          _keep[i] = true;
         }
       }
     });
   }
 
-  /// THE writing moment: creates the ticked new items (one command each,
-  /// through the single command path) and pops with the resolved rows in
-  /// paste order. On a create failure the sheet stays open and says so —
-  /// items already created stay created (they are ordinary catalog rows the
-  /// owner can see), and nothing was added to the recipe form.
-  Future<void> _confirm() async {
+  /// v5: writes NOTHING — matched lines come back linked, ambiguous and
+  /// kept-unmatched lines come back as free lines with their own text. The
+  /// recipe itself still saves only via the form's Save button.
+  void _confirm() {
     final candidates = _candidates;
-    if (candidates == null || _submitting) return;
-    setState(() => _submitting = true);
-    final catalog = ref.read(catalogServiceProvider);
-    final folderId = _createFolderId == _unfiled ? null : _createFolderId;
+    if (candidates == null) return;
     final results = <PastedIngredient>[];
     for (var i = 0; i < candidates.length; i++) {
       final candidate = candidates[i];
@@ -110,44 +100,33 @@ class _IngredientPasteSheetState extends ConsumerState<IngredientPasteSheet> {
           results.add(
             PastedIngredient(
               itemId: candidate.match!.id.value,
+              name: candidate.name,
+              unitLabel: candidate.unitLabel,
               quantityPerBatch: candidate.quantityPerBatch,
             ),
           );
         case PasteLineStatus.ambiguous:
-          // Left for manual fixing: an empty row on the form, amount kept.
+          // A free line: the owner links it to the right item later.
           results.add(
-            PastedIngredient(quantityPerBatch: candidate.quantityPerBatch),
+            PastedIngredient(
+              name: candidate.name,
+              unitLabel: candidate.unitLabel,
+              quantityPerBatch: candidate.quantityPerBatch,
+            ),
           );
         case PasteLineStatus.unmatched:
-          if (!(_create[i] ?? false)) break;
-          final created = await catalog.createItem(
-            ItemDraft(name: candidate.name, folderId: folderId),
+          if (!(_keep[i] ?? false)) break;
+          results.add(
+            PastedIngredient(
+              name: candidate.name,
+              unitLabel: candidate.unitLabel,
+              quantityPerBatch: candidate.quantityPerBatch,
+            ),
           );
-          switch (created) {
-            case Ok(:final value):
-              results.add(
-                PastedIngredient(
-                  itemId: value,
-                  quantityPerBatch: candidate.quantityPerBatch,
-                ),
-              );
-            case Err(:final error):
-              if (!mounted) return;
-              setState(() => _submitting = false);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Could not create «${candidate.name}»: ${error.message}',
-                  ),
-                ),
-              );
-              return;
-          }
         case PasteLineStatus.excluded:
           break; // Skipped, with the reason shown in the review list.
       }
     }
-    if (!mounted) return;
     Navigator.of(context).pop(results);
   }
 
@@ -156,11 +135,7 @@ class _IngredientPasteSheetState extends ConsumerState<IngredientPasteSheet> {
     final theme = Theme.of(context);
     final items = ref.watch(itemListProvider(const ItemFilter()));
     final salesTableFolderIds = ref.watch(salesTableFolderIdsProvider);
-    final folders = ref.watch(recipeFolderListProvider).valueOrNull;
-    final ready =
-        items.valueOrNull != null &&
-        salesTableFolderIds != null &&
-        folders != null;
+    final ready = items.valueOrNull != null && salesTableFolderIds != null;
     return SafeArea(
       child: Padding(
         // The sheet holds a text field: keep it above the keyboard.
@@ -184,7 +159,7 @@ class _IngredientPasteSheetState extends ConsumerState<IngredientPasteSheet> {
                   )
                 : _candidates == null
                 ? _buildInput(theme, items.value!, salesTableFolderIds)
-                : _buildReview(theme, folders),
+                : _buildReview(theme),
           ),
         ),
       ),
@@ -203,9 +178,9 @@ class _IngredientPasteSheetState extends ConsumerState<IngredientPasteSheet> {
         Text('Paste ingredients', style: theme.textTheme.titleMedium),
         const SizedBox(height: 8),
         Text(
-          'One ingredient per line. A leading amount — "2x carrots", '
-          '"3 bags onions" — becomes the per-batch count; anything unclear '
-          'is left blank for you.',
+          'One ingredient per line. A leading amount and measure — '
+          '"2x carrots", "1 1/2 cups sugar" — become the per-batch amount '
+          'and unit; anything unclear is left blank for you.',
           style: theme.textTheme.bodyMedium?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
           ),
@@ -244,9 +219,8 @@ class _IngredientPasteSheetState extends ConsumerState<IngredientPasteSheet> {
     );
   }
 
-  Widget _buildReview(ThemeData theme, List<Folder> folders) {
+  Widget _buildReview(ThemeData theme) {
     final candidates = _candidates!;
-    final anyCreates = _create.isNotEmpty;
     final count = _addCount;
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -255,7 +229,8 @@ class _IngredientPasteSheetState extends ConsumerState<IngredientPasteSheet> {
         Text('Review before adding', style: theme.textTheme.titleMedium),
         const SizedBox(height: 4),
         Text(
-          'Nothing is saved until you add them.',
+          'Lines are added to the recipe only — nothing goes into your '
+          'items unless you add it later.',
           style: theme.textTheme.bodyMedium?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
           ),
@@ -279,46 +254,17 @@ class _IngredientPasteSheetState extends ConsumerState<IngredientPasteSheet> {
                   ),
                 ),
         ),
-        if (anyCreates) ...[
-          const SizedBox(height: 8),
-          DropdownButtonFormField<String>(
-            key: const Key('paste-folder-picker'),
-            initialValue: _createFolderId,
-            isExpanded: true,
-            decoration: const InputDecoration(
-              labelText: 'New items go in',
-              helperText: 'One folder for everything created from this paste',
-              border: OutlineInputBorder(),
-            ),
-            items: [
-              const DropdownMenuItem(value: _unfiled, child: Text('Unfiled')),
-              // Sales-table folders are excluded here too: an item created
-              // AS an ingredient must never land somewhere no recipe can
-              // see it.
-              for (final folder in folders)
-                if (!isSalesTableFolderName(folder.name))
-                  DropdownMenuItem(
-                    value: folder.id.value,
-                    child: Text(folder.name, overflow: TextOverflow.ellipsis),
-                  ),
-            ],
-            onChanged: (value) =>
-                setState(() => _createFolderId = value ?? _unfiled),
-          ),
-        ],
         const SizedBox(height: 8),
         Row(
           children: [
             TextButton(
-              onPressed: _submitting
-                  ? null
-                  : () => setState(() => _candidates = null),
+              onPressed: () => setState(() => _candidates = null),
               child: const Text('Back'),
             ),
             const Spacer(),
             FilledButton(
               key: const Key('paste-confirm'),
-              onPressed: count == 0 || _submitting ? null : _confirm,
+              onPressed: count == 0 ? null : _confirm,
               child: Text(
                 'Add $count ${count == 1 ? 'ingredient' : 'ingredients'}',
               ),
@@ -335,9 +281,11 @@ class _IngredientPasteSheetState extends ConsumerState<IngredientPasteSheet> {
     PasteCandidateLine candidate,
   ) {
     final amount = candidate.quantityPerBatch;
+    final unit = candidate.unitLabel;
     final amountNote = amount == null
         ? 'amount left for you'
-        : '${QuantityCodec.format(amount)} per batch';
+        : '${QuantityCodec.format(amount)}'
+              '${unit == null ? '' : ' $unit'} per batch';
     switch (candidate.status) {
       case PasteLineStatus.matched:
         return ListTile(
@@ -356,22 +304,23 @@ class _IngredientPasteSheetState extends ConsumerState<IngredientPasteSheet> {
           leading: Icon(Icons.help_outline, color: theme.colorScheme.tertiary),
           title: Text(candidate.rawText),
           subtitle: Text(
-            'Could be ${names.join(' or ')} — added blank; '
-            'pick on the form',
+            'Could be ${names.join(' or ')} — added as its own line; '
+            'link it later if you want',
           ),
         );
       case PasteLineStatus.unmatched:
         return CheckboxListTile(
           contentPadding: EdgeInsets.zero,
           controlAffinity: ListTileControlAffinity.leading,
-          value: _create[index] ?? false,
+          value: _keep[index] ?? false,
           onChanged: (checked) =>
-              setState(() => _create[index] = checked ?? false),
-          title: Text('Create «${candidate.name}»'),
+              setState(() => _keep[index] = checked ?? false),
+          title: Text('Add «${candidate.name}»'),
           subtitle: Text(
             candidate.rawText == candidate.name
-                ? 'New item · $amountNote'
-                : '${candidate.rawText} · $amountNote',
+                ? 'Not in your items — added as its own line · $amountNote'
+                : '${candidate.rawText} · not in your items — added as its '
+                      'own line · $amountNote',
           ),
         );
       case PasteLineStatus.excluded:

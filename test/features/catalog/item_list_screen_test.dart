@@ -8,20 +8,31 @@
 /// category chips): chips no longer FILTER by category text — they JUMP to
 /// folder sections. The category-chip filter test is replaced by the
 /// jump-to-folder test below.
+///
+/// v5 (owner's rulings) — pinned below: table-like rows (amount+unit as
+/// the LEADING column, aligned per section; the per-row FolderChip dropped
+/// inside folder sections, a neutral UnfiledChip kept on Unfiled rows);
+/// the first-class per-row "Move to folder…" overflow (a folder's ONLY
+/// item included); and recipe-output rows expanding into their lines
+/// (linked lines as real item rows, unlinked dimmed with "Add to items").
 library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:loadout/app/providers.dart';
 import 'package:loadout/app/widgets/empty_state.dart';
+import 'package:loadout/app/widgets/folder_chip.dart';
 import 'package:loadout/core/quantity.dart';
 import 'package:loadout/core/result.dart';
 import 'package:loadout/core/units.dart';
 import 'package:loadout/features/catalog/domain/item.dart';
 import 'package:loadout/features/catalog/presentation/folder_management_screen.dart';
 import 'package:loadout/features/catalog/presentation/item_list_screen.dart';
+import 'package:loadout/features/catalog/presentation/unfiled_chip.dart';
 import 'package:loadout/features/inventory/application/inventory_service.dart';
 import 'package:loadout/features/inventory/domain/movement.dart';
+import 'package:loadout/features/recipes/domain/recipe_drafts.dart';
+import 'package:loadout/features/recipes/presentation/recipe_detail_screen.dart';
 
 import '../../support/app_harness.dart';
 
@@ -30,6 +41,7 @@ Future<String> seedItem(
   required String name,
   String? folderId,
   String? category,
+  String? unitLabel,
   Quantity? servesPerUnit,
   // Legacy schema-v1 shape; nothing asks for these any more.
   ItemUnit unit = ItemUnit.each,
@@ -40,6 +52,7 @@ Future<String> seedItem(
       .createItem(
         ItemDraft(
           name: name,
+          unitLabel: unitLabel,
           servesPerUnit: servesPerUnit,
           folderId: folderId,
           unit: unit,
@@ -403,6 +416,240 @@ void main() {
     // The 8 starter folders exist, but an empty catalog never renders as
     // eight empty headers.
     expect(find.text('Cooked on site'), findsNothing);
+  });
+
+  testWidgets('rows are table-like: amount+unit leads, names align per '
+      'section, and the folder chip is gone inside folder sections', (
+    tester,
+  ) async {
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+    await tester.runAsync(() async {
+      final folders = await folderIdsByName(h);
+      final packs = await seedItem(
+        h,
+        name: 'Snack packs',
+        folderId: folders['Bakery'],
+        unitLabel: 'packages',
+      );
+      await seedItem(h, name: 'Rolls', folderId: folders['Bakery']);
+      await seedMovement(h, packs, whole: 12);
+    });
+
+    await h.pumpScreen(tester, const ItemListScreen());
+
+    // Amount + label render as one cell ("12 packages"), bare "0" without
+    // a label — and the amount column LEADS the name.
+    expect(inList('12 packages'), findsOneWidget);
+    expect(
+      tester.getTopLeft(inList('12 packages')).dx,
+      lessThan(tester.getTopLeft(inList('Snack packs')).dx),
+    );
+    // One consistent column width per section: both names start at the
+    // same x although the amounts differ in width.
+    expect(
+      tester.getTopLeft(inList('Snack packs')).dx,
+      tester.getTopLeft(inList('Rolls')).dx,
+    );
+    // The per-row 40 dp chip is dropped inside folder sections — the only
+    // FolderChips left are the 24 dp section-header ones.
+    expect(
+      find.descendant(
+        of: find.byType(ListTile),
+        matching: find.byType(FolderChip),
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('Unfiled rows keep a neutral chip', (tester) async {
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+    await tester.runAsync(() => seedItem(h, name: 'Tortillas'));
+
+    await h.pumpScreen(tester, const ItemListScreen());
+    await tester.dragUntilVisible(
+      inList('Tortillas'),
+      find.byType(CustomScrollView),
+      const Offset(0, -120),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(
+        of: find.widgetWithText(ListTile, 'Tortillas'),
+        matching: find.byType(UnfiledChip),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets("Move to folder… on a row moves a folder's ONLY item out — "
+      'the first-class move the owner asked for', (tester) async {
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+    final id = (await tester.runAsync(() async {
+      final folders = await folderIdsByName(h);
+      return seedItem(h, name: 'Croissants', folderId: folders['Bakery']);
+    }))!;
+
+    await h.pumpScreen(tester, const ItemListScreen());
+
+    await tester.tap(find.byTooltip('Options for Croissants'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Move to folder…'));
+    await tester.pumpAndSettle();
+
+    // The shared folder picker; choose Drinks.
+    expect(find.text('Choose a folder'), findsOneWidget);
+    await tester.tap(find.text('Drinks').last);
+    await tester.pumpAndSettle();
+    // Closing the sheet disposes its folder-list provider; drift closes
+    // the stream behind it on a zero-duration timer — flush it.
+    await h.flushTimers(tester);
+
+    final detail = await tester.runAsync(
+      () => h.read(catalogServiceProvider).watchItem(id).first,
+    );
+    final folders = await tester.runAsync(() => folderIdsByName(h));
+    expect(detail!.item.folderId?.value, folders!['Drinks']);
+    expect(find.text('Moved to Drinks.'), findsOneWidget);
+    // The row now sits under the Drinks header.
+    expect(
+      tester.getTopLeft(inList('Drinks')).dy,
+      lessThan(tester.getTopLeft(inList('Croissants')).dy),
+    );
+    expect(
+      tester.getTopLeft(inList('Croissants')).dy,
+      lessThan(tester.getTopLeft(inList('Disposables')).dy),
+    );
+    await h.flushTimers(tester);
+  });
+
+  testWidgets('a recipe-output row expands into the recipe: linked lines '
+      'as real item rows, free lines dimmed with Add to items', (tester) async {
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+    await tester.runAsync(() async {
+      final folders = await folderIdsByName(h);
+      final flour = await seedItem(
+        h,
+        name: 'Flour',
+        folderId: folders['Bakery'],
+      );
+      final recipeId =
+          (await h
+                  .read(recipeServiceProvider)
+                  .createRecipe(
+                    RecipeFormDraft(
+                      name: 'Granola',
+                      yieldQuantity: Quantity.whole(4),
+                      lines: [
+                        RecipeFormLine(
+                          itemId: flour,
+                          quantityPerBatch: Quantity.whole(2),
+                        ),
+                        RecipeFormLine(
+                          name: 'Honey',
+                          unitLabel: 'cup',
+                          quantityPerBatch: Quantity.fromMicros(500000),
+                        ),
+                      ],
+                    ),
+                  )
+              as Ok<String>);
+      final added = await h
+          .read(recipeServiceProvider)
+          .addToItems(
+            recipeId: recipeId.value,
+            folderId: folders['Cooked on site'],
+          );
+      expect(added, isA<Ok<String>>());
+    });
+
+    await h.pumpScreen(tester, const ItemListScreen());
+
+    // Folded: the group's lines are not rows yet.
+    expect(inList('Granola'), findsOneWidget);
+    expect(find.text('Honey'), findsNothing);
+
+    await tester.tap(find.byTooltip('Show ingredients'));
+    await tester.pumpAndSettle();
+
+    // The linked line renders as the Flour item's own row INSIDE the
+    // group — between the Granola row and the next section header — and
+    // wears the chip of the folder it actually lives in (Bakery), the one
+    // 40 dp FolderChip on any row. (Flour's own Bakery row still exists
+    // further down; sliver laziness may not have built it yet.)
+    final flourY = tester.getTopLeft(inList('Flour').first).dy;
+    expect(flourY, greaterThan(tester.getTopLeft(inList('Granola')).dy));
+    expect(
+      flourY,
+      lessThan(tester.getTopLeft(inList('Bought ready to serve')).dy),
+    );
+    expect(
+      find.descendant(
+        of: find.byType(ListTile),
+        matching: find.byType(FolderChip),
+      ),
+      findsOneWidget,
+    );
+    // The free line renders quietly under its own text with its amount
+    // ("0.5 cup") and the way into the recipe's add flow.
+    expect(inList('Honey'), findsOneWidget);
+    expect(inList('0.5 cup'), findsOneWidget);
+    expect(find.text('Add to items'), findsOneWidget);
+
+    // Collapsing folds the lines away again.
+    await tester.tap(find.byTooltip('Hide ingredients'));
+    await tester.pumpAndSettle();
+    expect(find.text('Honey'), findsNothing);
+    await h.flushTimers(tester);
+  });
+
+  testWidgets("a free line's Add to items leads into the recipe screen", (
+    tester,
+  ) async {
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+    await tester.runAsync(() async {
+      final folders = await folderIdsByName(h);
+      final recipeId =
+          (await h
+                  .read(recipeServiceProvider)
+                  .createRecipe(
+                    RecipeFormDraft(
+                      name: 'Granola',
+                      yieldQuantity: Quantity.whole(4),
+                      lines: [
+                        RecipeFormLine(
+                          name: 'Honey',
+                          unitLabel: 'cup',
+                          quantityPerBatch: Quantity.fromMicros(500000),
+                        ),
+                      ],
+                    ),
+                  )
+              as Ok<String>);
+      final added = await h
+          .read(recipeServiceProvider)
+          .addToItems(
+            recipeId: recipeId.value,
+            folderId: folders['Cooked on site'],
+          );
+      expect(added, isA<Ok<String>>());
+    });
+
+    await h.pumpApp(tester);
+    await h.go(tester, '/items');
+    await tester.tap(find.byTooltip('Show ingredients'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add to items'));
+    await tester.pumpAndSettle();
+
+    // The add flow itself lives on the recipe's own screen.
+    expect(find.byType(RecipeDetailScreen), findsOneWidget);
+    await h.flushTimers(tester);
   });
 
   testWidgets('Manage folders in the overflow menu opens the folder '

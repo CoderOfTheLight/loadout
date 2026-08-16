@@ -70,7 +70,7 @@ void main() {
     expect(movement.note, 'first load');
     // Opening the real database now lands on the current version (v4); the
     // v1 rows above survived the whole staircase.
-    expect(db.schemaVersion, 4);
+    expect(db.schemaVersion, 5);
   });
 
   test(

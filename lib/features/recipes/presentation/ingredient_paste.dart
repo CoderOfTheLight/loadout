@@ -4,9 +4,13 @@
 /// multi-line text is split into candidate lines, each line is matched
 /// against the live item catalog (case-insensitive, lightly normalised,
 /// contains-based), and an unambiguous leading amount — "2x carrots",
-/// "3 bags onions" — becomes the per-batch count. Anything unclear (ranges,
-/// weights, "dozen") leaves the amount blank rather than guessing: a wrong
-/// number typed for the owner is worse than no number.
+/// "3 bags onions", "1 1/2 cups sugar" — becomes the per-batch amount.
+/// v5 (units are display labels): the measure word travels with the amount
+/// as the line's display-only unit label — "500g flour" is amount 500,
+/// label "g", name "flour"; "3 bags onions" is amount 3, label "bags",
+/// name "onions". Nothing is ever converted. Anything genuinely unclear
+/// (a range like "2-3") still leaves the amount blank rather than
+/// guessing: a wrong number typed for the owner is worse than no number.
 ///
 /// GATE 5 SEAM: [PasteCandidateLine] is deliberately producer-agnostic — a
 /// raw text line plus its match state. The OCR flow will produce the same
@@ -49,6 +53,7 @@ final class PasteCandidateLine {
     required this.rawText,
     required this.name,
     this.quantityPerBatch,
+    this.unitLabel,
     required this.status,
     this.match,
     this.nearMatches = const [],
@@ -58,12 +63,16 @@ final class PasteCandidateLine {
   final String rawText;
 
   /// The name after stripping bullets and any amount prefix — original
-  /// casing kept, because it becomes the new item's name on create.
+  /// casing kept, because it becomes the line's own name.
   final String name;
 
-  /// Parsed per-batch count, or null when the line carried none or carried
-  /// one that cannot be read as a count (a range, a weight, "dozen").
+  /// Parsed per-batch amount, or null when the line carried none or
+  /// carried one that cannot be read as one number (a range).
   final Quantity? quantityPerBatch;
+
+  /// The measure word that travelled with the amount ("g", "bags", "cups")
+  /// — a display-only unit label, exactly as typed. Never converted.
+  final String? unitLabel;
 
   final PasteLineStatus status;
 
@@ -76,12 +85,29 @@ final class PasteCandidateLine {
 }
 
 /// One resolved row handed back to the recipe form after the review is
-/// confirmed: a picked/created item (or null for a line left for manual
-/// fixing) plus the parsed per-batch amount when there was one.
+/// confirmed.
+///
+/// v5 (recipe decoupling): pasting NEVER creates catalog items any more — a
+/// matched line comes back with [itemId] as an optional LINK, everything
+/// else comes back as a free line carrying its own [name]. Items are created
+/// later, only if the owner asks (AddRecipeToItems / "Add to items").
 final class PastedIngredient {
-  const PastedIngredient({this.itemId, this.quantityPerBatch});
+  const PastedIngredient({
+    this.itemId,
+    required this.name,
+    this.unitLabel,
+    this.quantityPerBatch,
+  });
 
+  /// The matched catalog item to link, or null for a free line.
   final String? itemId;
+
+  /// The line's own ingredient name (kept even when linked, so unlinking
+  /// later never loses the pasted text).
+  final String name;
+
+  /// Display-only unit label parsed off the amount ("g", "bags", "cups").
+  final String? unitLabel;
   final Quantity? quantityPerBatch;
 }
 
@@ -92,11 +118,13 @@ final class ParsedPasteLine {
     required this.rawText,
     required this.name,
     this.quantityPerBatch,
+    this.unitLabel,
   });
 
   final String rawText;
   final String name;
   final Quantity? quantityPerBatch;
+  final String? unitLabel;
 }
 
 // -------------------------------------------------------------- parsing
@@ -106,7 +134,12 @@ final class ParsedPasteLine {
 /// for the quantity rules below.
 final RegExp _bulletPrefix = RegExp(r'^\s*(?:[-*•·‣▪]+|\d{1,3}[.)])\s+');
 
-/// "2-3 onions", "2 – 3 onions", "2 to 3 onions": a range is not a count.
+/// One amount: a decimal ("2", "1.5"), a simple fraction ("1/2"), or a
+/// mixed number ("1 1/2") — the same forms [QuantityCodec.parse] reads.
+const String _amount =
+    r'(?:\d+(?:[.,]\d+)?(?:\s+\d+\s*/\s*\d+)?|\d+\s*/\s*\d+)';
+
+/// "2-3 onions", "2 – 3 onions", "2 to 3 onions": a range is not an amount.
 final RegExp _range = RegExp(
   r'^(\d+(?:[.,]\d+)?)\s*(?:[-–—]|to\b)\s*(\d+(?:[.,]\d+)?)\s+(.+)$',
   caseSensitive: false,
@@ -114,40 +147,47 @@ final RegExp _range = RegExp(
 
 /// "2x rolls", "2 × rolls": the plainest multiplier.
 final RegExp _multiplier = RegExp(
-  r'^(\d+(?:[.,]\d+)?)\s*[x×]\s*(\p{L}.*)$',
+  '^($_amount)'
+  r'\s*[x×]\s*(\p{L}.*)$',
   caseSensitive: false,
   unicode: true,
 );
 
-/// "500g flour", "1.5 kg mince": a weight or volume is NOT a per-batch
-/// count of a counted thing — the amount is left blank on purpose.
+/// "500g flour", "1.5 kg mince", "1 1/2 cups sugar": the measure word is a
+/// display-only unit label riding with the amount (v5 — the app never
+/// converts), so the amount is kept and the word becomes the line's label.
 final RegExp _measurement = RegExp(
-  r'^(\d+(?:[.,]\d+)?)\s*'
+  '^($_amount)'
+  r'\s*'
   r'(kg|g|mg|ml|cl|dl|l|oz|lbs?|cups?|tbsp|tsp|litres?|liters?|grams?|kilos?)'
   r'\b\.?\s*(?:of\s+)?(.*)$',
   caseSensitive: false,
 );
 
-/// "2 dozen eggs": 24, 2, or "a lot"? Ambiguous — left blank.
+/// "2 dozen eggs": amount 2 with the label "dozen" — displayed exactly as
+/// written, never expanded to 24 (labels are text, not arithmetic).
 final RegExp _dozen = RegExp(
-  r'^(\d+(?:[.,]\d+)?)\s+dozen\b\s*(?:of\s+)?(.*)$',
+  '^($_amount)'
+  r'\s+(dozen)\b\s*(?:of\s+)?(.*)$',
   caseSensitive: false,
 );
 
-/// "3 bags onions", "2 packs of napkins": the leading number is the count
-/// (items are counted things — a bag of onions is one counted unit); the
-/// container word is dropped from the name being matched.
+/// "3 bags onions", "2 packs of napkins": the leading number is the amount
+/// and the container word becomes the display label; the name being matched
+/// is what is in the container.
 final RegExp _container = RegExp(
-  r'^(\d+(?:[.,]\d+)?)\s+'
+  '^($_amount)'
+  r'\s+'
   r'(bags?|boxes?|packs?|packets?|cans?|bottles?|jars?|tins?|trays?|tubs?'
   r'|cases?|crates?|cartons?|punnets?|sacks?|bunch(?:es)?|heads?)'
   r'\b\s*(?:of\s+)?(.+)$',
   caseSensitive: false,
 );
 
-/// "2 carrots", "1.5 tomato puree": plain leading count.
+/// "2 carrots", "1.5 tomato puree", "1 1/2 lemons": plain leading amount.
 final RegExp _plainCount = RegExp(
-  r'^(\d+(?:[.,]\d+)?)\s+(\p{L}.*)$',
+  '^($_amount)'
+  r'\s+(\p{L}.*)$',
   unicode: true,
 );
 
@@ -170,17 +210,34 @@ ParsedPasteLine? parsePasteLine(String raw) {
   }
   if (_measurement.firstMatch(line) case final m?) {
     final rest = m.group(3)!.trim();
-    return ParsedPasteLine(rawText: rawText, name: rest.isEmpty ? line : rest);
+    if (rest.isNotEmpty) {
+      return ParsedPasteLine(
+        rawText: rawText,
+        name: rest,
+        quantityPerBatch: _parseCount(m.group(1)!),
+        unitLabel: m.group(2),
+      );
+    }
+    return ParsedPasteLine(rawText: rawText, name: line);
   }
   if (_dozen.firstMatch(line) case final m?) {
-    final rest = m.group(2)!.trim();
-    return ParsedPasteLine(rawText: rawText, name: rest.isEmpty ? line : rest);
+    final rest = m.group(3)!.trim();
+    if (rest.isNotEmpty) {
+      return ParsedPasteLine(
+        rawText: rawText,
+        name: rest,
+        quantityPerBatch: _parseCount(m.group(1)!),
+        unitLabel: m.group(2),
+      );
+    }
+    return ParsedPasteLine(rawText: rawText, name: line);
   }
   if (_container.firstMatch(line) case final m?) {
     return ParsedPasteLine(
       rawText: rawText,
       name: m.group(3)!.trim(),
       quantityPerBatch: _parseCount(m.group(1)!),
+      unitLabel: m.group(2),
     );
   }
   if (_plainCount.firstMatch(line) case final m?) {
@@ -193,11 +250,16 @@ ParsedPasteLine? parsePasteLine(String raw) {
   return ParsedPasteLine(rawText: rawText, name: line);
 }
 
-/// Lenient exact-decimal parse; zero and unparseable both come back null —
-/// a zero per-batch amount is never what a pasted list meant.
+/// Lenient exact parse (decimals and fractions); zero and unparseable both
+/// come back null — a zero per-batch amount is never what a pasted list
+/// meant. Whitespace is normalised so "1  1 / 2" reads as "1 1/2".
 Quantity? _parseCount(String text) {
+  final normalized = text
+      .replaceAll(RegExp(r'\s*/\s*'), '/')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
   try {
-    final value = QuantityCodec.parse(text);
+    final value = QuantityCodec.parse(normalized);
     return value.micros == 0 ? null : value;
   } on Exception {
     return null;
@@ -263,6 +325,7 @@ PasteCandidateLine _matchLine(
       rawText: line.rawText,
       name: line.name,
       quantityPerBatch: line.quantityPerBatch,
+      unitLabel: line.unitLabel,
       status: PasteLineStatus.unmatched,
     );
   }
@@ -288,6 +351,7 @@ PasteCandidateLine _matchLine(
       rawText: line.rawText,
       name: line.name,
       quantityPerBatch: line.quantityPerBatch,
+      unitLabel: line.unitLabel,
       status: PasteLineStatus.matched,
       match: hits.single,
     );
@@ -297,6 +361,7 @@ PasteCandidateLine _matchLine(
       rawText: line.rawText,
       name: line.name,
       quantityPerBatch: line.quantityPerBatch,
+      unitLabel: line.unitLabel,
       status: PasteLineStatus.ambiguous,
       nearMatches: hits,
     );
@@ -310,6 +375,7 @@ PasteCandidateLine _matchLine(
       rawText: line.rawText,
       name: line.name,
       quantityPerBatch: line.quantityPerBatch,
+      unitLabel: line.unitLabel,
       status: PasteLineStatus.excluded,
       match: salesHits.first,
     );
@@ -318,6 +384,7 @@ PasteCandidateLine _matchLine(
     rawText: line.rawText,
     name: line.name,
     quantityPerBatch: line.quantityPerBatch,
+    unitLabel: line.unitLabel,
     status: PasteLineStatus.unmatched,
   );
 }

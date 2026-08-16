@@ -1,6 +1,9 @@
 /// Shared quantity entry (design §9.1): decimal-string entry over
 /// [QuantityCodec] — `.` and `,` both accepted, at most 6 fraction digits,
-/// invalid keystrokes rejected as they are typed. `double` never appears.
+/// invalid keystrokes rejected as they are typed — and, where a field opts
+/// in via `allowFractions` (v5 amount ruling), simple fractions ("1/2") and
+/// mixed numbers ("1 1/2") too. `double` never appears; fraction math is
+/// exact integer math in the codec (1/3 → 333333 micros).
 library;
 
 import 'package:flutter/material.dart';
@@ -14,18 +17,35 @@ import '../../core/quantity_codec.dart';
 /// [QuantityCodec.maxFractionDigits] digits. Intermediate states ("1.",
 /// ".") are allowed while typing; [QuantityCodec.parse] is the final word
 /// at validation time.
+///
+/// With [allowFractions] (v5 amount ruling) the simple-fraction forms
+/// [QuantityCodec.parse] reads — "1/2" and "1 1/2" — are additionally let
+/// through, including their intermediate states ("1 ", "1 1/"). Decimals
+/// keep working exactly as before; a field that never asked for fractions
+/// behaves byte-for-byte as it always did.
 final class QuantityInputFormatter extends TextInputFormatter {
-  QuantityInputFormatter();
+  QuantityInputFormatter({this.allowFractions = false});
+
+  final bool allowFractions;
 
   static final RegExp _allowed = RegExp(
     '^[0-9]*(?:[.,][0-9]{0,${QuantityCodec.maxFractionDigits}})?\$',
+  );
+
+  /// Decimal form, or `n/d` / `w n/d` (with typing intermediates).
+  static final RegExp _allowedWithFractions = RegExp(
+    '^(?:[0-9]*(?:[.,][0-9]{0,${QuantityCodec.maxFractionDigits}})?'
+    '|[0-9]+(?: [0-9]*(?:/[0-9]*)?|/[0-9]*))\$',
   );
 
   @override
   TextEditingValue formatEditUpdate(
     TextEditingValue oldValue,
     TextEditingValue newValue,
-  ) => _allowed.hasMatch(newValue.text) ? newValue : oldValue;
+  ) {
+    final allowed = allowFractions ? _allowedWithFractions : _allowed;
+    return allowed.hasMatch(newValue.text) ? newValue : oldValue;
+  }
 }
 
 /// The shared quantity form field (design §9.1). Usage:
@@ -53,6 +73,7 @@ class QuantityFormField extends StatelessWidget {
     this.enabled = true,
     this.isRequired = true,
     this.allowZero = false,
+    this.allowFractions = false,
     this.requiredMessage = 'Enter a quantity',
     this.autofocus = false,
     this.textInputAction,
@@ -73,6 +94,11 @@ class QuantityFormField extends StatelessWidget {
   final bool enabled;
   final bool isRequired;
   final bool allowZero;
+
+  /// v5 amount ruling: also accept simple fractions ("1/2") and mixed
+  /// numbers ("1 1/2"), exactly as [QuantityCodec.parse] reads them. The
+  /// keyboard switches to text so `/` and space are typeable.
+  final bool allowFractions;
   final String requiredMessage;
   final bool autofocus;
   final TextInputAction? textInputAction;
@@ -105,8 +131,11 @@ class QuantityFormField extends StatelessWidget {
       enabled: enabled,
       autofocus: autofocus,
       textInputAction: textInputAction,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      inputFormatters: [QuantityInputFormatter()],
+      keyboardType: allowFractions
+          ? TextInputType.text
+          : const TextInputType.numberWithOptions(decimal: true),
+      autocorrect: !allowFractions,
+      inputFormatters: [QuantityInputFormatter(allowFractions: allowFractions)],
       decoration: InputDecoration(
         labelText: labelText,
         helperText: helperText,

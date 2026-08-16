@@ -26,6 +26,7 @@ final class CreateItem extends WorkspaceCommand {
     required this.name,
     this.unit = ItemUnit.each,
     this.packSize = Quantity.one,
+    this.unitLabel,
     this.servesPerUnit,
     this.perPersonRatio,
     this.folderId,
@@ -37,6 +38,10 @@ final class CreateItem extends WorkspaceCommand {
   });
 
   final String name;
+
+  /// v5: optional DISPLAY label for the amount ("tsp", "cup", "lbs";
+  /// 1–24 chars). Never converted, never computed with.
+  final String? unitLabel;
 
   /// Defaulted, not asked: units left the product surface in v2.
   final ItemUnit unit;
@@ -75,6 +80,8 @@ final class UpdateItem extends WorkspaceCommand {
     this.name,
     this.unit,
     this.packSize,
+    this.unitLabel,
+    this.clearUnitLabel = false,
     this.servesPerUnit,
     this.clearServesPerUnit = false,
     this.perPersonRatio,
@@ -96,6 +103,13 @@ final class UpdateItem extends WorkspaceCommand {
   /// validator enforces the §4 unit lock (escape hatch: archive+recreate).
   final ItemUnit? unit;
   final Quantity? packSize;
+
+  /// v5: null means "leave alone"; use [clearUnitLabel] to erase it. A
+  /// display label only — freely changeable, no lock.
+  final String? unitLabel;
+
+  /// Erases `unit_label`. Ignored when [unitLabel] is set.
+  final bool clearUnitLabel;
 
   /// Null means "leave alone"; use [clearServesPerUnit] to erase it.
   final Quantity? servesPerUnit;
@@ -379,12 +393,16 @@ final class CloseoutLineDraft {
 
 final class CreateRecipe extends WorkspaceCommand {
   const CreateRecipe({
-    required this.outputItemId,
+    this.outputItemId,
     required this.name,
     required this.firstRevision,
   });
 
-  final ItemId outputItemId;
+  /// v5: OPTIONAL — a recipe exists on its own; null means "not added to
+  /// the item list" (the normal decoupled case; [AddRecipeToItems] creates
+  /// and binds the output item later). A non-null id binds an existing
+  /// live item at creation, exactly as before v5.
+  final ItemId? outputItemId;
   final String name;
   final RecipeRevisionDraft firstRevision;
 }
@@ -401,6 +419,65 @@ final class SetRecipeArchived extends WorkspaceCommand {
 
   final RecipeId recipeId;
   final bool archived;
+}
+
+/// v5: puts the RECIPE itself on the item list — creates its output item in
+/// [folderId] (named after the recipe), binds `recipes.output_item_id`, and
+/// optionally creates + links items for chosen free ingredient lines, all in
+/// ONE transaction through this single command. Idempotent-guarded: a recipe
+/// that is already in the items list is rejected with a plain error.
+final class AddRecipeToItems extends WorkspaceCommand {
+  const AddRecipeToItems({
+    required this.recipeId,
+    this.folderId,
+    this.ingredients = const [],
+  });
+
+  final RecipeId recipeId;
+
+  /// The folder the output item goes into; null = Unfiled. One folder per
+  /// item, folders never nest — the "group" the items list shows for this
+  /// item is a VIEW over the recipe's lines, not data nesting.
+  final FolderId? folderId;
+
+  /// Free (unlinked) lines of the CURRENT revision to also create items
+  /// for, each filed independently.
+  final List<AddRecipeIngredient> ingredients;
+}
+
+/// One "also create an item for this free line" choice.
+final class AddRecipeIngredient {
+  const AddRecipeIngredient({required this.lineIndex, this.folderId});
+
+  /// Index of the free line within the recipe's CURRENT revision.
+  final int lineIndex;
+
+  /// Null = Unfiled.
+  final FolderId? folderId;
+}
+
+/// v5: links a free line of the recipe's CURRENT revision to a live catalog
+/// item. The line's content (name, amount, unit label) is frozen with its
+/// revision; the link is mutable metadata (see recipe_lines_v2 triggers).
+final class LinkRecipeLineToItem extends WorkspaceCommand {
+  const LinkRecipeLineToItem({
+    required this.recipeId,
+    required this.lineIndex,
+    required this.itemId,
+  });
+
+  final RecipeId recipeId;
+  final int lineIndex;
+  final ItemId itemId;
+}
+
+/// v5: removes the catalog link from a line of the recipe's CURRENT
+/// revision. The line keeps its own name and renders as a free line again.
+final class UnlinkRecipeLine extends WorkspaceCommand {
+  const UnlinkRecipeLine({required this.recipeId, required this.lineIndex});
+
+  final RecipeId recipeId;
+  final int lineIndex;
 }
 
 // -------------------------------------------------------------- forecasting

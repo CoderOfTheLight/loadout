@@ -1,6 +1,10 @@
 /// §9 `/recipes/:recipeId` — RecipeDetailScreen widget tests: current
-/// revision (yield, lines, source badge), immutable revision history with
-/// verbatim rendering of prior revisions, archive/unarchive.
+/// revision (yield, table-like ingredient lines, source badge), immutable
+/// revision history with verbatim rendering of prior revisions,
+/// archive/unarchive, and the v5 decoupled states — ingredient lines read
+/// amount-first ("0.5 tsp · Secret spice"), a standalone recipe offers
+/// "Add to my items" (and hides "Scale to event"), a bound recipe shows
+/// where it lives instead.
 library;
 
 import 'package:flutter/material.dart';
@@ -58,11 +62,11 @@ void main() {
     await h.pumpApp(tester);
     await h.go(tester, '/recipes/$recipeId');
 
-    // Current revision (2) by default.
+    // Current revision (2) by default; ingredient rows are table-like —
+    // amount first, then name.
     expect(find.text('Taco kit build'), findsOneWidget);
     expect(find.text('Makes 12 per batch — “12 kits”'), findsOneWidget);
-    expect(find.text('Tortillas'), findsOneWidget);
-    expect(find.text('24'), findsOneWidget);
+    expect(find.text('24 · Tortillas'), findsOneWidget);
     expect(find.text('v2 method'), findsOneWidget);
     // Source badge: seeded via the form path; picker + 2 history entries.
     expect(find.text('Entered by hand'), findsNWidgets(3));
@@ -73,12 +77,51 @@ void main() {
     // Select revision 1 from the history — rendered verbatim.
     await tapVisible(tester, find.text('Revision 1'));
     expect(find.text('Makes 10 per batch — “10 kits”'), findsOneWidget);
-    expect(find.text('20'), findsOneWidget);
+    expect(find.text('20 · Tortillas'), findsOneWidget);
     expect(find.textContaining('Viewing revision 1'), findsOneWidget);
 
     // Back to current.
     await tapVisible(tester, find.text('View current'));
-    expect(find.text('24'), findsOneWidget);
+    expect(find.text('24 · Tortillas'), findsOneWidget);
+  });
+
+  testWidgets('a standalone recipe renders free lines with their units, offers '
+      '"Add to my items", and hides "Scale to event"', (tester) async {
+    final h = (await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    ))!;
+    addTearDown(h.dispose);
+    final recipeId = (await tester.runAsync(() async {
+      final beans = await seedItem(h, 'Beans');
+      return seedStandaloneRecipe(
+        h,
+        name: 'Chilli batch',
+        lines: [
+          RecipeFormLine(itemId: beans, quantityPerBatch: Quantity.whole(3)),
+          RecipeFormLine(
+            name: 'Secret spice',
+            unitLabel: 'tsp',
+            quantityPerBatch: Quantity.fromMicros(500000), // 0.5
+          ),
+        ],
+      );
+    }))!;
+
+    await h.pumpApp(tester);
+    await h.go(tester, '/recipes/$recipeId');
+
+    // The output IS the recipe (nothing in the items list yet), so the
+    // labeled action is offered and scaling is not (no packing list can
+    // carry it).
+    expect(find.byKey(const Key('add-to-items')), findsOneWidget);
+    expect(find.text('Add to my items'), findsOneWidget);
+    expect(find.byKey(const Key('scale-to-event')), findsNothing);
+    expect(find.byKey(const Key('in-items-location')), findsNothing);
+
+    // Table-like lines: the linked line as its live item, the free line
+    // under its own name with its display-only unit label.
+    expect(find.text('3 · Beans'), findsOneWidget);
+    expect(find.text('0.5 tsp · Secret spice'), findsOneWidget);
   });
 
   testWidgets('archive and unarchive round-trip', (tester) async {

@@ -4,6 +4,7 @@
 /// inside `tester.runAsync` — see `test/support/app_harness.dart`.
 library;
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:loadout/app/providers.dart';
 import 'package:loadout/core/quantity.dart';
@@ -66,6 +67,30 @@ Future<String> seedRecipe(
       ),
 );
 
+/// Creates a v5 decoupled recipe (no output item; [lines] given verbatim,
+/// so free and linked lines mix freely) through the real [RecipeService];
+/// returns its id. Call inside `tester.runAsync`.
+Future<String> seedStandaloneRecipe(
+  AppHarness h, {
+  required String name,
+  required List<RecipeFormLine> lines,
+  int yieldWhole = 10,
+  String? yieldLabel,
+  String note = '',
+}) async => unwrap(
+  await h
+      .read(recipeServiceProvider)
+      .createRecipe(
+        RecipeFormDraft(
+          name: name,
+          yieldQuantity: Quantity.whole(yieldWhole),
+          yieldLabel: yieldLabel,
+          note: note,
+          lines: lines,
+        ),
+      ),
+);
+
 /// Opens the dropdown found by [dropdown] and taps the option showing
 /// [optionText] in the opened menu.
 Future<void> pickFromDropdown(
@@ -87,5 +112,26 @@ Future<void> tapVisible(WidgetTester tester, Finder finder) async {
   await tester.ensureVisible(finder);
   await tester.pumpAndSettle();
   await tester.tap(finder);
+  await tester.pumpAndSettle();
+}
+
+/// Scrolls the OPEN folder-picker sheet until [label] is visible and taps
+/// it. The picker's list is lazy and the eight starter folders push later
+/// entries (a created folder, "Unfiled") below the sheet's fold, where a
+/// plain finder sees nothing.
+Future<void> tapFolderPickerEntry(WidgetTester tester, String label) async {
+  // A plain finder: `.last` throws (instead of reporting empty) while the
+  // lazy list has not built the entry yet, which breaks dragUntilVisible's
+  // is-it-there-yet polling.
+  final target = find.text(label);
+  await tester.dragUntilVisible(
+    target,
+    // The picker's own list is the topmost ListView (screens behind the
+    // modal may have their own).
+    find.byType(ListView).last,
+    const Offset(0, -120),
+  );
+  await tester.pumpAndSettle();
+  await tester.tap(target.last);
   await tester.pumpAndSettle();
 }

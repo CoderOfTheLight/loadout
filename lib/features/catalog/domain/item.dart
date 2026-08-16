@@ -18,6 +18,7 @@ final class Item {
     required this.name,
     this.unit = ItemUnit.each,
     this.packSize = Quantity.one,
+    this.unitLabel,
     this.servesPerUnit,
     this.perPersonRatio,
     this.folderId,
@@ -37,6 +38,12 @@ final class Item {
   /// Purchase/load rounding increment in the item's own unit. Engine
   /// packSize. One unit = "round to whole things".
   final Quantity packSize;
+
+  /// v5: optional DISPLAY label for the amount ("tsp", "cup", "lbs";
+  /// 1–24 chars). Free text with suggestion chips on the form. The app
+  /// never converts between labels and never does unit arithmetic —
+  /// forecasting works on the bare amounts exactly as before.
+  final String? unitLabel;
 
   /// How many people ONE of this item serves ("1 pizza serves 4"). Null when
   /// the owner never said — then a first-ever event simply gets no estimate.
@@ -77,6 +84,7 @@ final class Item {
 final class ItemDraft {
   const ItemDraft({
     required this.name,
+    this.unitLabel,
     this.servesPerUnit,
     this.perPersonRatio,
     this.folderId,
@@ -89,6 +97,10 @@ final class ItemDraft {
   });
 
   final String name;
+
+  /// v5: display label for the amount; null shows nothing (and clears on
+  /// update — the form always submits its whole state).
+  final String? unitLabel;
 
   /// Null clears the stored value on update ("I don't know" is a legal
   /// answer, and the form always submits its whole state).

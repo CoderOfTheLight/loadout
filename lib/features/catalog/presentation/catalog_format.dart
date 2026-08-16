@@ -33,6 +33,19 @@ String formatSignedMicros(int micros) =>
 String formatCount(int micros, ItemUnit unit) =>
     '${formatMicros(micros)}${unitSuffix(unit)}';
 
+/// The amount with its display label after it — "12 packages", "0.5 cup",
+/// bare "12" when the item has no label. A legacy measured row's REAL unit
+/// always wins over the label: its stored numbers genuinely mean kilograms
+/// or litres, and a display label must never present a weight as something
+/// else. Labels are display-only — never converted, never computed with.
+String formatAmount(int micros, ItemUnit unit, String? unitLabel) {
+  if (unit != ItemUnit.each) {
+    return formatCount(micros, unit);
+  }
+  final amount = formatMicros(micros);
+  return unitLabel == null ? amount : '$amount $unitLabel';
+}
+
 /// The two plain answers to the one question every item answers — "Does how
 /// much you bring depend on how many people come?" Worded to fit the
 /// kitchen and the sales table alike; never "sold", never "eaten".

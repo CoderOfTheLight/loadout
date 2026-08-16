@@ -1,11 +1,19 @@
 /// THE reported bug: "the new recipe form will not let me select anything
 /// from the dropdown menus."
 ///
-/// Every picker in the app is built from the item catalog, so an EMPTY
-/// catalog used to render dropdowns with zero options and no explanation.
-/// Each test here opens one of those screens with an empty workspace and
-/// asserts two things: guidance that says what to do, and a control that
-/// actually reaches `/items/new`.
+/// Item pickers are built from the item catalog, so an EMPTY catalog used
+/// to render dropdowns with zero options and no explanation. Each test here
+/// opens one of those screens with an empty workspace and asserts two
+/// things: guidance that says what to do, and a control that actually
+/// reaches `/items/new`.
+///
+/// v5 (recipe decoupling — deliberately superseded pins): the recipe form
+/// no longer pulls from the catalog AT ALL, so its empty-catalog dead end,
+/// the "unblocks the form" flow, and the only-item-is-its-own-output guard
+/// are gone by ruling. The one recipe test left here pins the promise from
+/// this file's angle: an empty catalog never blocks the recipe form. The
+/// new form's own behavior is pinned in
+/// `test/features/recipes/recipe_edit_screen_test.dart`.
 ///
 /// These run against the FULL app (router + shell), because "a working way
 /// out" means the route really opens — not that a button exists.
@@ -15,7 +23,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:loadout/app/providers.dart';
 import 'package:loadout/core/result.dart';
-import 'package:loadout/features/catalog/domain/item.dart';
 import 'package:loadout/features/catalog/presentation/item_edit_screen.dart';
 import 'package:loadout/features/events/domain/event.dart';
 import 'package:loadout/features/events/presentation/planned_items_picker.dart';
@@ -65,49 +72,22 @@ Future<void> expectReachesNewItemForm(
 }
 
 void main() {
-  testWidgets('the recipe form explains itself instead of showing empty '
-      'dropdowns, and leads to the item form', (tester) async {
+  testWidgets('the recipe form is never blocked by an empty catalog — the '
+      'v5 decoupled form opens usable, with no dead end', (tester) async {
     final h = await startEmptyWorkspace(tester);
     addTearDown(h.dispose);
 
     await h.pumpApp(tester);
     await h.go(tester, '/recipes/new');
 
-    // No dead dropdown: the output-item picker is not even built.
+    // The pre-v5 dead end and its output-item dropdown are gone by ruling:
+    // recipes are written from free-text ingredient lines, catalog or not.
+    expect(find.text('Add an item first'), findsNothing);
     expect(find.byKey(const Key('output-item-picker')), findsNothing);
     expect(find.byType(DropdownButtonFormField<String>), findsNothing);
-    expect(find.text('Add an item first'), findsOneWidget);
-    expect(
-      find.textContaining('A recipe is built from your items'),
-      findsOneWidget,
-    );
-
-    await expectReachesNewItemForm(tester, find.text('Add an item'));
-  });
-
-  testWidgets('an item added from the recipe dead end unblocks the form', (
-    tester,
-  ) async {
-    final h = await startEmptyWorkspace(tester);
-    addTearDown(h.dispose);
-
-    await h.pumpApp(tester);
-    await h.go(tester, '/recipes/new');
-    await tester.tap(find.text('Add an item'));
-    await tester.pumpAndSettle();
-
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'Item name'),
-      'Tortillas',
-    );
-    await tester.tap(find.text('Add item'));
-    await tester.pumpAndSettle();
-
-    // Back on the recipe form, now with a usable picker.
-    expect(find.byKey(const Key('output-item-picker')), findsOneWidget);
-    await tester.tap(find.byKey(const Key('output-item-picker')));
-    await tester.pumpAndSettle();
-    expect(find.text('Tortillas'), findsWidgets);
+    // A usable form is on screen: name and the first ingredient row.
+    expect(find.byKey(const Key('recipe-name')), findsOneWidget);
+    expect(find.byKey(const ValueKey('ingredient-name-0')), findsOneWidget);
   });
 
   testWidgets('the event form stays usable but its planned-items section '
@@ -192,44 +172,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('No items yet'), findsNothing);
     await h.flushTimers(tester);
-  });
-
-  testWidgets('a recipe whose only item is its own output explains the '
-      'empty ingredient picker', (tester) async {
-    final h = await startEmptyWorkspace(tester);
-    addTearDown(h.dispose);
-    await tester.runAsync(
-      () => h
-          .read(catalogServiceProvider)
-          .createItem(const ItemDraft(name: 'Taco kit')),
-    );
-
-    await h.pumpApp(tester);
-    await h.go(tester, '/recipes/new');
-
-    await tester.tap(find.byKey(const Key('output-item-picker')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Taco kit').last);
-    await tester.pumpAndSettle();
-
-    // The only live item is the output, so the ingredient row has nothing
-    // to offer — and says so instead of opening onto nothing.
-    expect(find.byKey(const ValueKey('ingredient-item-0')), findsNothing);
-    expect(
-      find.textContaining('The only item you have is what this recipe makes'),
-      findsOneWidget,
-    );
-
-    // It also blocks the save: a line was never filled in.
-    await tester.ensureVisible(find.byKey(const Key('save-recipe')));
-    await tester.tap(find.byKey(const Key('save-recipe')));
-    await tester.pumpAndSettle();
-    expect(
-      find.text('Add another item to use as an ingredient'),
-      findsOneWidget,
-    );
-
-    await expectReachesNewItemForm(tester, find.text('Add an item'));
   });
 
   testWidgets('the item list itself explains what an item is', (tester) async {

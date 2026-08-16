@@ -375,13 +375,24 @@ class _IngredientRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final item = itemsById[line.ingredientItemId.value];
-    final name = item == null
+    // v5: free (unlinked) lines render under their own name and display-only
+    // unit label; linked lines render as their live item.
+    final item = switch (line.ingredientItemId) {
+      final id? => itemsById[id.value],
+      null => null,
+    };
+    final name = !line.isLinked
+        ? line.name
+        : item == null
         ? 'Unknown item'
         : item.isArchived
         ? '${item.name} (archived)'
         : item.name;
-    final suffix = item == null ? '' : unitSuffix(item.unit);
+    final suffix = line.unitLabel != null
+        ? ' ${line.unitLabel}'
+        : item == null
+        ? ''
+        : unitSuffix(item.unit);
     return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: 56),
       child: Row(

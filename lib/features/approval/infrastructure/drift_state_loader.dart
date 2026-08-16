@@ -161,7 +161,12 @@ final class DriftStateLoader {
       case ReviseCloseout():
         eventIds.add(command.eventId as String);
         closeoutEventIds.add(command.eventId as String);
-      case CreateRecipe() || AddRecipeRevision() || SetRecipeArchived():
+      case CreateRecipe() ||
+          AddRecipeRevision() ||
+          SetRecipeArchived() ||
+          AddRecipeToItems() ||
+          LinkRecipeLineToItem() ||
+          UnlinkRecipeLine():
         needRecipes = true;
       case SaveForecastSnapshot():
         eventIds.add(command.snapshot.eventId as String);
@@ -329,22 +334,54 @@ final class DriftStateLoader {
   Future<Map<String, RecipeState>> _loadRecipes() async {
     final rows = await _db
         .customSelect(
-          'SELECT r.id AS id, r.output_item_id AS output_item_id, '
+          'SELECT r.id AS id, r.name AS name, '
+          'r.output_item_id AS output_item_id, '
           'r.archived_at_micros AS archived_at_micros, '
-          'COALESCE(MAX(rev.revision), 0) AS latest_revision '
+          'rev.id AS latest_revision_id, '
+          'COALESCE(rev.revision, 0) AS latest_revision '
           'FROM recipes r '
           'LEFT JOIN recipe_revisions rev ON rev.recipe_id = r.id '
-          'GROUP BY r.id',
+          'AND rev.revision = (SELECT MAX(r2.revision) '
+          'FROM recipe_revisions r2 WHERE r2.recipe_id = r.id)',
           readsFrom: {_db.recipes, _db.recipeRevisions},
         )
         .get();
+    final revisionIds = [
+      for (final row in rows) ?row.read<String?>('latest_revision_id'),
+    ];
+    final linesByRevision = <String, List<RecipeLineState>>{};
+    if (revisionIds.isNotEmpty) {
+      final lineRows =
+          await (_db.select(_db.recipeLinesV2)
+                ..where((l) => l.revisionId.isIn(revisionIds))
+                ..orderBy([(l) => OrderingTerm.asc(l.lineIndex)]))
+              .get();
+      for (final line in lineRows) {
+        linesByRevision
+            .putIfAbsent(line.revisionId, () => [])
+            .add(
+              RecipeLineState(
+                lineIndex: line.lineIndex,
+                name: line.ingredientName,
+                unitLabel: line.unitLabel,
+                ingredientItemId: line.ingredientItemId,
+              ),
+            );
+      }
+    }
     return {
       for (final row in rows)
         row.read<String>('id'): RecipeState(
           id: row.read<String>('id'),
-          outputItemId: row.read<String>('output_item_id'),
+          name: row.read<String>('name'),
+          outputItemId: row.read<String?>('output_item_id'),
           archived: row.read<int?>('archived_at_micros') != null,
           latestRevision: row.read<int>('latest_revision'),
+          latestRevisionId: row.read<String?>('latest_revision_id'),
+          currentLines: switch (row.read<String?>('latest_revision_id')) {
+            final id? => linesByRevision[id] ?? const [],
+            null => const [],
+          },
         ),
     };
   }
@@ -353,23 +390,32 @@ final class DriftStateLoader {
     final recipes = await _loadRecipes();
     return {
       for (final recipe in recipes.values)
-        if (!recipe.archived) recipe.outputItemId: recipe,
+        // Not-yet-added recipes have no output item to collide on.
+        if (!recipe.archived && recipe.outputItemId != null)
+          recipe.outputItemId!: recipe,
     };
   }
 
   Future<List<RecipeNode>> _loadLiveNodes() async {
+    // v5: reads recipe_lines_v2; only LINKED lines are graph EDGES, and only
+    // recipes WITH an output item can be producers — a not-yet-added recipe
+    // cannot be nested into. The line join is a LEFT join on purpose: a live
+    // recipe whose lines are all free still OWNS its output item, and the
+    // flatness guard must still find it as that item's producer.
     final rows = await _db
         .customSelect(
           'SELECT r.id AS recipe_id, r.output_item_id AS output_item_id, '
           'rl.ingredient_item_id AS ingredient_item_id '
           'FROM recipes r '
           'JOIN recipe_revisions rr ON rr.recipe_id = r.id '
-          'JOIN recipe_lines rl ON rl.revision_id = rr.id '
-          'WHERE r.archived_at_micros IS NULL '
           'AND rr.revision = (SELECT MAX(r2.revision) FROM recipe_revisions r2 '
           'WHERE r2.recipe_id = r.id) '
+          'LEFT JOIN recipe_lines_v2 rl ON rl.revision_id = rr.id '
+          'AND rl.ingredient_item_id IS NOT NULL '
+          'WHERE r.archived_at_micros IS NULL '
+          'AND r.output_item_id IS NOT NULL '
           'ORDER BY r.id, rl.line_index',
-          readsFrom: {_db.recipes, _db.recipeRevisions, _db.recipeLines},
+          readsFrom: {_db.recipes, _db.recipeRevisions, _db.recipeLinesV2},
         )
         .get();
     final ingredients = <String, List<String>>{};
@@ -377,9 +423,9 @@ final class DriftStateLoader {
     for (final row in rows) {
       final recipeId = row.read<String>('recipe_id');
       outputs[recipeId] = row.read<String>('output_item_id');
-      ingredients
-          .putIfAbsent(recipeId, () => [])
-          .add(row.read<String>('ingredient_item_id'));
+      final linked = row.read<String?>('ingredient_item_id');
+      final list = ingredients.putIfAbsent(recipeId, () => []);
+      if (linked != null) list.add(linked);
     }
     return [
       for (final recipeId in outputs.keys)

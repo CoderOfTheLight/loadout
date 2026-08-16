@@ -21,22 +21,28 @@ enum RecipeSourceKind {
 
 /// Recipe identity + output binding (design §6.2). At most one live recipe
 /// per output item.
+///
+/// v5: [outputItemId] is null until the recipe is added to the item list
+/// (`AddRecipeToItems` creates the output item and binds it here).
 final class Recipe {
   const Recipe({
     required this.id,
-    required this.outputItemId,
+    this.outputItemId,
     required this.name,
     this.archivedAt,
     required this.createdAt,
   });
 
   final RecipeId id;
-  final ItemId outputItemId;
+  final ItemId? outputItemId;
   final String name;
   final Instant? archivedAt;
   final Instant createdAt;
 
   bool get isArchived => archivedAt != null;
+
+  /// True once `AddRecipeToItems` has created the output item.
+  bool get isInItems => outputItemId != null;
 }
 
 /// One immutable recipe revision with its lines (design §6.2). Current =
@@ -65,13 +71,27 @@ final class RecipeRevisionView {
   final List<RecipeLine> lines;
 }
 
-/// One ingredient line: micros of the ingredient's own base unit per batch.
+/// One ingredient line: micros per batch, the line's own name, an optional
+/// display-only unit label, and an optional catalog link (v5 decoupling).
 final class RecipeLine {
   const RecipeLine({
-    required this.ingredientItemId,
+    required this.name,
+    this.unitLabel,
+    this.ingredientItemId,
     required this.quantityPerBatch,
   });
 
-  final ItemId ingredientItemId;
+  /// Always present: the typed/pasted text, or the linked item's name as
+  /// snapshotted when the line was written. Linked lines display the live
+  /// item name; this is what remains after an unlink.
+  final String name;
+
+  /// Display label for the amount; never converted, never computed with.
+  final String? unitLabel;
+
+  /// Null = free line ("Add to items" is offered on it).
+  final ItemId? ingredientItemId;
   final Quantity quantityPerBatch;
+
+  bool get isLinked => ingredientItemId != null;
 }

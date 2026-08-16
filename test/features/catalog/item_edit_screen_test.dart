@@ -16,6 +16,22 @@
 /// "Group" field is gone (folders proposal §3 — typed names are how
 /// "Drinks"/"drinks"/"Beverages" become three folders). A legacy row's
 /// category text now rides along verbatim instead, pinned below.
+///
+/// v5 deliberately superseded pins (owner's amount + unit rulings):
+/// * "the count field takes whole numbers only" is GONE — the opening
+///   count accepts decimals and simple/mixed fractions ("1 1/2" → 1.5),
+///   pinned below at the form level.
+/// * "nothing about units" is NARROWED — the legacy unit DROPDOWN stays
+///   gone, but the optional display-label "Unit" field (free text +
+///   shared suggestion chips, never converted) is now part of the form.
+///
+/// Also pinned here: the only-item move bug the owner hit — moving an
+/// item with history between folders whose default answers differ used to
+/// raise the "Read past events differently?" confirm, whose safe-sounding
+/// "Keep it as it was" aborted the whole save and silently dropped the
+/// move. A folder pick now keeps the item's effective answer (stored as
+/// the per-item exception), so the move always survives and forecasts are
+/// untouched.
 library;
 
 import 'package:flutter/material.dart';
@@ -140,9 +156,17 @@ void main() {
     expect(find.byType(DropdownMenu<ItemUnit>), findsNothing);
     expect(find.textContaining('Pack'), findsNothing);
     expect(find.textContaining('pack size'), findsNothing);
-    expect(find.textContaining('Unit'), findsNothing);
     expect(find.text('kilograms'), findsNothing);
     expect(find.text('Group'), findsNothing);
+
+    // v5: the optional DISPLAY-label unit field, with the shared
+    // suggestion chips — a label, never a convertible unit.
+    expect(
+      find.widgetWithText(TextFormField, 'Unit (optional)'),
+      findsOneWidget,
+    );
+    expect(find.widgetWithText(ActionChip, 'tsp'), findsOneWidget);
+    expect(find.widgetWithText(ActionChip, 'cup'), findsOneWidget);
   });
 
   testWidgets('create needs only a name', (tester) async {
@@ -222,29 +246,30 @@ void main() {
     expect(movements.single.movement.deltaMicros, 48000000);
   });
 
-  testWidgets('the count field takes whole numbers only', (tester) async {
+  testWidgets('the count field accepts fractions at the form level: '
+      '"1 1/2" becomes exactly 1.5 on hand', (tester) async {
+    // Deliberately superseded pin: the digits-only opening count is gone
+    // (owner's amount ruling — decimals, simple and mixed fractions).
     final h = await startWorkspace(tester);
     addTearDown(h.dispose);
 
     await h.pumpScreen(tester, const ItemEditScreen());
     await tester.enterText(
+      find.widgetWithText(TextFormField, nameField),
+      'Flour (bag)',
+    );
+    await tester.enterText(
       find.widgetWithText(TextFormField, countField),
-      '2.5',
+      '1 1/2',
     );
-    await tester.pump();
+    await tester.tap(find.text('Add item'));
+    await tester.pumpAndSettle();
 
-    expect(
-      tester
-          .widget<TextField>(
-            find.descendant(
-              of: find.widgetWithText(CountFormField, countField),
-              matching: find.byType(TextField),
-            ),
-          )
-          .controller
-          ?.text,
-      '25',
+    final items = await tester.runAsync(
+      () => h.read(catalogServiceProvider).watchItems(const ItemFilter()).first,
     );
+    // Exact integer micros — never a double on the way through.
+    expect(items!.single.onHandMicros, 1500000);
   });
 
   testWidgets('serves-per-unit is optional and capped at 10000', (
@@ -647,6 +672,170 @@ void main() {
     expect(detail!.item.name, 'Mince (500 g packs)');
     expect(detail.item.unit, ItemUnit.kg);
     expect(detail.item.packSize, Quantity.fromMicros(500000));
+    await h.flushTimers(tester);
+  });
+
+  testWidgets('a suggestion chip fills the unit label, create stores it, '
+      'and clearing the field on edit erases it', (tester) async {
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+
+    await h.pumpScreen(tester, const ItemEditScreen());
+    await tester.enterText(
+      find.widgetWithText(TextFormField, nameField),
+      'Sugar',
+    );
+    await tester.ensureVisible(find.widgetWithText(ActionChip, 'cup'));
+    await tester.tap(find.widgetWithText(ActionChip, 'cup'));
+    await tester.pump();
+    // The chip filled the free-text field — a suggestion, not a picker.
+    expect(
+      tester
+          .widget<TextField>(
+            find.descendant(
+              of: find.widgetWithText(TextFormField, 'Unit (optional)'),
+              matching: find.byType(TextField),
+            ),
+          )
+          .controller
+          ?.text,
+      'cup',
+    );
+    await tester.tap(find.text('Add item'));
+    await tester.pumpAndSettle();
+
+    final items = await tester.runAsync(
+      () => h.read(catalogServiceProvider).watchItems(const ItemFilter()).first,
+    );
+    final id = items!.single.item.id.value;
+    expect(items.single.item.unitLabel, 'cup');
+
+    // Edit prefills the label; clearing it clears the stored value (the
+    // form always submits its complete state).
+    await h.pumpScreen(tester, ItemEditScreen(itemId: id));
+    expect(
+      tester
+          .widget<TextField>(
+            find.descendant(
+              of: find.widgetWithText(TextFormField, 'Unit (optional)'),
+              matching: find.byType(TextField),
+            ),
+          )
+          .controller
+          ?.text,
+      'cup',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Unit (optional)'),
+      '',
+    );
+    await tester.tap(find.text('Save changes'));
+    await tester.pumpAndSettle();
+
+    final detail = await tester.runAsync(() => readDetail(h, id));
+    expect(detail!.item.unitLabel, isNull);
+    await h.flushTimers(tester);
+  });
+
+  testWidgets("moving a folder's ONLY item out via the edit form works — "
+      'to another folder and to Unfiled', (tester) async {
+    // The owner's report, pinned: she tried to move a sole occupant and
+    // failed. The service always worked; the form path must too.
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+    final id = (await tester.runAsync(() async {
+      final folders = await folderIdsByName(h);
+      return seedItem(h, name: 'Croissants', folderId: folders['Bakery']);
+    }))!;
+
+    await h.pumpScreen(tester, ItemEditScreen(itemId: id));
+    await openFolderPicker(tester, currentName: 'Bakery');
+    await tapPickerEntry(tester, 'Drinks');
+    await tester.tap(find.text('Save changes'));
+    await tester.pumpAndSettle();
+
+    var detail = await tester.runAsync(() => readDetail(h, id));
+    var folders = await tester.runAsync(() => folderIdsByName(h));
+    expect(detail!.item.folderId?.value, folders!['Drinks']);
+
+    // Now the only item of Drinks → Unfiled (null folder), same form path.
+    await h.pumpScreen(tester, ItemEditScreen(itemId: id));
+    await openFolderPicker(tester, currentName: 'Drinks');
+    await tapPickerEntry(tester, 'Unfiled');
+    await tester.tap(find.text('Save changes'));
+    await tester.pumpAndSettle();
+
+    detail = await tester.runAsync(() => readDetail(h, id));
+    expect(detail!.item.folderId, isNull);
+    await h.flushTimers(tester);
+  });
+
+  testWidgets('ROOT CAUSE pinned: moving an item WITH history into a '
+      'folder with a different answer saves the move without asking, and '
+      'keeps the answer it had as the exception', (tester) async {
+    // Before the fix, this exact flow raised "Read past events
+    // differently?" and its safe-sounding "Keep it as it was" aborted the
+    // WHOLE save — the move was silently dropped (the failure the owner
+    // hit on her phone with a folder's only item).
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+    final id = (await tester.runAsync(() async {
+      final folders = await folderIdsByName(h);
+      // Bakery answers per-person; Cleaning & setup answers per-event.
+      final id = await seedItem(
+        h,
+        name: 'Napkin holder',
+        folderId: folders['Bakery'],
+      );
+      final result = await h
+          .read(inventoryServiceProvider)
+          .record(
+            MovementFormDraft(
+              itemId: id,
+              kind: MovementKind.receive,
+              quantity: Quantity.whole(1),
+            ),
+          );
+      expect(result, isA<Ok<Object?>>());
+      return id;
+    }))!;
+
+    await h.pumpScreen(tester, ItemEditScreen(itemId: id));
+    await openFolderPicker(tester, currentName: 'Bakery');
+    await tapPickerEntry(tester, 'Cleaning & setup');
+
+    // The form keeps the answer the item already had — visibly the
+    // exception in its new folder — instead of silently flipping it.
+    expect(find.textContaining('this item is the exception'), findsOneWidget);
+
+    await tester.tap(find.text('Save changes'));
+    await tester.pumpAndSettle();
+
+    // No forecasting confirm for a pure move — nothing about forecasting
+    // changed.
+    expect(find.text('Read past events differently?'), findsNothing);
+
+    final detail = await tester.runAsync(() => readDetail(h, id));
+    final folders = await tester.runAsync(() => folderIdsByName(h));
+    // The move survived ...
+    expect(detail!.item.folderId?.value, folders!['Cleaning & setup']);
+    // ... and past events read exactly as before: the old effective
+    // answer is stored as the per-item exception.
+    expect(detail.item.demandBasis, DemandBasis.perPerson);
+
+    // Changing the answer stays HER explicit act — and still confirms.
+    await h.pumpScreen(tester, ItemEditScreen(itemId: id));
+    await tester.ensureVisible(find.text(perEventChoice));
+    await tester.tap(find.text(perEventChoice));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save changes'));
+    await tester.pumpAndSettle();
+    expect(find.text('Read past events differently?'), findsOneWidget);
+    await tester.tap(find.text('Change it'));
+    await tester.pumpAndSettle();
+    final after = await tester.runAsync(() => readDetail(h, id));
+    // Matches the folder's answer again → override cleared, inherits.
+    expect(after!.item.demandBasis, isNull);
     await h.flushTimers(tester);
   });
 }

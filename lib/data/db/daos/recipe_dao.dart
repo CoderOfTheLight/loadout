@@ -7,7 +7,7 @@ part 'recipe_dao.g.dart';
 
 /// Recipe reads. Mutation stays with the CommandApplier (design §6.4);
 /// this DAO exposes none.
-@DriftAccessor(tables: [Recipes, RecipeRevisions, RecipeLines])
+@DriftAccessor(tables: [Recipes, RecipeRevisions, RecipeLinesV2])
 class RecipeDao extends DatabaseAccessor<AppDatabase> with _$RecipeDaoMixin {
   RecipeDao(super.db);
 
@@ -51,9 +51,10 @@ class RecipeDao extends DatabaseAccessor<AppDatabase> with _$RecipeDaoMixin {
             ..limit(1))
           .getSingleOrNull();
 
-  /// Lines of one revision, in entry order.
-  Future<List<RecipeLine>> linesForRevision(String revisionId) =>
-      (select(recipeLines)
+  /// Lines of one revision, in entry order. v5: reads `recipe_lines_v2` —
+  /// the legacy `recipe_lines` table is frozen history (see tables.dart).
+  Future<List<RecipeLineV2>> linesForRevision(String revisionId) =>
+      (select(recipeLinesV2)
             ..where((l) => l.revisionId.equals(revisionId))
             ..orderBy([(l) => OrderingTerm.asc(l.lineIndex)]))
           .get();

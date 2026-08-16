@@ -235,6 +235,30 @@ Future<void> insertRecipeLine(
   [revisionId, lineIndex, ingredientItemId, quantityPerBatchMicros],
 );
 
+/// v5 decoupled line: name always present, link and unit label optional.
+Future<void> insertRecipeLineV2(
+  AppDatabase db, {
+  required String revisionId,
+  required String ingredientName,
+  String? unitLabel,
+  String? ingredientItemId,
+  int lineIndex = 0,
+  int quantityPerBatchMicros = 1000000,
+}) => db.customStatement(
+  'INSERT INTO recipe_lines_v2 '
+  '(revision_id, line_index, ingredient_name, unit_label, '
+  'ingredient_item_id, quantity_per_batch_micros) '
+  'VALUES (?, ?, ?, ?, ?, ?)',
+  [
+    revisionId,
+    lineIndex,
+    ingredientName,
+    unitLabel,
+    ingredientItemId,
+    quantityPerBatchMicros,
+  ],
+);
+
 Future<void> insertSnapshot(
   AppDatabase db,
   String id, {

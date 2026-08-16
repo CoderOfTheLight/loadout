@@ -42,6 +42,41 @@ void main() {
       expect(apply('1', '1e'), '1');
       expect(apply('', ' '), '');
     });
+
+    test('rejects fraction characters unless fractions were asked for', () {
+      expect(apply('1', '1/'), '1');
+      expect(apply('1', '1 '), '1');
+    });
+  });
+
+  group('QuantityInputFormatter(allowFractions: true)', () {
+    final formatter = QuantityInputFormatter(allowFractions: true);
+
+    String apply(String oldText, String newText) =>
+        formatter.formatEditUpdate(_v(oldText), _v(newText)).text;
+
+    test('accepts simple and mixed fractions with typing intermediates', () {
+      expect(apply('1', '1/'), '1/');
+      expect(apply('1/', '1/2'), '1/2');
+      expect(apply('1', '1 '), '1 ');
+      expect(apply('1 ', '1 1'), '1 1');
+      expect(apply('1 1', '1 1/'), '1 1/');
+      expect(apply('1 1/', '1 1/2'), '1 1/2');
+    });
+
+    test('decimals keep working exactly as before', () {
+      expect(apply('1', '1.'), '1.');
+      expect(apply('1.', '1.5'), '1.5');
+      expect(apply('0.123456', '0.1234567'), '0.123456');
+    });
+
+    test('still rejects malformed input at the keystroke', () {
+      expect(apply('', ' '), ''); // no leading space
+      expect(apply('1/2', '1/2/'), '1/2'); // one slash only
+      expect(apply('1.5', '1.5/'), '1.5'); // no slash after a decimal
+      expect(apply('1 1', '1 1 '), '1 1'); // one space only
+      expect(apply('12', '12a'), '12');
+    });
   });
 
   group('QuantityFormField', () {

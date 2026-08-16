@@ -4,13 +4,21 @@
 /// revision picker ("Revision 3 · 2026-08-02") that renders any prior
 /// revision verbatim, a revision history list (immutable, each entry with
 /// its form/OCR source badge), and app-bar Revise / Archive actions.
-/// Commands: `RecipeService.setArchived` only — revisions are permanent by
-/// design, so there is no edit here, only "Revise" (append).
+///
+/// v5 (recipe decoupling): a recipe normally lives OUTSIDE the item list.
+/// A live, unbound recipe offers the labeled "Add to my items" action —
+/// the sheet (`recipe_add_to_items_sheet.dart`) picks a folder for the
+/// recipe and optionally turns unlinked ingredient lines into items too
+/// (one `AddRecipeToItems` command). A recipe that is already in the items
+/// list shows WHERE it lives instead of the action. Ingredient lines read
+/// table-like — amount first, then the display-only unit, then the name
+/// ("0.5 cup · Flour") — free lines under their own text, linked lines as
+/// their live item.
 ///
 /// "Scale to event" (proposal §3) opens a read-only sheet
 /// (`recipe_scale_sheet.dart`) that shows the CURRENT revision as whole
 /// batches against an upcoming event's stored packing list. A view — the
-/// saved recipe never changes.
+/// saved recipe never changes; hidden until the recipe has an output item.
 library;
 
 import 'package:flutter/material.dart';
@@ -18,16 +26,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/providers.dart';
+import '../../../app/theme.dart';
 import '../../../app/unit_display.dart';
 import '../../../app/widgets/content_column.dart';
+import '../../../app/widgets/folder_chip.dart';
 import '../../../app/widgets/warning_banner.dart';
 import '../../../core/quantity_codec.dart';
 import '../../../core/result.dart';
 import '../../../core/time.dart';
 import '../../catalog/application/catalog_service.dart';
+import '../../catalog/domain/folder.dart';
 import '../../catalog/domain/item.dart';
+import '../../catalog/presentation/catalog_providers.dart';
 import '../application/recipe_service.dart';
 import '../domain/recipe.dart';
+import 'recipe_add_to_items_sheet.dart';
 import 'recipe_scale_sheet.dart';
 
 /// Canonical (const, so family-cached) filter: archived items included —
@@ -56,6 +69,11 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
       for (final summary in items.valueOrNull ?? const <ItemSummary>[])
         summary.item.id.value: summary.item,
     };
+    final foldersById = <String, Folder>{
+      for (final folder
+          in ref.watch(folderListProvider).valueOrNull ?? const <Folder>[])
+        folder.id.value: folder,
+    };
     return detailAsync.when(
       loading: () => Scaffold(
         appBar: AppBar(title: const Text('Recipe')),
@@ -65,7 +83,7 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
         appBar: AppBar(title: const Text('Recipe')),
         body: const Center(child: Text("Couldn't load this recipe.")),
       ),
-      data: (detail) => _buildLoaded(context, detail, itemsById),
+      data: (detail) => _buildLoaded(context, detail, itemsById, foldersById),
     );
   }
 
@@ -73,6 +91,7 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
     BuildContext context,
     RecipeDetail detail,
     Map<String, Item> itemsById,
+    Map<String, Folder> foldersById,
   ) {
     final theme = Theme.of(context);
     final recipe = detail.recipe;
@@ -84,7 +103,8 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
             (r) => r.revision == _viewedRevision,
             orElse: () => revisions.first,
           );
-    final outputItem = itemsById[recipe.outputItemId.value];
+    final outputItemId = recipe.outputItemId?.value;
+    final outputItem = outputItemId == null ? null : itemsById[outputItemId];
     return Scaffold(
       appBar: AppBar(
         title: Text(recipe.name),
@@ -125,11 +145,34 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
                 Text('Output', style: theme.textTheme.labelLarge),
                 const SizedBox(height: 4),
                 Text(
-                  outputItem?.name ?? 'Unknown item',
+                  // v5: a recipe without an output item is the normal
+                  // decoupled state — it makes itself, not a catalog item.
+                  outputItemId == null
+                      ? recipe.name
+                      : outputItem?.name ?? 'Unknown item',
                   style: theme.textTheme.titleLarge,
                 ),
+                const SizedBox(height: 8),
+                // v5: in the items list → say where it lives; not yet →
+                // the labeled action that puts it there (live recipes only;
+                // an archived recipe cannot be added).
+                if (outputItemId != null)
+                  _InItemsLocation(
+                    outputItem: outputItem,
+                    foldersById: foldersById,
+                  )
+                else if (!recipe.isArchived && latest != null)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      key: const Key('add-to-items'),
+                      onPressed: () => _addToItems(recipe.name, latest),
+                      icon: const Icon(Icons.playlist_add),
+                      label: const Text('Add to my items'),
+                    ),
+                  ),
                 if (viewed != null) ...[
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 8),
                   Text(
                     _yieldCaption(viewed, outputItem),
                     style: theme.textTheme.bodyLarge,
@@ -138,21 +181,24 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
                   // Always scales the CURRENT revision (`revisions.first`),
                   // whatever revision is being viewed — you cook today's
                   // method. Read-only, so archived recipes may scale too.
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: OutlinedButton.icon(
-                      key: const Key('scale-to-event'),
-                      onPressed: () => showRecipeScaleSheet(
-                        context,
-                        outputItemId: recipe.outputItemId.value,
-                        outputItemName: outputItem?.name ?? 'Unknown item',
-                        revision: revisions.first,
-                        itemsById: itemsById,
+                  // v5: needs the output item on a packing list, so it is
+                  // only offered once the recipe has been added to items.
+                  if (outputItemId != null)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: OutlinedButton.icon(
+                        key: const Key('scale-to-event'),
+                        onPressed: () => showRecipeScaleSheet(
+                          context,
+                          outputItemId: outputItemId,
+                          outputItemName: outputItem?.name ?? 'Unknown item',
+                          revision: revisions.first,
+                          itemsById: itemsById,
+                        ),
+                        icon: const Icon(Icons.event_outlined),
+                        label: const Text('Scale to event'),
                       ),
-                      icon: const Icon(Icons.event_outlined),
-                      label: const Text('Scale to event'),
                     ),
-                  ),
                   const SizedBox(height: 16),
                   Row(
                     children: [
@@ -252,6 +298,23 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
     );
   }
 
+  Future<void> _addToItems(
+    String recipeName,
+    RecipeRevisionView current,
+  ) async {
+    final added = await showAddToItemsSheet(
+      context,
+      recipeId: widget.recipeId,
+      recipeName: recipeName,
+      currentLines: current.lines,
+    );
+    if (added == true && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Added to your items')));
+    }
+  }
+
   Future<void> _setArchived(bool archived) async {
     setState(() => _archiveBusy = true);
     final result = await ref
@@ -285,6 +348,55 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
       'Revision ${revision.revision} · ${_formatDate(revision.createdAt)}';
 }
 
+/// "In your items · Prep" — where an added recipe's output item lives. The
+/// folder identity chip travels with the name (spec §3: an item outside its
+/// own section always carries its folder chip); Unfiled keeps the neutral
+/// inbox glyph.
+class _InItemsLocation extends StatelessWidget {
+  const _InItemsLocation({required this.outputItem, required this.foldersById});
+
+  final Item? outputItem;
+  final Map<String, Folder> foldersById;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final folder = switch (outputItem?.folderId?.value) {
+      final id? => foldersById[id],
+      null => null,
+    };
+    return Row(
+      key: const Key('in-items-location'),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (folder != null)
+          FolderChip.forFolder(folder, size: FolderChipSize.small)
+        else
+          Icon(
+            Icons.inbox_outlined,
+            size: 18,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        const SizedBox(width: 8),
+        Flexible(
+          child: Text(
+            'In your items · ${folder?.name ?? 'Unfiled'}',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// One ingredient line, table-like (v5 feedback: amount first, then unit,
+/// then name — "0.5 cup · Flour"). Free lines render under their OWN name
+/// and display-only unit label; linked lines render as their live item,
+/// with the legacy measured-unit suffix as the label fallback. Tabular
+/// numerals keep the amounts aligned down the list.
 class _IngredientTile extends StatelessWidget {
   const _IngredientTile({required this.line, required this.itemsById});
 
@@ -293,19 +405,34 @@ class _IngredientTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final item = itemsById[line.ingredientItemId.value];
-    final name = item == null
+    final theme = Theme.of(context);
+    final item = switch (line.ingredientItemId) {
+      final id? => itemsById[id.value],
+      null => null,
+    };
+    final name = !line.isLinked
+        ? line.name
+        : item == null
         ? 'Unknown item'
         : item.isArchived
         ? '${item.name} (archived)'
         : item.name;
-    final unit = item == null ? '' : unitSuffix(item.unit);
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      title: Text(name),
-      trailing: Text(
-        '${QuantityCodec.format(line.quantityPerBatch)}$unit',
-        style: Theme.of(context).textTheme.bodyLarge,
+    final unit = line.unitLabel != null
+        ? ' ${line.unitLabel}'
+        : item == null
+        ? ''
+        : unitSuffix(item.unit);
+    final amount = QuantityCodec.format(line.quantityPerBatch);
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 44),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          '$amount$unit · $name',
+          style: theme.textTheme.bodyLarge?.copyWith(
+            fontFeatures: Numerals.tabular,
+          ),
+        ),
       ),
     );
   }

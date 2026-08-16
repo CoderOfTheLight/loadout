@@ -5,6 +5,12 @@
 /// folder's identity: one of eight named hues and one curated icon, shown
 /// as the same tinted chip everywhere the folder appears.
 ///
+/// Unfiled appears too (owner's ruling): a FIXED row after the draggable
+/// folders — neutral inbox chip, live count, a one-line caption saying what
+/// it is. Not draggable, not renamable, not archivable, never hidden, even
+/// at zero items: it is where items live until they are filed, not a
+/// folder.
+///
 /// Reached from the item list's overflow menu (a plain [Navigator] push —
 /// this is catalog furniture, not a tab). Every write goes through
 /// `CatalogService`; the screen holds no state of its own beyond what the
@@ -27,6 +33,7 @@ import 'catalog_format.dart';
 import 'catalog_providers.dart';
 import 'demand_basis_choice.dart';
 import 'folder_dialogs.dart';
+import 'unfiled_chip.dart';
 
 class FolderManagementScreen extends ConsumerWidget {
   const FolderManagementScreen({super.key});
@@ -63,13 +70,22 @@ class FolderManagementScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final foldersAsync = ref.watch(folderListProvider);
+    final sections =
+        ref.watch(foldersWithItemsProvider).valueOrNull ??
+        const <FolderWithItems>[];
     final counts = {
-      for (final section
-          in ref.watch(foldersWithItemsProvider).valueOrNull ??
-              const <FolderWithItems>[])
+      for (final section in sections)
         if (section.folder != null)
           section.folder!.id.value: section.items.length,
     };
+    // The Unfiled section is present only while occupied; the fixed row
+    // below shows 0 the rest of the time (never hidden).
+    var unfiledCount = 0;
+    for (final section in sections) {
+      if (section.isUnfiled) {
+        unfiledCount = section.items.length;
+      }
+    }
     return Scaffold(
       appBar: AppBar(title: const Text('Folders')),
       // Words on every FAB (spec §2: no icon-only actions).
@@ -123,6 +139,10 @@ class FolderManagementScreen extends ConsumerWidget {
                     child: ReorderableListView.builder(
                       buildDefaultDragHandles: false,
                       padding: const EdgeInsets.only(bottom: 88),
+                      // The fixed Unfiled row (owner's ruling): after every
+                      // draggable folder, outside the reorder range — no
+                      // drag handle, no editor, present even at zero items.
+                      footer: _UnfiledRow(count: unfiledCount),
                       itemCount: folders.length,
                       onReorderItem: (oldIndex, newIndex) =>
                           _reorder(context, ref, folders, oldIndex, newIndex),
@@ -188,6 +208,40 @@ class FolderManagementScreen extends ConsumerWidget {
       isScrollControlled: true,
       useSafeArea: true,
       builder: (_) => _FolderEditorSheet(folderId: folderId),
+    );
+  }
+}
+
+/// The fixed Unfiled row (owner's ruling): neutral inbox chip, live count,
+/// one-line caption. No drag handle, no tap target, no editor — Unfiled is
+/// not a folder, it is where items wait to be filed. Never hidden.
+class _UnfiledRow extends StatelessWidget {
+  const _UnfiledRow({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ListTile(
+      key: const ValueKey('unfiled-fixed-row'),
+      minTileHeight: 64,
+      leading: const UnfiledChip(),
+      title: const Text('Unfiled'),
+      subtitle: const Text(
+        'Items not yet in a folder — always at the end of every list.',
+      ),
+      trailing: Semantics(
+        label: '$count item${count == 1 ? '' : 's'}',
+        excludeSemantics: true,
+        child: Text(
+          '$count',
+          style: theme.textTheme.titleMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+            fontFeatures: Numerals.tabular,
+          ),
+        ),
+      ),
     );
   }
 }

@@ -28,6 +28,9 @@ String commandKind(WorkspaceCommand command) => switch (command) {
   CreateRecipe() => 'CreateRecipe',
   AddRecipeRevision() => 'AddRecipeRevision',
   SetRecipeArchived() => 'SetRecipeArchived',
+  AddRecipeToItems() => 'AddRecipeToItems',
+  LinkRecipeLineToItem() => 'LinkRecipeLineToItem',
+  UnlinkRecipeLine() => 'UnlinkRecipeLine',
   SaveForecastSnapshot() => 'SaveForecastSnapshot',
   OverrideForecastLine() => 'OverrideForecastLine',
 };
@@ -44,6 +47,7 @@ Map<String, Object?> _payload(WorkspaceCommand command) => switch (command) {
     'name': command.name,
     'unit': command.unit.dbValue,
     'pack_size_micros': command.packSize.micros,
+    'unit_label': command.unitLabel,
     'serves_per_unit_micros': command.servesPerUnit?.micros,
     'per_person_numerator': command.perPersonRatio?.numerator,
     'per_person_denominator': command.perPersonRatio?.denominator,
@@ -59,6 +63,8 @@ Map<String, Object?> _payload(WorkspaceCommand command) => switch (command) {
     'name': command.name,
     'unit': command.unit?.dbValue,
     'pack_size_micros': command.packSize?.micros,
+    'unit_label': command.unitLabel,
+    'clear_unit_label': command.clearUnitLabel,
     'serves_per_unit_micros': command.servesPerUnit?.micros,
     'clear_serves_per_unit': command.clearServesPerUnit,
     'per_person_numerator': command.perPersonRatio?.numerator,
@@ -161,7 +167,7 @@ Map<String, Object?> _payload(WorkspaceCommand command) => switch (command) {
     command.note,
   ),
   CreateRecipe() => {
-    'output_item_id': command.outputItemId as String,
+    'output_item_id': command.outputItemId as String?,
     'name': command.name,
     'first_revision': _revision(command.firstRevision),
   },
@@ -172,6 +178,26 @@ Map<String, Object?> _payload(WorkspaceCommand command) => switch (command) {
   SetRecipeArchived() => {
     'recipe_id': command.recipeId as String,
     'archived': command.archived,
+  },
+  AddRecipeToItems() => {
+    'recipe_id': command.recipeId as String,
+    'folder_id': command.folderId as String?,
+    'ingredients': [
+      for (final ingredient in command.ingredients)
+        {
+          'line_index': ingredient.lineIndex,
+          'folder_id': ingredient.folderId as String?,
+        },
+    ],
+  },
+  LinkRecipeLineToItem() => {
+    'recipe_id': command.recipeId as String,
+    'line_index': command.lineIndex,
+    'item_id': command.itemId as String,
+  },
+  UnlinkRecipeLine() => {
+    'recipe_id': command.recipeId as String,
+    'line_index': command.lineIndex,
   },
   SaveForecastSnapshot() => {
     'event_id': command.snapshot.eventId as String,
@@ -264,7 +290,9 @@ Map<String, Object?> _revision(RecipeRevisionDraft draft) => {
   'lines': [
     for (final line in draft.lines)
       {
-        'ingredient_item_id': line.ingredientItemId as String,
+        'name': line.name,
+        'unit_label': line.unitLabel,
+        'ingredient_item_id': line.ingredientItemId as String?,
         'quantity_per_batch_micros': line.quantityPerBatch.micros,
       },
   ],

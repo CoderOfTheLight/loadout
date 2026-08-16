@@ -27,10 +27,22 @@ final class ItemFilter {
 /// One catalog list row with the derived signed on-hand (design §9
 /// ItemListScreen: negatives shown signed, never clamped).
 final class ItemSummary {
-  const ItemSummary({required this.item, required this.onHandMicros});
+  const ItemSummary({
+    required this.item,
+    required this.onHandMicros,
+    this.recipeId,
+  });
 
   final Item item;
   final int onHandMicros;
+
+  /// v5: the LIVE recipe this item is the output of, or null. Populated by
+  /// [CatalogService.watchFoldersWithItems] so the items list can render the
+  /// row as an expandable group (a VIEW over the recipe's lines — the item
+  /// itself lives in exactly one folder like any other).
+  final String? recipeId;
+
+  bool get isRecipeOutput => recipeId != null;
 
   bool get isNegative => onHandMicros < 0;
 }
@@ -181,6 +193,7 @@ final class DriftCatalogService implements CatalogService {
         name: draft.name,
         unit: draft.unit,
         packSize: draft.packSize,
+        unitLabel: draft.unitLabel,
         servesPerUnit: draft.servesPerUnit,
         perPersonRatio: draft.perPersonRatio,
         folderId: draft.folderId == null ? null : FolderId(draft.folderId!),
@@ -211,6 +224,8 @@ final class DriftCatalogService implements CatalogService {
         name: draft.name,
         unit: draft.unit,
         packSize: draft.packSize,
+        unitLabel: draft.unitLabel,
+        clearUnitLabel: draft.unitLabel == null,
         servesPerUnit: draft.servesPerUnit,
         clearServesPerUnit: draft.servesPerUnit == null,
         perPersonRatio: draft.perPersonRatio,
@@ -349,18 +364,25 @@ final class DriftCatalogService implements CatalogService {
         _db.folders,
         _db.items,
         _db.inventoryMovements,
+        _db.recipes,
       })
       .asyncMap((_) async {
         final folders = await _db.folderDao.live();
+        // The live-recipe join is safe under the GROUP BY: at most one LIVE
+        // recipe per output item (uidx_recipes_output_live), so the SUM is
+        // never multiplied.
         final rows = await _db
             .customSelect(
-              'SELECT i.*, COALESCE(SUM(m.delta_micros), 0) AS on_hand '
+              'SELECT i.*, COALESCE(SUM(m.delta_micros), 0) AS on_hand, '
+              'r.id AS recipe_id '
               'FROM items i '
               'LEFT JOIN inventory_movements m ON m.item_id = i.id '
+              'LEFT JOIN recipes r ON r.output_item_id = i.id '
+              'AND r.archived_at_micros IS NULL '
               'WHERE i.archived_at_micros IS NULL '
               'GROUP BY i.id '
               'ORDER BY lower(i.name), i.id',
-              readsFrom: {_db.items, _db.inventoryMovements},
+              readsFrom: {_db.items, _db.inventoryMovements, _db.recipes},
             )
             .get();
         final byFolder = <String?, List<ItemSummary>>{};
@@ -371,6 +393,7 @@ final class DriftCatalogService implements CatalogService {
                 ItemSummary(
                   item: _toItem(row),
                   onHandMicros: row.read<int>('on_hand'),
+                  recipeId: row.read<String?>('recipe_id'),
                 ),
               );
         }
@@ -465,6 +488,7 @@ final class DriftCatalogService implements CatalogService {
     name: row.read<String>('name'),
     unit: ItemUnit.fromDb(row.read<String>('unit')),
     packSize: Quantity.fromMicros(row.read<int>('pack_size_micros')),
+    unitLabel: row.read<String?>('unit_label'),
     servesPerUnit: switch (row.read<int?>('serves_per_unit_micros')) {
       final micros? => Quantity.fromMicros(micros),
       null => null,

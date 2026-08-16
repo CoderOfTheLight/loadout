@@ -121,6 +121,87 @@ void main() {
     }
   });
 
+  group('recipe_lines_v2 trigger (v5)', () {
+    // Content is append-only exactly like the legacy table; the catalog
+    // LINK alone is mutable metadata (the commands-table limited-update
+    // pattern). See schemaV5RecipeLinesV2Triggers.
+    final linkOnly = throwsA(
+      isA<SqliteException>().having(
+        (e) => e.message,
+        'message',
+        contains('only the item link may change'),
+      ),
+    );
+
+    setUp(
+      () => insertRecipeLineV2(
+        db,
+        revisionId: tid('RV1'),
+        lineIndex: 1,
+        ingredientName: 'Cumin',
+        unitLabel: 'tsp',
+      ),
+    );
+
+    test('DELETE is rejected', () async {
+      await expectLater(
+        db.customStatement('DELETE FROM recipe_lines_v2'),
+        appendOnly,
+      );
+    });
+
+    for (final mutation in const [
+      "ingredient_name = 'Coriander'",
+      "unit_label = 'tbsp'",
+      'unit_label = NULL',
+      'quantity_per_batch_micros = 2',
+      'line_index = 9',
+    ]) {
+      test('UPDATE of anything but the link is rejected ($mutation)', () async {
+        await expectLater(
+          db.customStatement('UPDATE recipe_lines_v2 SET $mutation'),
+          linkOnly,
+        );
+      });
+    }
+
+    test('the link alone may be set and cleared', () async {
+      await db.customStatement(
+        'UPDATE recipe_lines_v2 SET ingredient_item_id = ? '
+        'WHERE line_index = 1',
+        [tid('I1')],
+      );
+      var row = await db
+          .customSelect(
+            'SELECT ingredient_item_id FROM recipe_lines_v2 '
+            'WHERE line_index = 1',
+          )
+          .getSingle();
+      expect(row.read<String?>('ingredient_item_id'), tid('I1'));
+      await db.customStatement(
+        'UPDATE recipe_lines_v2 SET ingredient_item_id = NULL '
+        'WHERE line_index = 1',
+      );
+      row = await db
+          .customSelect(
+            'SELECT ingredient_item_id FROM recipe_lines_v2 '
+            'WHERE line_index = 1',
+          )
+          .getSingle();
+      expect(row.read<String?>('ingredient_item_id'), isNull);
+      // The frozen columns rode through both link writes untouched.
+      final frozen = await db
+          .customSelect(
+            'SELECT ingredient_name, unit_label, quantity_per_batch_micros '
+            'FROM recipe_lines_v2 WHERE line_index = 1',
+          )
+          .getSingle();
+      expect(frozen.read<String>('ingredient_name'), 'Cumin');
+      expect(frozen.read<String?>('unit_label'), 'tsp');
+      expect(frozen.read<int>('quantity_per_batch_micros'), 1000000);
+    });
+  });
+
   group('commands trigger', () {
     final illegal = throwsA(
       isA<SqliteException>().having(

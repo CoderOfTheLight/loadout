@@ -222,9 +222,11 @@ void main() {
       }
 
       // Folder management is Navigator-pushed from the item list's menu —
-      // not a GoRoute — so walk it the way the owner reaches it.
+      // not a GoRoute — so walk it the way the owner reaches it. The app
+      // bar's menu specifically: every item row now carries its own
+      // "Move to folder…" overflow (v5 first-class move).
       await h.go(tester, '/items');
-      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.tap(find.byTooltip('More options'));
       await _settle(tester);
       await tester.tap(find.text('Manage folders'));
       await _settle(tester);
@@ -273,6 +275,190 @@ void main() {
       isTrue,
       reason: '/welcome/create must offer a way to finish',
     );
+  });
+
+  testWidgets('v5 walk at 393×852: a folder\'s ONLY item moves from its row, a '
+      'fractional packaged amount renders, an unbound recipe offers the way '
+      'into items, an added recipe shows where it lives — and the items '
+      'table holds at 200% text scale', (tester) async {
+    _usePhoneViewport(tester);
+    final h = (await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    ))!;
+    addTearDown(h.dispose);
+
+    final seeded = (await tester.runAsync(() async {
+      final catalog = h.read(catalogServiceProvider);
+      final recipes = h.read(recipeServiceProvider);
+
+      // A folder whose ONLY item gets moved during the walk — the exact
+      // shape the owner tried on her phone.
+      final oddsId = _ok(
+        await catalog.createFolder(
+          name: 'Odds & ends',
+          demandBasis: DemandBasis.perPerson,
+        ),
+      );
+      final buntingId = _ok(
+        await catalog.createItem(
+          ItemDraft(name: 'Bunting', folderId: oddsId),
+          openingCount: Quantity.whole(3),
+        ),
+      );
+
+      // A fractional amount wearing a display label: "1.5 packages".
+      _ok(
+        await catalog.createItem(
+          const ItemDraft(name: 'Napkins', unitLabel: 'packages'),
+          openingCount: Quantity.fromMicros(1500000),
+        ),
+      );
+
+      // A recipe NEVER added to items: free lines only, no output item.
+      final chiliId = _ok(
+        await recipes.createRecipe(
+          RecipeFormDraft(
+            name: 'Chili oil',
+            yieldQuantity: Quantity.whole(2),
+            yieldLabel: '2 jars',
+            lines: [
+              RecipeFormLine(
+                name: 'Dried chilies',
+                unitLabel: 'cup',
+                quantityPerBatch: Quantity.fromMicros(500000),
+              ),
+              RecipeFormLine(
+                name: 'Oil',
+                unitLabel: 'cup',
+                quantityPerBatch: Quantity.whole(2),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      // A recipe ADDED to items, both ingredient lines opted in — the
+      // output and two new ingredient items land in Unfiled.
+      final mixId = _ok(
+        await recipes.createRecipe(
+          RecipeFormDraft(
+            name: 'Trail mix',
+            yieldQuantity: Quantity.whole(8),
+            lines: [
+              RecipeFormLine(
+                name: 'Peanuts',
+                unitLabel: 'cup',
+                quantityPerBatch: Quantity.whole(3),
+              ),
+              RecipeFormLine(
+                name: 'Raisins',
+                unitLabel: 'cup',
+                quantityPerBatch: Quantity.fromMicros(1500000),
+              ),
+            ],
+          ),
+        ),
+      );
+      _ok(
+        await recipes.addToItems(
+          recipeId: mixId,
+          ingredients: [
+            (lineIndex: 0, folderId: null),
+            (lineIndex: 1, folderId: null),
+          ],
+        ),
+      );
+
+      return (buntingId: buntingId, chiliId: chiliId, mixId: mixId);
+    }))!;
+    await h.pumpApp(tester);
+
+    // The items table lays out clean with the fractional packaged amount
+    // and the recipe group present.
+    await _visit(tester, h, '/items', ItemListScreen);
+    expect(find.textContaining('1.5 packages'), findsWidgets);
+
+    // The first-class move, from the row's own overflow: the folder's
+    // ONLY item, out of 'Odds & ends' and into a starter folder.
+    await h.go(tester, '/items');
+    await tester.dragUntilVisible(
+      find.byTooltip('Options for Bunting'),
+      find.byType(CustomScrollView),
+      const Offset(0, -120),
+    );
+    await tester.tap(find.byTooltip('Options for Bunting'));
+    await _settle(tester);
+    await tester.tap(find.text('Move to folder…'));
+    await _settle(tester);
+    expect(find.text('Choose a folder'), findsOneWidget);
+    await tester.tap(find.text('Drinks').last);
+    await _settle(tester);
+    await h.flushTimers(tester);
+    expect(find.text('Moved to Drinks.'), findsOneWidget);
+    final moved = (await tester.runAsync(() async {
+      final catalog = h.read(catalogServiceProvider);
+      final folders = await catalog.watchFolders().first;
+      final drinksId = folders.firstWhere((f) => f.name == 'Drinks').id.value;
+      final detail = await catalog.watchItem(seeded.buntingId).first;
+      return detail.item.folderId?.value == drinksId;
+    }))!;
+    expect(moved, isTrue, reason: "the folder's only item must move");
+    _expectNoOverflow(tester, '/items after only-item move');
+    // Let the confirmation snackbar's 4 s timer elapse: left up, it is
+    // tall enough at 200% to obscure the rows this walk taps next.
+    await tester.pump(const Duration(seconds: 5));
+    await _settle(tester);
+
+    // The never-added recipe offers the way into items; the added one
+    // shows where it lives instead.
+    await h.go(tester, '/recipes/${seeded.chiliId}');
+    expect(find.byType(RecipeDetailScreen), findsOneWidget);
+    expect(find.byKey(const Key('add-to-items')), findsOneWidget);
+    expect(find.byKey(const Key('in-items-location')), findsNothing);
+    _expectNoOverflow(tester, '/recipes (unbound)');
+    await h.go(tester, '/recipes/${seeded.mixId}');
+    expect(find.byKey(const Key('in-items-location')), findsOneWidget);
+    expect(find.byKey(const Key('add-to-items')), findsNothing);
+    _expectNoOverflow(tester, '/recipes (added)');
+
+    // 200% text scale: the amount column measures with the live scaler,
+    // so the table still aligns and nothing overflows — the expanded
+    // recipe group included. Navigate FIRST, then flip the scale: the
+    // recipe-detail screen this walk just left has pre-existing (pre-v5,
+    // unpinned) 200% overflows of its own that would otherwise fire
+    // during its teardown relayout.
+    await h.go(tester, '/items');
+    tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+    addTearDown(tester.platformDispatcher.clearAllTestValues);
+    await _settle(tester);
+    _expectNoOverflow(tester, '/items @200%');
+    // Rows of the same section still start their name column at the same
+    // x — the table alignment the ruling asks for.
+    expect(
+      tester.getTopLeft(find.text('Napkins')).dx,
+      tester.getTopLeft(find.text('Trail mix')).dx,
+      reason: 'Unfiled rows must align their name column @200%',
+    );
+    await tester.dragUntilVisible(
+      find.text('Trail mix'),
+      find.byType(CustomScrollView),
+      const Offset(0, -120),
+    );
+    await tester.tap(
+      find.descendant(
+        of: find.widgetWithText(ListTile, 'Trail mix'),
+        matching: find.byIcon(Icons.expand_more),
+      ),
+    );
+    await _settle(tester);
+    // The group really expanded (sliver laziness may leave the linked
+    // items' own Unfiled rows unbuilt, so check the affordance flipped).
+    expect(find.byTooltip('Hide ingredients'), findsOneWidget);
+    _expectNoOverflow(tester, '/items @200% expanded recipe group');
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -600));
+    await _settle(tester);
+    _expectNoOverflow(tester, '/items @200% (scrolled)');
+    await h.flushTimers(tester);
   });
 
   testWidgets('recovery survives at 393×852', (tester) async {

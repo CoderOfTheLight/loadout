@@ -80,6 +80,9 @@ final class CommandValidator {
       CreateRecipe() => _createRecipe(command, state),
       AddRecipeRevision() => _addRecipeRevision(command, state),
       SetRecipeArchived() => _setRecipeArchived(command, state),
+      AddRecipeToItems() => _addRecipeToItems(command, state),
+      LinkRecipeLineToItem() => _linkRecipeLine(command, state),
+      UnlinkRecipeLine() => _unlinkRecipeLine(command, state),
       SaveForecastSnapshot() => _saveForecastSnapshot(command, state),
       OverrideForecastLine() => _overrideForecastLine(command, state),
     };
@@ -93,6 +96,7 @@ final class CommandValidator {
     final fields = _itemFields(
       name: c.name,
       packSize: c.packSize,
+      unitLabel: c.unitLabel,
       servesPerUnit: c.servesPerUnit,
       perPersonRatio: c.perPersonRatio,
       perEventBaseline: c.perEventBaseline,
@@ -127,6 +131,7 @@ final class CommandValidator {
     final fields = _itemFields(
       name: c.name,
       packSize: c.packSize,
+      unitLabel: c.unitLabel,
       servesPerUnit: c.servesPerUnit,
       perPersonRatio: c.perPersonRatio,
       perEventBaseline: c.perEventBaseline,
@@ -177,6 +182,7 @@ final class CommandValidator {
   DomainError? _itemFields({
     String? name,
     Quantity? packSize,
+    String? unitLabel,
     Quantity? servesPerUnit,
     UnitRatio? perPersonRatio,
     Quantity? perEventBaseline,
@@ -188,6 +194,8 @@ final class CommandValidator {
     if (packSize != null && packSize.micros <= 0) {
       return const ValidationError('pack size must be positive');
     }
+    final label = _unitLabelCheck(unitLabel);
+    if (label != null) return label;
     if (servesPerUnit != null) {
       if (servesPerUnit.micros <= 0) {
         return const ValidationError(
@@ -224,6 +232,18 @@ final class CommandValidator {
     if (category != null &&
         (category.trim().isEmpty || category.trim().length > 60)) {
       return const ValidationError('category must be 1-60 characters');
+    }
+    return null;
+  }
+
+  /// v5: unit labels are display text — null is always legal, a present
+  /// label must be 1-24 characters once trimmed (mirrors the SQL CHECK on
+  /// `items.unit_label` and `recipe_lines_v2.unit_label`).
+  DomainError? _unitLabelCheck(String? unitLabel) {
+    if (unitLabel == null) return null;
+    final trimmed = unitLabel.trim();
+    if (trimmed.isEmpty || trimmed.length > 24) {
+      return const ValidationError('unit label must be 1-24 characters');
     }
     return null;
   }
@@ -626,23 +646,29 @@ final class CommandValidator {
   // ------------------------------------------------------------- recipes
 
   DomainError? _createRecipe(CreateRecipe c, WorkspaceReadModel state) {
-    final output = state.item(c.outputItemId as String);
-    if (output == null) return const NotFoundError('output item not found');
-    if (output.archived) {
-      return const ValidationError('output item is archived');
+    // v5: the output binding is OPTIONAL — a recipe normally exists without
+    // any catalog item until AddRecipeToItems creates one.
+    String outputItemId = '';
+    if (c.outputItemId != null) {
+      final output = state.item(c.outputItemId! as String);
+      if (output == null) return const NotFoundError('output item not found');
+      if (output.archived) {
+        return const ValidationError('output item is archived');
+      }
+      if (state.liveRecipeForOutput(output.id) != null) {
+        return const ValidationError(
+          'a live recipe for this output item already exists',
+        );
+      }
+      outputItemId = output.id;
     }
     if (c.name.trim().isEmpty || c.name.trim().length > 120) {
       return const ValidationError('recipe name must be 1-120 characters');
     }
-    if (state.liveRecipeForOutput(output.id) != null) {
-      return const ValidationError(
-        'a live recipe for this output item already exists',
-      );
-    }
     return _revisionDraft(
       c.firstRevision,
       recipeId: '',
-      outputItemId: output.id,
+      outputItemId: outputItemId,
       state: state,
     );
   }
@@ -659,7 +685,7 @@ final class CommandValidator {
     return _revisionDraft(
       c.revision,
       recipeId: recipe.id,
-      outputItemId: recipe.outputItemId,
+      outputItemId: recipe.outputItemId ?? '',
       state: state,
     );
   }
@@ -670,8 +696,8 @@ final class CommandValidator {
   ) {
     final recipe = state.recipe(c.recipeId as String);
     if (recipe == null) return const NotFoundError('recipe not found');
-    if (!c.archived && recipe.archived) {
-      final live = state.liveRecipeForOutput(recipe.outputItemId);
+    if (!c.archived && recipe.archived && recipe.outputItemId != null) {
+      final live = state.liveRecipeForOutput(recipe.outputItemId!);
       if (live != null && live.id != recipe.id) {
         return const ValidationError(
           'another live recipe for this output item already exists',
@@ -681,6 +707,137 @@ final class CommandValidator {
     return null;
   }
 
+  /// v5: puts the recipe on the item list. Guards: the recipe must exist,
+  /// be live, and NOT already be in the items list (the plain idempotency
+  /// error); the target folders must be live; the created names (the
+  /// recipe's, and each chosen free line's) must not collide with live
+  /// items or each other; every chosen line must exist in the CURRENT
+  /// revision and be free (unlinked).
+  DomainError? _addRecipeToItems(AddRecipeToItems c, WorkspaceReadModel state) {
+    final recipe = state.recipe(c.recipeId as String);
+    if (recipe == null) return const NotFoundError('recipe not found');
+    if (recipe.archived) {
+      return const ValidationError('recipe is archived; unarchive it first');
+    }
+    if (recipe.outputItemId != null) {
+      return const ValidationError('this recipe is already in your items');
+    }
+    final folder = _liveFolderRef(c.folderId as String?, state);
+    if (folder != null) return folder;
+    final outputName = recipe.name.trim();
+    if (state.isItemNameTakenLive(outputName)) {
+      return const ValidationError(
+        'a live item already has this recipe\'s name; rename one first',
+      );
+    }
+    final seenLines = <int>{};
+    final createdNames = <String>{outputName.toLowerCase()};
+    for (final ingredient in c.ingredients) {
+      if (!seenLines.add(ingredient.lineIndex)) {
+        return const ValidationError(
+          'chosen ingredient lines must be distinct',
+        );
+      }
+      final line = _currentLine(recipe, ingredient.lineIndex);
+      if (line == null) return const NotFoundError('recipe line not found');
+      if (line.isLinked) {
+        return const ValidationError(
+          'this ingredient line is already linked to an item',
+        );
+      }
+      final folderError = _liveFolderRef(ingredient.folderId as String?, state);
+      if (folderError != null) return folderError;
+      final name = line.name.trim();
+      if (state.isItemNameTakenLive(name)) {
+        return const ValidationError(
+          'a live item already has an ingredient line\'s name; '
+          'link the line to it instead',
+        );
+      }
+      if (!createdNames.add(name.toLowerCase())) {
+        return const ValidationError('two created items would share one name');
+      }
+    }
+    return null;
+  }
+
+  /// v5: link is mutable metadata on an otherwise-frozen line. The item must
+  /// be live, at most once per revision, and the link may never create
+  /// nesting or a cycle — the same graph guards a revision write runs.
+  DomainError? _linkRecipeLine(
+    LinkRecipeLineToItem c,
+    WorkspaceReadModel state,
+  ) {
+    final recipe = state.recipe(c.recipeId as String);
+    if (recipe == null) return const NotFoundError('recipe not found');
+    if (recipe.archived) {
+      return const ValidationError('recipe is archived; unarchive it first');
+    }
+    final line = _currentLine(recipe, c.lineIndex);
+    if (line == null) return const NotFoundError('recipe line not found');
+    final item = state.item(c.itemId as String);
+    if (item == null) return const NotFoundError('item not found');
+    if (item.archived) {
+      return const ValidationError('item is archived; unarchive it first');
+    }
+    for (final other in recipe.currentLines) {
+      if (other.lineIndex != c.lineIndex && other.ingredientItemId == item.id) {
+        return const ValidationError(
+          'this item is already an ingredient of this recipe',
+        );
+      }
+    }
+    final linkedAfter = <String>{
+      for (final other in recipe.currentLines)
+        if (other.lineIndex == c.lineIndex)
+          item.id
+        else if (other.ingredientItemId != null)
+          other.ingredientItemId!,
+    };
+    final candidate = RecipeNode(
+      recipeId: recipe.id,
+      outputItemId: recipe.outputItemId ?? '',
+      ingredientItemIds: linkedAfter.toList(),
+    );
+    final liveNodes = state.liveRecipeNodes();
+    final flat = RecipeGraph(liveNodes).assertFlat(candidate);
+    if (flat is Err<void>) return flat.error;
+    final withCandidate = [
+      for (final node in liveNodes)
+        if (node.recipeId != recipe.id) node,
+      candidate,
+    ];
+    final cycles = RecipeGraph(withCandidate).detectCycles();
+    if (cycles is Err<void>) return cycles.error;
+    return null;
+  }
+
+  DomainError? _unlinkRecipeLine(UnlinkRecipeLine c, WorkspaceReadModel state) {
+    final recipe = state.recipe(c.recipeId as String);
+    if (recipe == null) return const NotFoundError('recipe not found');
+    if (recipe.archived) {
+      return const ValidationError('recipe is archived; unarchive it first');
+    }
+    final line = _currentLine(recipe, c.lineIndex);
+    if (line == null) return const NotFoundError('recipe line not found');
+    if (!line.isLinked) {
+      return const ValidationError('this line is not linked to an item');
+    }
+    return null;
+  }
+
+  RecipeLineState? _currentLine(RecipeState recipe, int lineIndex) {
+    for (final line in recipe.currentLines) {
+      if (line.lineIndex == lineIndex) return line;
+    }
+    return null;
+  }
+
+  /// v5: lines are free text with an optional catalog link. Every line needs
+  /// a positive amount and either its own name (1-120 chars) or a live
+  /// linked item; unit labels are bounded display text; only LINKED lines
+  /// participate in the flatness/cycle graph. [outputItemId] is '' for a
+  /// recipe that is not in the item list (nothing can nest into it).
   DomainError? _revisionDraft(
     RecipeRevisionDraft draft, {
     required String recipeId,
@@ -697,7 +854,28 @@ final class CommandValidator {
     }
     final seen = <String>{};
     for (final line in draft.lines) {
-      final ingredientId = line.ingredientItemId as String;
+      if (line.quantityPerBatch.micros <= 0) {
+        return const ValidationError(
+          'ingredient quantity per batch must be positive',
+        );
+      }
+      final label = _unitLabelCheck(line.unitLabel);
+      if (label != null) return label;
+      final name = line.name?.trim();
+      if (name != null && (name.isEmpty || name.length > 120)) {
+        return const ValidationError(
+          'ingredient name must be 1-120 characters',
+        );
+      }
+      final ingredientId = line.ingredientItemId as String?;
+      if (ingredientId == null) {
+        if (name == null || name.isEmpty) {
+          return const ValidationError(
+            'each ingredient line needs a name or a linked item',
+          );
+        }
+        continue;
+      }
       if (!seen.add(ingredientId)) {
         return const ValidationError('recipe ingredients must be distinct');
       }
@@ -707,11 +885,6 @@ final class CommandValidator {
       }
       if (ingredient.archived) {
         return const ValidationError('ingredient item is archived');
-      }
-      if (line.quantityPerBatch.micros <= 0) {
-        return const ValidationError(
-          'ingredient quantity per batch must be positive',
-        );
       }
     }
     final candidate = RecipeNode(

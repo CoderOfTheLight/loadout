@@ -63,6 +63,48 @@ const appendOnlyTables = [
   'forecast_overrides',
 ];
 
+/// v5 (recipe decoupling): `recipe_lines_v2` is append-only in CONTENT but
+/// its catalog link is mutable metadata — DELETE forbidden, UPDATE allowed
+/// ONLY when nothing but `ingredient_item_id` changes (the `commands` table's
+/// limited-update pattern). `IS NOT` makes the nullable comparisons
+/// null-safe. Run by onCreate on fresh databases and by the `from < 5`
+/// onUpgrade block on migrated ones.
+const schemaV5RecipeLinesV2Triggers = <String>[
+  'CREATE TRIGGER trg_recipe_lines_v2_no_delete '
+      'BEFORE DELETE ON recipe_lines_v2 '
+      "BEGIN SELECT RAISE(ABORT, 'recipe_lines_v2 is append-only'); END",
+  'CREATE TRIGGER trg_recipe_lines_v2_limited_update '
+      'BEFORE UPDATE ON recipe_lines_v2 '
+      'WHEN NEW.revision_id != OLD.revision_id '
+      'OR NEW.line_index != OLD.line_index '
+      'OR NEW.ingredient_name != OLD.ingredient_name '
+      'OR NEW.unit_label IS NOT OLD.unit_label '
+      'OR NEW.quantity_per_batch_micros != OLD.quantity_per_batch_micros '
+      "BEGIN SELECT RAISE(ABORT, "
+      "'recipe_lines_v2: only the item link may change'); END",
+];
+
+/// v5: copies every legacy `recipe_lines` row into `recipe_lines_v2`,
+/// backfilling `ingredient_name` from the linked item's name (the join can
+/// never miss: `ingredient_item_id` is NOT NULL and FK-enforced in v1..v4).
+/// An INSERT is legal on an append-only table; the legacy table itself is
+/// left byte for byte and simply stops being read.
+const schemaV5RecipeLinesBackfill =
+    'INSERT INTO recipe_lines_v2 '
+    '(revision_id, line_index, ingredient_name, unit_label, '
+    'ingredient_item_id, quantity_per_batch_micros) '
+    'SELECT rl.revision_id, rl.line_index, i.name, NULL, '
+    'rl.ingredient_item_id, rl.quantity_per_batch_micros '
+    'FROM recipe_lines rl JOIN items i ON i.id = rl.ingredient_item_id';
+
+/// v5: `uidx_recipes_output_live` recreated verbatim after the `recipes`
+/// copy-rewrite (dropping a table drops its indexes). On the now-nullable
+/// column, NULLs never collide — "not added to items yet" rows are unlimited;
+/// one LIVE recipe per output item stays enforced.
+const schemaV5RecipesOutputIndex =
+    'CREATE UNIQUE INDEX uidx_recipes_output_live ON recipes (output_item_id) '
+    'WHERE archived_at_micros IS NULL';
+
 List<String> get schemaV1Triggers => [
   for (final t in appendOnlyTables) ...[
     'CREATE TRIGGER trg_${t}_no_update BEFORE UPDATE ON $t '

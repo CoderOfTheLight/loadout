@@ -1,7 +1,12 @@
 /// Proposal §2/§3: "no recipe can claim a CD" — items in a sales-table
-/// folder never appear in the recipe pickers (output OR ingredient), and
-/// the paste matcher reports them as excluded instead of matching them or
-/// offering to create a duplicate.
+/// folder are never offered as link targets on the v5 free-text ingredient
+/// rows, and the paste matcher reports them as excluded instead of matching
+/// them or offering to create a duplicate.
+///
+/// Deliberately superseded pin: the output/ingredient PICKERS this file
+/// used to walk are gone with the v5 decoupling (free-text rows, no output
+/// picker on creation) — the sales-table rule now guards the link
+/// affordance instead.
 library;
 
 import 'package:flutter/material.dart';
@@ -36,31 +41,31 @@ void main() {
     return h;
   }
 
-  testWidgets(
-    'output and ingredient pickers exclude sales-table-folder items',
-    (tester) async {
-      final h = await startWithSalesItem(tester);
+  testWidgets('the link affordance is never offered for a sales-table item', (
+    tester,
+  ) async {
+    final h = await startWithSalesItem(tester);
 
-      await h.pumpApp(tester);
-      await h.go(tester, '/recipes/new');
+    await h.pumpApp(tester);
+    await h.go(tester, '/recipes/new');
 
-      // Open the output picker: the kitchen items are offered, the
-      // sales-table item is not — anywhere on the screen.
-      await tapVisible(tester, find.byKey(const Key('output-item-picker')));
-      expect(find.text('Soup'), findsWidgets); // the menu did open
-      expect(find.text('Rolls'), findsWidgets);
-      expect(find.text('Album CD'), findsNothing);
-      await tester.tap(find.text('Soup').last);
-      await tester.pumpAndSettle();
+    // A kitchen item's exact name offers the link…
+    await tester.enterText(
+      find.byKey(const ValueKey('ingredient-name-0')),
+      'Soup',
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('link-line-0')), findsOneWidget);
 
-      // Same for the ingredient picker.
-      await tapVisible(tester, find.byKey(const ValueKey('ingredient-item-0')));
-      expect(find.text('Album CD'), findsNothing);
-      expect(find.text('Rolls'), findsWidgets);
-      await tester.tap(find.text('Rolls').last);
-      await tester.pumpAndSettle();
-    },
-  );
+    // …the sales-table item's exact name never does: the line stays free
+    // text (typing it is fine — linking to a CD is not).
+    await tester.enterText(
+      find.byKey(const ValueKey('ingredient-name-0')),
+      'Album CD',
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('link-line-0')), findsNothing);
+  });
 
   testWidgets(
     'paste matching reports a sales-table item as excluded, never created',

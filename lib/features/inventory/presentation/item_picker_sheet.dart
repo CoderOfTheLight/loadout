@@ -14,6 +14,7 @@ import 'package:go_router/go_router.dart';
 import '../../../app/providers.dart';
 import '../../../app/theme.dart';
 import '../../../app/widgets/empty_state.dart';
+import '../../../core/units.dart';
 import '../../catalog/application/catalog_service.dart';
 import 'movement_display.dart';
 
@@ -96,6 +97,18 @@ class _ItemPickerSheetState extends ConsumerState<_ItemPickerSheet> {
                     itemCount: matches.length,
                     itemBuilder: (context, index) {
                       final summary = matches[index];
+                      // Signed on-hand with the item's display unit label
+                      // after it ("12 packages"); a legacy measured row's
+                      // real unit still wins (never masked by a label).
+                      final amount = formatSignedMicros(
+                        summary.onHandMicros,
+                        summary.item.unit,
+                      );
+                      final label = summary.item.unitLabel;
+                      final withLabel =
+                          summary.item.unit == ItemUnit.each && label != null
+                          ? '$amount $label'
+                          : amount;
                       return ListTile(
                         minTileHeight: 56,
                         title: Text(summary.item.name),
@@ -104,10 +117,7 @@ class _ItemPickerSheetState extends ConsumerState<_ItemPickerSheet> {
                             : Text(summary.item.category!),
                         // Row-quantity role (spec §4): tabular titleLarge.
                         trailing: Text(
-                          formatSignedMicros(
-                            summary.onHandMicros,
-                            summary.item.unit,
-                          ),
+                          withLabel,
                           style: Numerals.rowQuantity(
                             Theme.of(context).textTheme,
                           ),

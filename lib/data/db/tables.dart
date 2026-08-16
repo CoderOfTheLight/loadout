@@ -190,6 +190,16 @@ class Items extends Table {
     perPersonDenominator.isBetweenValues(1, perPersonRatioPartCap),
   )();
 
+  // --------------------------------------------------------- v5 unit label
+  /// v5. Optional DISPLAY label for the amount ("tsp", "cup", "lbs",
+  /// "package") — free text, suggestion-chip assisted on the form. The app
+  /// NEVER converts between units and never does unit arithmetic; forecasting
+  /// works on the bare amounts exactly as before. NULL = counted things, no
+  /// label shown. Nullable + column-level CHECK only, so the v5 ALTER TABLE
+  /// ADD COLUMN carries the constraint and v4 rows ride it byte for byte.
+  TextColumn get unitLabel =>
+      text().nullable().check(unitLabel.length.isBetweenValues(1, 24))();
+
   IntColumn get archivedAtMicros => integer().nullable()();
   IntColumn get createdAtMicros => integer()();
   IntColumn get updatedAtMicros => integer()();
@@ -371,11 +381,21 @@ class CloseoutDrafts extends Table {
 // ---------------------------------------------------------------- recipes
 
 /// Identity + output binding. At most one live recipe per output item (partial
-/// unique index uidx_recipes_output_live, §4.1).
+/// unique index uidx_recipes_output_live, §4.1; NULLs never collide there, so
+/// any number of not-yet-added recipes coexist).
+///
+/// v5 (recipe decoupling): `output_item_id` is NULLABLE — NULL means "this
+/// recipe has not been added to the item list yet". `AddRecipeToItems` creates
+/// the output item and binds it here in one transaction. The column was NOT
+/// NULL in v1; recipes is mutable master data (NOT append-only — it has no
+/// forbid-triggers and is absent from [appendOnlyTables]), so the v5 migration
+/// widens it with SQLite's documented copy-rewrite (drift `TableMigration`),
+/// preserving every row byte for byte. The design doc's "never rewrite" rule
+/// protects append-only history tables; this is not one.
 class Recipes extends Table {
   TextColumn get id => text().withLength(min: 26, max: 26)();
   TextColumn get outputItemId =>
-      text().references(Items, #id, onDelete: KeyAction.restrict)();
+      text().nullable().references(Items, #id, onDelete: KeyAction.restrict)();
   TextColumn get name => text().withLength(min: 1, max: 120)();
   IntColumn get archivedAtMicros => integer().nullable()();
   IntColumn get createdAtMicros => integer()();
@@ -404,6 +424,14 @@ class RecipeRevisions extends Table {
 
 /// APPEND-ONLY (immutable with its revision). Amount is micros of the
 /// ingredient's own base unit per batch. Expansion math is Gate 5.
+///
+/// FROZEN AT v5 (recipe decoupling): `ingredient_item_id` is NOT NULL here
+/// and this table is trigger-enforced append-only, so it could not be widened
+/// or backfilled without rewriting history. [RecipeLinesV2] supersedes it:
+/// the v5 migration COPIES every row into the v2 table (an INSERT — legal on
+/// an append-only table) with `ingredient_name` backfilled from the linked
+/// item, and this table keeps its rows byte for byte as the historical
+/// record. Nothing reads or writes it after v5.
 class RecipeLines extends Table {
   TextColumn get revisionId =>
       text().references(RecipeRevisions, #id, onDelete: KeyAction.restrict)();
@@ -417,6 +445,55 @@ class RecipeLines extends Table {
   Set<Column> get primaryKey => {revisionId, lineIndex};
   @override
   List<String> get customConstraints => [
+    'UNIQUE (revision_id, ingredient_item_id)',
+  ];
+}
+
+/// v5. The decoupled recipe line: every line has its OWN name (and optional
+/// display-only unit label); the catalog link is optional. A recipe no longer
+/// pulls ingredients from the item list — a line may point at a catalog item
+/// (rendered as that item) or stand alone as plain text.
+///
+/// Immutability contract (trigger-enforced, [schemaV5RecipeLinesV2Triggers]):
+/// DELETE is forbidden and every column except `ingredient_item_id` is
+/// frozen with its revision — the recipe's CONTENT is append-only exactly as
+/// before, but the LINK is mutable metadata (LinkRecipeLineToItem /
+/// UnlinkRecipeLine), the same limited-update pattern the `commands` table
+/// uses for its status transition. `ingredient_name` is ALWAYS set — the
+/// applier snapshots the linked item's name when a draft line carries none —
+/// so unlinking can never leave a line with no identity.
+@DataClassName('RecipeLineV2')
+class RecipeLinesV2 extends Table {
+  @override
+  String get tableName => 'recipe_lines_v2';
+
+  TextColumn get revisionId =>
+      text().references(RecipeRevisions, #id, onDelete: KeyAction.restrict)();
+  IntColumn get lineIndex =>
+      integer().check(lineIndex.isBiggerOrEqualValue(0))();
+
+  /// The line's own name — the pasted/typed text, or a snapshot of the
+  /// linked item's name at write time. Display prefers the live item name on
+  /// linked lines; this is what remains when a line is unlinked.
+  TextColumn get ingredientName =>
+      text().check(ingredientName.length.isBetweenValues(1, 120))();
+
+  /// Display label for the amount ("tsp", "cup", "lbs"); never converted,
+  /// never computed with. Same 24-char bound as `items.unit_label`.
+  TextColumn get unitLabel =>
+      text().nullable().check(unitLabel.length.isBetweenValues(1, 24))();
+
+  /// Optional catalog link; NULL = free line. The ONLY mutable column.
+  TextColumn get ingredientItemId =>
+      text().nullable().references(Items, #id, onDelete: KeyAction.restrict)();
+  IntColumn get quantityPerBatchMicros =>
+      integer().check(quantityPerBatchMicros.isBiggerThanValue(0))();
+  @override
+  Set<Column> get primaryKey => {revisionId, lineIndex};
+  @override
+  List<String> get customConstraints => [
+    // NULLs are distinct in SQLite UNIQUE: any number of free lines, but an
+    // item may be linked at most once per revision.
     'UNIQUE (revision_id, ingredient_item_id)',
   ];
 }

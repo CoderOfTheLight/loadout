@@ -4,8 +4,14 @@
 ///
 ///   * **Item name** — required, live unique-among-live check.
 ///   * **How many do you have?** — create only; rides inside `CreateItem`
-///     as the opening `adjust` movement. Edit mode shows the ledger-derived
-///     count read-only with a button to record a movement.
+///     as the opening `adjust` movement. Accepts decimals and simple/mixed
+///     fractions ("1.5", "1/2", "1 1/2") exactly like every other amount
+///     field. Edit mode shows the ledger-derived count read-only with a
+///     button to record a movement.
+///   * **Unit** — an optional DISPLAY label for the amount ("tsp", "cup",
+///     "lbs"; 1–24 chars), free text with suggestion chips. Shown after
+///     the amount everywhere; the app never converts between labels and
+///     never does unit arithmetic.
 ///   * **Folder** — a pick-list over the owner's folders ("New folder…" at
 ///     the bottom, created through the command path), never free text.
 ///     Free-text groups are how "Drinks", "drinks" and "Beverages" become
@@ -41,10 +47,12 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/providers.dart';
 import '../../../app/theme.dart';
+import '../../../app/unit_label_suggestions.dart';
 import '../../../app/widgets/content_column.dart';
 import '../../../app/widgets/count_form_field.dart';
 import '../../../app/widgets/empty_state.dart';
 import '../../../app/widgets/form_action_bar.dart';
+import '../../../app/widgets/quantity_form_field.dart';
 import '../../../core/errors.dart';
 import '../../../core/quantity.dart';
 import '../../../core/result.dart';
@@ -63,6 +71,10 @@ import 'folder_picker_sheet.dart';
 /// halves cap: 10 000 each).
 const int maxServesPerUnit = 10000;
 
+/// The opening count keeps [CountFormField]'s envelope (one million whole
+/// things) even though it now accepts fractions.
+const int _maxOpeningCountMicros = maxCountValue * Quantity.scale;
+
 class ItemEditScreen extends ConsumerStatefulWidget {
   const ItemEditScreen({super.key, this.itemId});
 
@@ -77,6 +89,7 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
   final _count = TextEditingController();
+  final _unitLabel = TextEditingController();
   final _serves = TextEditingController();
   final _perPerson = TextEditingController();
   final _usualBring = TextEditingController();
@@ -120,6 +133,7 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
   void dispose() {
     _name.dispose();
     _count.dispose();
+    _unitLabel.dispose();
     _serves.dispose();
     _perPerson.dispose();
     _usualBring.dispose();
@@ -162,14 +176,40 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
         );
 
   Future<void> _pickFolder() async {
+    final folders = ref.read(folderListProvider).valueOrNull ?? const [];
+    final hasHistory =
+        _isEdit &&
+        (ref
+                .read(itemDetailProvider(widget.itemId!))
+                .valueOrNull
+                ?.hasMovements ??
+            false);
+    final basisBeforeMove = _displayedBasis(folders);
     final pick = await showFolderPickerSheet(
       context,
       selectedFolderId: _folderId,
     );
-    if (pick == null || !mounted) {
+    if (pick == null || !mounted || pick.folderId == _folderId) {
       return;
     }
-    setState(() => _folderId = pick.folderId);
+    setState(() {
+      // Moving folders is JUST a move. Before this pin, an item with
+      // history silently inherited the new folder's answer to the one
+      // question, and saving then raised the "Read past events
+      // differently?" confirm — whose safe-sounding "Keep it as it was"
+      // aborted the WHOLE save, dropping the move (the failure the owner
+      // hit moving a folder's only item). Now an item WITH history keeps
+      // the answer it already had: pinned as the explicit selection,
+      // stored as the per-item exception when it differs from the new
+      // folder's default, so forecasts read past events exactly as
+      // before and the move always survives. Changing the answer remains
+      // her explicit act — and still confirms.
+      if (hasHistory && !_basisTouched) {
+        _basisTouched = true;
+        _explicitBasis = basisBeforeMove;
+      }
+      _folderId = pick.folderId;
+    });
     _markDirty();
   }
 
@@ -233,8 +273,10 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
     }
 
     final category = _category.trim();
+    final label = _unitLabel.text.trim();
     final draft = ItemDraft(
       name: _name.text.trim(),
+      unitLabel: label.isEmpty ? null : label,
       servesPerUnit: serves,
       perPersonRatio: ratio,
       folderId: _folderId,
@@ -252,7 +294,7 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
         : await service.createItem(
             draft,
             openingCount:
-                CountFormField.tryParseQuantity(_count.text) ?? Quantity.zero,
+                QuantityFormField.tryParse(_count.text) ?? Quantity.zero,
           );
     if (!mounted) {
       return;
@@ -388,6 +430,7 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
         null => '',
       };
       _notes.text = item.notes;
+      _unitLabel.text = item.unitLabel ?? '';
       _folderId = item.folderId?.value;
       _storedOverride = item.demandBasis;
       _category = item.category ?? '';
@@ -449,17 +492,66 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
                         itemId: widget.itemId!,
                         onHandMicros: detail!.onHandMicros,
                         unit: detail.item.unit,
+                        unitLabel: detail.item.unitLabel,
                         archived: detail.item.isArchived,
                       )
                     else
-                      CountFormField(
+                      QuantityFormField(
                         controller: _count,
                         labelText: 'How many do you have?',
-                        hintText: '0',
-                        helperText: 'Leave blank if you have none yet.',
+                        isRequired: false,
+                        allowZero: true,
+                        allowFractions: true,
+                        helperText:
+                            'Leave blank if you have none yet. Fractions '
+                            'work: "1.5", "1/2", "1 1/2".',
                         textInputAction: TextInputAction.next,
+                        validator: (value) =>
+                            value.micros > _maxOpeningCountMicros
+                            ? 'Keep it under 1,000,000'
+                            : null,
                         onChanged: (_) => _markDirty(),
                       ),
+                    const SizedBox(height: 24),
+                    TextFormField(
+                      controller: _unitLabel,
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
+                      textInputAction: TextInputAction.next,
+                      maxLength: unitLabelMaxLength,
+                      decoration: const InputDecoration(
+                        labelText: 'Unit (optional)',
+                        hintText: 'packages',
+                        helperText:
+                            'Just a label shown after the amount — '
+                            '"12 packages". Loadout never converts units.',
+                        helperMaxLines: 3,
+                        counterText: '',
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (_) => _markDirty(),
+                    ),
+                    const SizedBox(height: 8),
+                    // The shared suggestion chips (never forked from the
+                    // recipe form's). A scroll-row like the hue swatches —
+                    // not a second ListView on the form.
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          for (final suggestion in unitLabelSuggestions)
+                            Padding(
+                              padding: const EdgeInsets.only(right: Space.s),
+                              child: ActionChip(
+                                label: Text(suggestion),
+                                onPressed: () {
+                                  _unitLabel.text = suggestion;
+                                  _markDirty();
+                                },
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
                     const SizedBox(height: 24),
                     InkWell(
                       borderRadius: BorderRadius.circular(Radii.small),
@@ -627,12 +719,14 @@ class _CurrentCount extends StatelessWidget {
     required this.itemId,
     required this.onHandMicros,
     required this.unit,
+    required this.unitLabel,
     required this.archived,
   });
 
   final String itemId;
   final int onHandMicros;
   final ItemUnit unit;
+  final String? unitLabel;
   final bool archived;
 
   @override
@@ -653,7 +747,7 @@ class _CurrentCount extends StatelessWidget {
             enabled: false,
           ),
           child: Text(
-            formatCount(onHandMicros, unit),
+            formatAmount(onHandMicros, unit, unitLabel),
             style: theme.textTheme.titleMedium?.copyWith(
               color: negative ? theme.colorScheme.error : null,
             ),
