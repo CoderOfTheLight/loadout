@@ -24,16 +24,26 @@ import 'recipe_catalog_filters.dart';
 
 /// Opens the sheet; resolves to the confirmed rows for the form to append,
 /// or null when dismissed without confirming.
+///
+/// [initialText] is the Gate 5 seam in action: a second producer (OCR)
+/// hands its lines here and the sheet opens straight on the SAME review
+/// stage a paste reaches via "Review" — the text stays editable behind the
+/// review's Back button.
 Future<List<PastedIngredient>?> showIngredientPasteSheet(
-  BuildContext context,
-) => showModalBottomSheet<List<PastedIngredient>>(
+  BuildContext context, {
+  String? initialText,
+}) => showModalBottomSheet<List<PastedIngredient>>(
   context: context,
   isScrollControlled: true,
-  builder: (_) => const IngredientPasteSheet(),
+  builder: (_) => IngredientPasteSheet(initialText: initialText),
 );
 
 class IngredientPasteSheet extends ConsumerStatefulWidget {
-  const IngredientPasteSheet({super.key});
+  const IngredientPasteSheet({super.key, this.initialText});
+
+  /// When set, the sheet pre-fills the input with this text and opens on
+  /// the review stage as soon as the catalog is ready.
+  final String? initialText;
 
   @override
   ConsumerState<IngredientPasteSheet> createState() =>
@@ -46,9 +56,23 @@ class _IngredientPasteSheetState extends ConsumerState<IngredientPasteSheet> {
   /// Null while typing; parsed candidates once "Review" is pressed.
   List<PasteCandidateLine>? _candidates;
 
+  /// Producer-supplied text still waiting for the catalog so it can be
+  /// auto-reviewed (consumed on the first ready build).
+  String? _pendingInitialText;
+
   /// Per-candidate "keep this one" ticks (unmatched lines only — they
   /// become FREE lines on the form, no item is created).
   final Map<int, bool> _keep = {};
+
+  @override
+  void initState() {
+    super.initState();
+    final initialText = widget.initialText;
+    if (initialText != null) {
+      _textController.text = initialText;
+      _pendingInitialText = initialText;
+    }
+  }
 
   @override
   void dispose() {
@@ -70,20 +94,25 @@ class _IngredientPasteSheetState extends ConsumerState<IngredientPasteSheet> {
   }
 
   void _review(List<Item> catalog, Set<String> salesTableFolderIds) {
+    setState(() => _applyReview(catalog, salesTableFolderIds));
+  }
+
+  /// Parses the input text and installs the review state. Called inside
+  /// setState by [_review], and directly (pre-frame) by the build-time
+  /// auto-review of producer-supplied text.
+  void _applyReview(List<Item> catalog, Set<String> salesTableFolderIds) {
     final candidates = parseIngredientPaste(
       _textController.text,
       catalog: catalog,
       salesTableFolderIds: salesTableFolderIds,
     );
-    setState(() {
-      _candidates = candidates;
-      _keep.clear();
-      for (var i = 0; i < candidates.length; i++) {
-        if (candidates[i].status == PasteLineStatus.unmatched) {
-          _keep[i] = true;
-        }
+    _candidates = candidates;
+    _keep.clear();
+    for (var i = 0; i < candidates.length; i++) {
+      if (candidates[i].status == PasteLineStatus.unmatched) {
+        _keep[i] = true;
       }
-    });
+    }
   }
 
   /// v5: writes NOTHING — matched lines come back linked, ambiguous and
@@ -136,6 +165,14 @@ class _IngredientPasteSheetState extends ConsumerState<IngredientPasteSheet> {
     final items = ref.watch(itemListProvider(const ItemFilter()));
     final salesTableFolderIds = ref.watch(salesTableFolderIdsProvider);
     final ready = items.valueOrNull != null && salesTableFolderIds != null;
+    if (ready && _pendingInitialText != null) {
+      // Producer-supplied text (OCR): review it on the first ready build —
+      // state is installed before this frame uses it, so no setState.
+      _pendingInitialText = null;
+      _applyReview([
+        for (final summary in items.value!) summary.item,
+      ], salesTableFolderIds);
+    }
     return SafeArea(
       child: Padding(
         // The sheet holds a text field: keep it above the keyboard.

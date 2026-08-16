@@ -27,6 +27,8 @@
 /// offered as link targets: no recipe makes or consumes a CD.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -43,9 +45,12 @@ import '../../../core/quantity_codec.dart';
 import '../../../core/result.dart';
 import '../../catalog/application/catalog_service.dart';
 import '../../catalog/domain/item.dart';
+import '../application/recipe_ocr_service.dart';
 import '../application/recipe_service.dart';
+import '../domain/recipe.dart';
 import '../domain/recipe_drafts.dart';
 import 'ingredient_paste_sheet.dart';
+import 'ocr_text_normalizer.dart';
 import 'recipe_catalog_filters.dart';
 
 /// Canonical (const, so family-cached) filter. Archived items are included
@@ -87,6 +92,15 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
   String? _pristine;
   bool _saved = false;
 
+  /// OCR capability probes (read once in initState; false until answered).
+  /// The scan affordance shows when either is true.
+  bool _cameraScanAvailable = false;
+  bool _photoPickAvailable = false;
+
+  /// True once any OCR capture landed rows on the form: the saved revision
+  /// then records `source_kind = 'ocr'` (Gate 5 provenance).
+  bool _usedScanner = false;
+
   bool get _isRevise => widget.recipeId != null;
 
   bool get _dirty => !_saved && _pristine != null && _signature() != _pristine;
@@ -108,6 +122,20 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
       _rows.add(_newRow());
       _pristine = _signature();
     }
+    unawaited(_probeOcrAvailability());
+  }
+
+  /// Reads both OCR probes once. Availability is a capability, not an
+  /// error: the scan button simply stays hidden until a probe says yes.
+  Future<void> _probeOcrAvailability() async {
+    final ocr = ref.read(recipeOcrServiceProvider);
+    final camera = await ocr.isCameraScanAvailable();
+    final photo = await ocr.isPhotoPickAvailable();
+    if (!mounted) return;
+    setState(() {
+      _cameraScanAvailable = camera;
+      _photoPickAvailable = photo;
+    });
   }
 
   @override
@@ -348,6 +376,13 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
                         icon: const Icon(Icons.content_paste_outlined),
                         label: const Text('Paste ingredients'),
                       ),
+                      if (_cameraScanAvailable || _photoPickAvailable)
+                        OutlinedButton.icon(
+                          key: const Key('scan-recipe'),
+                          onPressed: _scanRecipe,
+                          icon: const Icon(Icons.document_scanner_outlined),
+                          label: const Text('Scan a recipe'),
+                        ),
                     ],
                   ),
                   const SizedBox(height: 24),
@@ -413,14 +448,22 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
     }
   }
 
-  /// The confirmed rows from the paste sheet, appended as ordinary
-  /// ingredient rows. A single pristine empty starter row is replaced, not
-  /// kept as noise. The sheet creates NOTHING — matched rows arrive linked,
-  /// the rest arrive as free rows; every row keeps its own pasted text and
-  /// parsed unit, and nothing saves until the Save button.
-  Future<void> _pasteIngredients() async {
-    final added = await showIngredientPasteSheet(context);
-    if (added == null || added.isEmpty || !mounted) return;
+  Future<void> _pasteIngredients() => _reviewIngredients();
+
+  /// The one "open the review sheet with this text" path both producers
+  /// share: paste opens the sheet blank ([initialText] null), OCR hands its
+  /// surviving lines in and the sheet opens straight on the review stage.
+  /// Confirmed rows are appended as ordinary ingredient rows; a single
+  /// pristine empty starter row is replaced, not kept as noise. The sheet
+  /// creates NOTHING — matched rows arrive linked, the rest arrive as free
+  /// rows; every row keeps its own text and parsed unit, and nothing saves
+  /// until the Save button. Returns true when any row landed.
+  Future<bool> _reviewIngredients({String? initialText}) async {
+    final added = await showIngredientPasteSheet(
+      context,
+      initialText: initialText,
+    );
+    if (added == null || added.isEmpty || !mounted) return false;
     setState(() {
       if (_rows.length == 1 && _rows.first.isBlank) {
         _removeRow(_rows.first);
@@ -437,6 +480,93 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
       }
       _showLinesError = false;
     });
+    return true;
+  }
+
+  /// 'Scan a recipe': picks the capture path (a labeled chooser when both
+  /// camera and photo are available, straight to the only one otherwise),
+  /// runs it, and feeds the recognized lines into the same review sheet
+  /// [_pasteIngredients] uses.
+  Future<void> _scanRecipe() async {
+    final ocr = ref.read(recipeOcrServiceProvider);
+    final Future<RecipeOcrCapture?> Function() capture;
+    if (_cameraScanAvailable && _photoPickAvailable) {
+      final source = await showModalBottomSheet<_ScanSource>(
+        context: context,
+        builder: (context) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                key: const Key('scan-take-photo'),
+                leading: const Icon(Icons.photo_camera_outlined),
+                title: const Text('Take a photo'),
+                onTap: () => Navigator.of(context).pop(_ScanSource.camera),
+              ),
+              ListTile(
+                key: const Key('scan-choose-photo'),
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('Choose a photo'),
+                onTap: () => Navigator.of(context).pop(_ScanSource.photo),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (source == null || !mounted) return;
+      capture = source == _ScanSource.camera
+          ? ocr.scanWithCamera
+          : ocr.pickPhoto;
+    } else {
+      capture = _cameraScanAvailable ? ocr.scanWithCamera : ocr.pickPhoto;
+    }
+    await _captureAndReview(capture);
+  }
+
+  /// Runs one capture behind a blocking in-app progress state (the native
+  /// side presents its own full-screen UI), then normalizes, pre-filters,
+  /// and reviews the recognized lines. Content privacy: recognized text
+  /// goes to the review sheet and NOWHERE else — never a log, never an
+  /// error message.
+  Future<void> _captureAndReview(
+    Future<RecipeOcrCapture?> Function() capture,
+  ) async {
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()),
+      ),
+    );
+    RecipeOcrCapture? result;
+    var failed = false;
+    try {
+      result = await capture();
+    } on RecipeOcrException {
+      failed = true; // code deliberately unread: content-free either way
+    }
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).pop(); // the progress dialog
+    if (failed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Couldn't read that photo. Try again.")),
+      );
+      return;
+    }
+    if (result == null) return; // owner cancelled: do nothing
+    final lines = filterOcrIngredientLines([
+      for (final line in result.lines) normalizeOcrLine(line),
+    ]);
+    if (lines.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No text found in that photo.')),
+      );
+      return;
+    }
+    final landed = await _reviewIngredients(initialText: lines.join('\n'));
+    if (landed) {
+      _usedScanner = true;
+    }
   }
 
   void _removeRow(_IngredientRow row) {
@@ -648,6 +778,9 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
       yieldQuantity: QuantityFormField.tryParse(_yieldController.text)!,
       yieldLabel: null,
       note: _noteController.text.trim(),
+      // Provenance (both create and revise): any landed OCR capture marks
+      // the revision as scanned.
+      sourceKind: _usedScanner ? RecipeSourceKind.ocr : RecipeSourceKind.form,
       lines: [
         for (final row in _rows)
           RecipeFormLine(
@@ -696,6 +829,9 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
     }
   }
 }
+
+/// Which capture path the 'Scan a recipe' chooser picked.
+enum _ScanSource { camera, photo }
 
 final class _IngredientRow {
   _IngredientRow({

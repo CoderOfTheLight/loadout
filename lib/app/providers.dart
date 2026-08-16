@@ -37,6 +37,7 @@ import '../features/forecasting/domain/snapshot.dart';
 import '../features/inventory/application/inventory_service.dart';
 import '../features/inventory/domain/ledger_math.dart';
 import '../features/inventory/infrastructure/drift_inventory_ledger.dart';
+import '../features/recipes/application/recipe_ocr_service.dart';
 import '../features/recipes/application/recipe_service.dart';
 import '../features/settings/application/settings_service.dart';
 import '../infrastructure/backup/backup_service_impl.dart';
@@ -172,6 +173,11 @@ final recipeServiceProvider = Provider<RecipeService>(
     ref.watch(appDatabaseProvider),
     ref.watch(approvalServiceProvider),
   ),
+);
+
+/// Overridden with a fake in widget tests; the real channel needs a device.
+final recipeOcrServiceProvider = Provider<RecipeOcrService>(
+  (ref) => const MethodChannelRecipeOcrService(),
 );
 
 final backupServiceProvider = Provider<BackupService>((ref) {

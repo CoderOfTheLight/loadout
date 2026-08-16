@@ -116,9 +116,13 @@ final class AppHarness {
   /// Boots the app exactly like `main()` does, in [state]. Call inside
   /// `tester.runAsync` (or `setUp`) — never directly in a `testWidgets`
   /// body, where FakeAsync deadlocks real file IO.
+  ///
+  /// [overrides] are installed AFTER the bootstrap's own, so a test can
+  /// swap a device-only service (the OCR channel, say) for a fake.
   static Future<AppHarness> start({
     AppHarnessState state = AppHarnessState.fresh,
     Diag diag = const NoopDiag(),
+    List<Override> overrides = const [],
   }) async {
     final tempDir = Directory.systemTemp.createTempSync('loadout_app_harness');
     final paths = LoadoutPaths(tempDir);
@@ -179,7 +183,9 @@ final class AppHarness {
       scratch: scratch,
       diag: diag,
     );
-    final container = ProviderContainer(overrides: boot.overrides);
+    final container = ProviderContainer(
+      overrides: [...boot.overrides, ...overrides],
+    );
     return AppHarness._(
       tempDir: tempDir,
       paths: paths,

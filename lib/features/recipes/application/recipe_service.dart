@@ -320,6 +320,7 @@ final class DriftRecipeService implements RecipeService {
         yieldQuantity: draft.yieldQuantity,
         yieldLabel: draft.yieldLabel,
         note: draft.note,
+        sourceKind: draft.sourceKind,
         lines: [
           for (final line in draft.lines)
             RecipeLineDraft(

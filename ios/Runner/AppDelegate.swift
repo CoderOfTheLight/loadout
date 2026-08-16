@@ -13,6 +13,7 @@ import UIKit
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     registerBackupExclusionChannel(with: engineBridge.pluginRegistry)
+    RecipeOcrChannel.register(with: engineBridge.pluginRegistry)
   }
 
   /// Design §7.2/§10: bootstrap asks for `NSURLIsExcludedFromBackupKey` on the

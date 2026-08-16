@@ -61,6 +61,7 @@ final class RecipeFormDraft {
     required this.yieldQuantity,
     this.yieldLabel,
     this.note = '',
+    this.sourceKind = RecipeSourceKind.form,
     required this.lines,
   });
 
@@ -69,6 +70,11 @@ final class RecipeFormDraft {
   final Quantity yieldQuantity;
   final String? yieldLabel;
   final String note;
+
+  /// How the revision's content arrived: [RecipeSourceKind.ocr] when any
+  /// scanned capture landed rows on the form, [RecipeSourceKind.form]
+  /// otherwise (typed or pasted by hand).
+  final RecipeSourceKind sourceKind;
   final List<RecipeFormLine> lines;
 }
 
