@@ -37,9 +37,10 @@
 ///   every row is a fixed-extent sliver child), and the active chip tracks
 ///   the scroll position.
 ///
-/// The only command this screen issues is `MoveItemToFolder` (the row and
-/// picker are otherwise read-only). Folder management is its own screen,
-/// reached from the overflow menu.
+/// The commands this screen issues are `MoveItemToFolder` and the two
+/// deletes — `DeleteItem` from a row's overflow, `DeleteAllItems` from the
+/// app-bar overflow, each behind its confirmation (delete_dialogs.dart).
+/// Folder management is its own screen, reached from the overflow menu.
 library;
 
 import 'package:flutter/material.dart';
@@ -57,6 +58,7 @@ import '../application/catalog_service.dart';
 import '../domain/folder.dart';
 import 'catalog_format.dart';
 import 'catalog_providers.dart';
+import 'delete_dialogs.dart';
 import 'folder_management_screen.dart';
 import 'folder_picker_sheet.dart';
 import 'unfiled_chip.dart';
@@ -252,6 +254,67 @@ class _ItemListScreenState extends ConsumerState<ItemListScreen> {
     }
   }
 
+  /// "Delete…" from a row's overflow: the confirmation, then the single
+  /// `DeleteItem` command (safe by construction — the applier archives an
+  /// item with event history and hard-deletes one without; either way the
+  /// row leaves the list).
+  Future<void> _deleteItem(ItemSummary summary) async {
+    final name = summary.item.name;
+    final confirmed = await confirmDeleteItem(context, itemName: name);
+    if (!confirmed || !mounted) {
+      return;
+    }
+    final result = await ref
+        .read(catalogServiceProvider)
+        .deleteItem(itemId: summary.item.id.value);
+    if (!mounted) {
+      return;
+    }
+    switch (result) {
+      case Ok():
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Deleted "$name"')));
+      case Err():
+        // Content-free by design (§9): no names or quantities in errors.
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Couldn't delete this item. Try again."),
+          ),
+        );
+    }
+  }
+
+  /// "Delete all items…" from the app-bar overflow: one confirmation over
+  /// the live count, then the single `DeleteAllItems` command. Previously
+  /// archived items are left alone (the service's rule).
+  Future<void> _deleteAllItems(int itemCount) async {
+    final confirmed = await confirmDeleteAllItems(
+      context,
+      itemCount: itemCount,
+    );
+    if (!confirmed || !mounted) {
+      return;
+    }
+    final result = await ref.read(catalogServiceProvider).deleteAllItems();
+    if (!mounted) {
+      return;
+    }
+    switch (result) {
+      case Ok():
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('All items deleted')));
+      case Err():
+        // Content-free by design (§9): no names or quantities in errors.
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Couldn't delete your items. Try again."),
+          ),
+        );
+    }
+  }
+
   /// The floating search+chips header's current height — part of the exact
   /// jump offset. Zero before the first layout.
   double get _floatingHeaderHeight =>
@@ -354,6 +417,14 @@ class _ItemListScreenState extends ConsumerState<ItemListScreen> {
               const <ItemSummary>[]
         : const <ItemSummary>[];
     final collapsed = ref.watch(collapsedSectionsProvider);
+    // The live count "Delete all items…" confirms over (archived items are
+    // outside both the sections and the command's reach).
+    final liveItemCount =
+        sectionsAsync.valueOrNull?.fold<int>(
+          0,
+          (sum, section) => sum + section.items.length,
+        ) ??
+        0;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Items'),
@@ -366,6 +437,8 @@ class _ItemListScreenState extends ConsumerState<ItemListScreen> {
                   setState(() => _includeArchived = !_includeArchived);
                 case 'folders':
                   _openFolderManagement();
+                case 'delete-all':
+                  _deleteAllItems(liveItemCount);
               }
             },
             itemBuilder: (_) => [
@@ -377,6 +450,13 @@ class _ItemListScreenState extends ConsumerState<ItemListScreen> {
               const PopupMenuItem(
                 value: 'folders',
                 child: Text('Manage folders'),
+              ),
+              PopupMenuItem(
+                value: 'delete-all',
+                // Disabled instead of failing after the tap: with no live
+                // items there is nothing the command would touch.
+                enabled: liveItemCount > 0,
+                child: const Text('Delete all items…'),
               ),
             ],
           ),
@@ -598,6 +678,7 @@ class _ItemListScreenState extends ConsumerState<ItemListScreen> {
           : null,
       onToggleExpanded: () => _toggleRecipe(summary.item.id.value),
       onMove: summary.item.isArchived ? null : () => _moveItem(summary),
+      onDelete: summary.item.isArchived ? null : () => _deleteItem(summary),
     ),
     _LinkedLineRow(:final summary, :final folder) => _ItemTile(
       summary: summary,
@@ -607,6 +688,7 @@ class _ItemListScreenState extends ConsumerState<ItemListScreen> {
       expanded: null,
       onToggleExpanded: null,
       onMove: () => _moveItem(summary),
+      onDelete: () => _deleteItem(summary),
     ),
     _FreeLineRow(:final line, :final recipeId, :final offerAdd) =>
       _FreeLineTile(
@@ -1015,7 +1097,7 @@ class _AmountCell extends StatelessWidget {
 /// One item row, table-like (owner's ruling): [chip when the row is outside
 /// its own folder section] → amount+unit column → name and caption →
 /// [expand affordance on recipe outputs] → per-row overflow with the
-/// first-class "Move to folder…".
+/// first-class "Move to folder…" and "Delete…".
 class _ItemTile extends StatelessWidget {
   const _ItemTile({
     required this.summary,
@@ -1024,6 +1106,7 @@ class _ItemTile extends StatelessWidget {
     required this.expanded,
     required this.onToggleExpanded,
     required this.onMove,
+    required this.onDelete,
     this.indent = false,
   });
 
@@ -1041,6 +1124,9 @@ class _ItemTile extends StatelessWidget {
 
   /// Null hides the overflow (archived rows — the command would refuse).
   final VoidCallback? onMove;
+
+  /// "Delete…" beneath "Move to folder…" — set exactly where [onMove] is.
+  final VoidCallback? onDelete;
 
   /// True for rows inside an expanded recipe group — inset a step so the
   /// view reads as contained (a view, never data nesting).
@@ -1117,12 +1203,24 @@ class _ItemTile extends StatelessWidget {
                 if (onMove != null)
                   PopupMenuButton<String>(
                     tooltip: 'Options for ${item.name}',
-                    onSelected: (_) => onMove!(),
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(
+                    onSelected: (value) {
+                      switch (value) {
+                        case 'move':
+                          onMove!();
+                        case 'delete':
+                          onDelete?.call();
+                      }
+                    },
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(
                         value: 'move',
                         child: Text('Move to folder…'),
                       ),
+                      if (onDelete != null)
+                        const PopupMenuItem(
+                          value: 'delete',
+                          child: Text('Delete…'),
+                        ),
                     ],
                   ),
               ],

@@ -191,6 +191,9 @@ final class DriftRecipeService implements RecipeService {
       AddRecipeRevision(
         recipeId: RecipeId(recipeId),
         revision: _toRevisionDraft(draft),
+        // One name for the recipe and its output item — a rename rides the
+        // revise (the applier no-ops when it matches the current name).
+        name: draft.name,
       ),
     );
     return result.fold((receipt) async {

@@ -17,6 +17,7 @@ import '../domain/command_codec.dart';
 import '../domain/command_validator.dart';
 import '../domain/commands.dart';
 import '../domain/proposal.dart';
+import '../domain/workspace_read_model.dart';
 import 'drift_state_loader.dart';
 
 /// The single write path over Drift (design §6.4): validates, applies every
@@ -281,6 +282,8 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
       CreateItem() => await _createItem(command, commandId, now),
       UpdateItem() => await _updateItem(command, now),
       SetItemArchived() => await _setItemArchived(command, now, state),
+      DeleteItem() => await _deleteItem(command, now, state),
+      DeleteAllItems() => await _deleteAllItems(now, state),
       CreateFolder() => await _createFolder(command, now, state),
       RenameFolder() => await _renameFolder(command, now),
       ReorderFolders() => await _reorderFolders(command, now),
@@ -434,6 +437,14 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
         updatedAtMicros: Value(now),
       ),
     );
+    if (c.name != null) {
+      // One name in both directions: renaming a recipe's output item renames
+      // the recipe too. At most one live recipe binds an output item, but
+      // the update covers every matching row.
+      await (_db.update(_db.recipes)
+            ..where((r) => r.outputItemId.equals(c.itemId as String)))
+          .write(RecipesCompanion(name: Value(c.name!.trim())));
+    }
     return const _Effects([]);
   }
 
@@ -563,6 +574,85 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
       ),
     );
     return const _Effects([]);
+  }
+
+  Future<_Effects> _deleteItem(
+    DeleteItem c,
+    int now,
+    PrefetchedState state,
+  ) async {
+    await _deleteOrArchiveItem(state.item(c.itemId as String)!, now);
+    return const _Effects([]);
+  }
+
+  /// The per-item delete routine over every LIVE item, in id order, inside
+  /// this one command transaction. Previously-archived items are left alone.
+  Future<_Effects> _deleteAllItems(int now, PrefetchedState state) async {
+    final live = [
+      for (final item in state.items.values)
+        if (!item.archived) item,
+    ]..sort((a, b) => a.id.compareTo(b.id));
+    for (final item in live) {
+      await _deleteOrArchiveItem(item, now);
+    }
+    return const _Effects([]);
+  }
+
+  /// "Delete" against an append-only ledger: hard-delete when physically
+  /// possible, archive-fallback when history exists. Both paths first clear
+  /// the item's mutable references — recipe_lines_v2 links (the ONLY column
+  /// its limited-update trigger lets change; every line keeps its own
+  /// ingredient_name, so unlinking never orphans one), the recipe output
+  /// binding (the recipe simply leaves the items list — the v5 decoupled
+  /// model), and plan rows on not-yet-closed events (plans are mutable; a
+  /// deleted item must leave upcoming lists). Blocker rows — movements,
+  /// closeout lines, frozen v1 recipe lines, forecast rows, closed-event
+  /// plan rows — are never touched: any of them forces the archive path,
+  /// where the live-name partial index frees the name for reuse. A blocked
+  /// already-archived item keeps its original archived_at (successful no-op).
+  Future<void> _deleteOrArchiveItem(ItemState item, int now) async {
+    await (_db.update(_db.recipeLinesV2)
+          ..where((l) => l.ingredientItemId.equals(item.id)))
+        .write(const RecipeLinesV2Companion(ingredientItemId: Value(null)));
+    await (_db.update(_db.recipes)
+          ..where((r) => r.outputItemId.equals(item.id)))
+        .write(const RecipesCompanion(outputItemId: Value(null)));
+    await _db.customStatement(
+      'DELETE FROM event_items WHERE item_id = ?1 AND event_id IN '
+      "(SELECT id FROM events WHERE status != 'closed')",
+      [item.id],
+    );
+    // Every remaining FK to items(id): the ledger, closeout history, the
+    // frozen v1 recipe lines, the three forecast tables, and closed-event
+    // plan rows (every other event_items row was deleted above).
+    final blocked =
+        (await _db
+                .customSelect(
+                  'SELECT EXISTS(SELECT 1 FROM inventory_movements '
+                  'WHERE item_id = ?1) '
+                  'OR EXISTS(SELECT 1 FROM closeout_lines WHERE item_id = ?1) '
+                  'OR EXISTS(SELECT 1 FROM recipe_lines '
+                  'WHERE ingredient_item_id = ?1) '
+                  'OR EXISTS(SELECT 1 FROM forecast_lines WHERE item_id = ?1) '
+                  'OR EXISTS(SELECT 1 FROM forecast_evidence '
+                  'WHERE item_id = ?1) '
+                  'OR EXISTS(SELECT 1 FROM forecast_overrides '
+                  'WHERE item_id = ?1) '
+                  'OR EXISTS(SELECT 1 FROM event_items WHERE item_id = ?1) '
+                  'AS blocked',
+                  variables: [Variable<String>(item.id)],
+                )
+                .getSingle())
+            .read<int>('blocked') !=
+        0;
+    if (!blocked) {
+      await (_db.delete(_db.items)..where((i) => i.id.equals(item.id))).go();
+      return;
+    }
+    if (item.archived) return;
+    await (_db.update(_db.items)..where((i) => i.id.equals(item.id))).write(
+      ItemsCompanion(archivedAtMicros: Value(now), updatedAtMicros: Value(now)),
+    );
   }
 
   // -------------------------------------------------------------- events
@@ -945,6 +1035,21 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
     PrefetchedState state,
   ) async {
     final recipe = state.recipe(c.recipeId as String)!;
+    // The rename that rides the revise: one name for the recipe and its
+    // output item, updated together in this transaction. A name equal to
+    // the current one is a no-op — nothing's updated_at moves.
+    final trimmed = c.name?.trim();
+    if (trimmed != null && trimmed != recipe.name) {
+      await (_db.update(_db.recipes)..where((r) => r.id.equals(recipe.id)))
+          .write(RecipesCompanion(name: Value(trimmed)));
+      if (recipe.outputItemId != null) {
+        await (_db.update(
+          _db.items,
+        )..where((i) => i.id.equals(recipe.outputItemId!))).write(
+          ItemsCompanion(name: Value(trimmed), updatedAtMicros: Value(now)),
+        );
+      }
+    }
     final revisionId = await _insertRevision(
       recipeId: recipe.id,
       revision: recipe.latestRevision + 1,

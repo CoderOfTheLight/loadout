@@ -128,7 +128,11 @@ final class DriftStateLoader {
     var needRecipes = false;
 
     switch (command) {
-      case CreateItem() || UpdateItem() || SetItemArchived():
+      case CreateItem() ||
+          UpdateItem() ||
+          SetItemArchived() ||
+          DeleteItem() ||
+          DeleteAllItems():
         break;
       case CreateFolder() ||
           RenameFolder() ||

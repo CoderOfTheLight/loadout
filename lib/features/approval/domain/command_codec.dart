@@ -9,6 +9,8 @@ String commandKind(WorkspaceCommand command) => switch (command) {
   CreateItem() => 'CreateItem',
   UpdateItem() => 'UpdateItem',
   SetItemArchived() => 'SetItemArchived',
+  DeleteItem() => 'DeleteItem',
+  DeleteAllItems() => 'DeleteAllItems',
   CreateFolder() => 'CreateFolder',
   RenameFolder() => 'RenameFolder',
   ReorderFolders() => 'ReorderFolders',
@@ -83,6 +85,8 @@ Map<String, Object?> _payload(WorkspaceCommand command) => switch (command) {
     'item_id': command.itemId as String,
     'archived': command.archived,
   },
+  DeleteItem() => {'item_id': command.itemId as String},
+  DeleteAllItems() => {},
   CreateFolder() => {
     'name': command.name,
     'demand_basis': command.demandBasis.dbValue,
@@ -173,6 +177,7 @@ Map<String, Object?> _payload(WorkspaceCommand command) => switch (command) {
   },
   AddRecipeRevision() => {
     'recipe_id': command.recipeId as String,
+    'name': command.name,
     'revision': _revision(command.revision),
   },
   SetRecipeArchived() => {

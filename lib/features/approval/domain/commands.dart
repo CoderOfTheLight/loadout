@@ -144,6 +144,24 @@ final class SetItemArchived extends WorkspaceCommand {
   final bool archived;
 }
 
+/// "Delete" against an append-only ledger: the applier hard-deletes the row
+/// when no history references it and archives it otherwise. Either way the
+/// item's recipe links are cleared, its recipe output binding is unbound,
+/// and it leaves every not-yet-closed event plan. Deleting an archived item
+/// is legal — hard-delete if unblocked, else a successful no-op.
+final class DeleteItem extends WorkspaceCommand {
+  const DeleteItem({required this.itemId});
+
+  final ItemId itemId;
+}
+
+/// [DeleteItem]'s routine applied to every LIVE item — one command, one
+/// transaction, one audit row. Previously-archived items are left alone; an
+/// empty catalog is a successful no-op.
+final class DeleteAllItems extends WorkspaceCommand {
+  const DeleteAllItems();
+}
+
 // -------------------------------------------------------------- folders
 // Master data like items: plain in-place updates through the single write
 // path. Renames can never orphan an item (items reference folders by FK,
@@ -408,10 +426,19 @@ final class CreateRecipe extends WorkspaceCommand {
 }
 
 final class AddRecipeRevision extends WorkspaceCommand {
-  const AddRecipeRevision({required this.recipeId, required this.revision});
+  const AddRecipeRevision({
+    required this.recipeId,
+    required this.revision,
+    this.name,
+  });
 
   final RecipeId recipeId;
   final RecipeRevisionDraft revision;
+
+  /// The rename that rides the revise: the recipe and its output item share
+  /// one name, so setting this renames both in the same transaction. Null =
+  /// keep the current name.
+  final String? name;
 }
 
 final class SetRecipeArchived extends WorkspaceCommand {

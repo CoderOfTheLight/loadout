@@ -25,6 +25,7 @@ import 'package:loadout/app/widgets/folder_chip.dart';
 import 'package:loadout/core/quantity.dart';
 import 'package:loadout/core/result.dart';
 import 'package:loadout/core/units.dart';
+import 'package:loadout/features/catalog/application/catalog_service.dart';
 import 'package:loadout/features/catalog/domain/item.dart';
 import 'package:loadout/features/catalog/presentation/folder_management_screen.dart';
 import 'package:loadout/features/catalog/presentation/item_list_screen.dart';
@@ -650,6 +651,144 @@ void main() {
     // The add flow itself lives on the recipe's own screen.
     expect(find.byType(RecipeDetailScreen), findsOneWidget);
     await h.flushTimers(tester);
+  });
+
+  testWidgets("Delete… in a row's overflow confirms, removes the item from "
+      'the list, and the snackbar names it', (tester) async {
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+    await tester.runAsync(() async {
+      final folders = await folderIdsByName(h);
+      await seedItem(h, name: 'Croissants', folderId: folders['Bakery']);
+    });
+
+    await h.pumpScreen(tester, const ItemListScreen());
+
+    await tester.tap(find.byTooltip('Options for Croissants'));
+    await tester.pumpAndSettle();
+    // "Delete…" sits below "Move to folder…" in the same overflow.
+    expect(find.text('Delete…'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('Move to folder…')).dy,
+      lessThan(tester.getTopLeft(find.text('Delete…')).dy),
+    );
+    await tester.tap(find.text('Delete…'));
+    await tester.pumpAndSettle();
+
+    // The confirmation names the item and promises the history stays.
+    expect(find.text('Delete "Croissants"?'), findsOneWidget);
+    expect(
+      find.text(
+        'It comes off your items list. What happened at past events stays '
+        'in your history.',
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+
+    expect(inList('Croissants'), findsNothing);
+    expect(find.text('Deleted "Croissants"'), findsOneWidget);
+    // No event history → truly removed, not archived out of sight.
+    final all = await tester.runAsync(
+      () => h
+          .read(catalogServiceProvider)
+          .watchItems(const ItemFilter(includeArchived: true))
+          .first,
+    );
+    expect(all, isEmpty);
+    await h.flushTimers(tester);
+  });
+
+  testWidgets('Cancel in the delete confirmation leaves the item in place', (
+    tester,
+  ) async {
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+    await tester.runAsync(() async {
+      final folders = await folderIdsByName(h);
+      await seedItem(h, name: 'Croissants', folderId: folders['Bakery']);
+    });
+
+    await h.pumpScreen(tester, const ItemListScreen());
+
+    await tester.tap(find.byTooltip('Options for Croissants'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete…'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Delete "Croissants"?'), findsNothing);
+    expect(inList('Croissants'), findsOneWidget);
+    final all = await tester.runAsync(
+      () => h.read(catalogServiceProvider).watchItems(const ItemFilter()).first,
+    );
+    expect(all, hasLength(1));
+    await h.flushTimers(tester);
+  });
+
+  testWidgets('Delete all items… clears the whole list after its own '
+      'confirmation', (tester) async {
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+    await tester.runAsync(() async {
+      final folders = await folderIdsByName(h);
+      await seedItem(h, name: 'Croissants', folderId: folders['Bakery']);
+      await seedItem(h, name: 'Tortillas'); // unfiled
+    });
+
+    await h.pumpScreen(tester, const ItemListScreen());
+
+    await tester.tap(find.byTooltip('More options'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete all items…'));
+    await tester.pumpAndSettle();
+
+    // The confirmation carries the live count.
+    expect(find.text('Delete all items?'), findsOneWidget);
+    expect(
+      find.text(
+        'Your whole items list is cleared (2 items). What happened at past '
+        'events stays in your history.',
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Delete all'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('All items deleted'), findsOneWidget);
+    // Back to the §9 empty catalog — nothing left to section.
+    expect(find.text('Nothing in your list yet'), findsOneWidget);
+    final all = await tester.runAsync(
+      () => h
+          .read(catalogServiceProvider)
+          .watchItems(const ItemFilter(includeArchived: true))
+          .first,
+    );
+    expect(all, isEmpty);
+    await h.flushTimers(tester);
+  });
+
+  testWidgets('Delete all items… is disabled while the list is empty', (
+    tester,
+  ) async {
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+
+    await h.pumpScreen(tester, const ItemListScreen());
+
+    await tester.tap(find.byTooltip('More options'));
+    await tester.pumpAndSettle();
+    final entry = tester.widget<PopupMenuItem<String>>(
+      find.widgetWithText(PopupMenuItem<String>, 'Delete all items…'),
+    );
+    expect(entry.enabled, isFalse);
+
+    // Dismiss the menu (a disabled entry ignores taps).
+    await tester.tapAt(const Offset(4, 300));
+    await tester.pumpAndSettle();
+    expect(find.text('Delete all items…'), findsNothing);
   });
 
   testWidgets('Manage folders in the overflow menu opens the folder '

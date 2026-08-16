@@ -9,7 +9,9 @@
 /// `?kind=count`; day-grouped movement history preview with reversed rows
 /// struck-through and labeled "Corrected" (history never hidden); menu:
 /// Edit, the first-class "Move to folder…" (picker → `MoveItemToFolder`),
-/// Archive/Unarchive via `CatalogService.setArchived`.
+/// Archive/Unarchive via `CatalogService.setArchived`, and "Delete item…"
+/// behind the shared confirmation (delete_dialogs.dart) — on success the
+/// screen pops back to the items list before the snackbar shows.
 library;
 
 import 'package:flutter/material.dart';
@@ -29,6 +31,7 @@ import '../domain/folder.dart';
 import '../domain/item.dart';
 import 'catalog_format.dart';
 import 'catalog_providers.dart';
+import 'delete_dialogs.dart';
 import 'folder_picker_sheet.dart';
 import 'unfiled_chip.dart';
 
@@ -92,6 +95,38 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
     }
   }
 
+  /// "Delete item…" from the menu: the shared confirmation, then the single
+  /// `DeleteItem` command. On success the screen pops back to the items
+  /// list FIRST — the item is gone from every list, so there is nothing
+  /// left to stand on — and the snackbar shows over the list.
+  Future<void> _deleteItem(Item item) async {
+    final name = item.name;
+    final confirmed = await confirmDeleteItem(context, itemName: name);
+    if (!confirmed || !mounted) {
+      return;
+    }
+    // The app-level messenger outlives this screen's pop.
+    final messenger = ScaffoldMessenger.of(context);
+    final result = await ref
+        .read(catalogServiceProvider)
+        .deleteItem(itemId: widget.itemId);
+    if (!mounted) {
+      return;
+    }
+    switch (result) {
+      case Ok():
+        context.pop();
+        messenger.showSnackBar(SnackBar(content: Text('Deleted "$name"')));
+      case Err():
+        // Content-free by design (§9): no names or quantities in errors.
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text("Couldn't delete this item. Try again."),
+          ),
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final detailAsync = ref.watch(itemDetailProvider(widget.itemId));
@@ -142,6 +177,8 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                   _moveToFolder(item);
                 case 'archive':
                   _setArchived(!item.isArchived);
+                case 'delete':
+                  _deleteItem(item);
               }
             },
             itemBuilder: (_) => [
@@ -157,6 +194,9 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                 value: 'archive',
                 child: Text(item.isArchived ? 'Unarchive' : 'Archive'),
               ),
+              // Deleting an archived item is allowed (a delete may archive
+              // under the hood, but never the other way blocked).
+              const PopupMenuItem(value: 'delete', child: Text('Delete item…')),
             ],
           ),
         ],

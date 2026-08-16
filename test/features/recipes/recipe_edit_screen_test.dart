@@ -44,10 +44,12 @@ void main() {
       'Sourdough loaves',
     );
     await tester.enterText(find.byKey(const Key('recipe-yield')), '6');
-    await tester.enterText(
-      find.byKey(const Key('recipe-yield-label')),
-      '6 loaves',
-    );
+    // Owner feedback: the field is plain 'Yield', and the old "what a
+    // batch is called" field is gone entirely.
+    expect(find.text('Yield'), findsOneWidget);
+    expect(find.text('How many one batch makes'), findsNothing);
+    expect(find.text('What a batch is called (optional)'), findsNothing);
+    expect(find.byKey(const Key('recipe-yield-label')), findsNothing);
 
     // Row 0: fraction amount, unit from the shared suggestion chips.
     await tester.enterText(
@@ -108,7 +110,7 @@ void main() {
     final revision = detail.revisions.single;
     expect(revision.revision, 1);
     expect(revision.yieldQuantity, Quantity.whole(6));
-    expect(revision.yieldLabel, '6 loaves');
+    expect(revision.yieldLabel, isNull); // the form no longer captures one
     expect(revision.sourceKind, RecipeSourceKind.form);
     expect(revision.lines, hasLength(2));
     final (flour, salt) = (revision.lines[0], revision.lines[1]);

@@ -15,6 +15,7 @@ import 'package:loadout/features/approval/domain/proposal.dart';
 import 'package:loadout/features/catalog/application/catalog_service.dart';
 import 'package:loadout/features/catalog/domain/item.dart';
 import 'package:loadout/features/catalog/presentation/item_detail_screen.dart';
+import 'package:loadout/features/catalog/presentation/item_list_screen.dart';
 import 'package:loadout/features/catalog/presentation/unfiled_chip.dart';
 import 'package:loadout/features/inventory/application/inventory_service.dart';
 import 'package:loadout/features/inventory/domain/movement.dart';
@@ -343,6 +344,52 @@ void main() {
     );
     // The header follows the stream.
     expect(find.text('Drinks'), findsOneWidget);
+    await h.flushTimers(tester);
+  });
+
+  testWidgets('Delete item… confirms, pops back to the items list, and the '
+      'snackbar names it', (tester) async {
+    final h = (await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    ))!;
+    addTearDown(h.dispose);
+    final id = (await tester.runAsync(() => seedItem(h, name: 'Tortillas')))!;
+
+    // The delete pops the route, so pump the full app rather than one
+    // screen.
+    await h.pumpApp(tester);
+    await h.go(tester, '/items/$id');
+    expect(find.byType(ItemDetailScreen), findsOneWidget);
+
+    await tester.tap(find.byTooltip('More options'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete item…'));
+    await tester.pumpAndSettle();
+
+    // The shared confirmation, same wording as the list rows'.
+    expect(find.text('Delete "Tortillas"?'), findsOneWidget);
+    expect(
+      find.text(
+        'It comes off your items list. What happened at past events stays '
+        'in your history.',
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+
+    // Back on the items list (assert the screen type, not the URI), with
+    // the snackbar over it; the item is gone for good (no history).
+    expect(find.byType(ItemDetailScreen), findsNothing);
+    expect(find.byType(ItemListScreen), findsOneWidget);
+    expect(find.text('Deleted "Tortillas"'), findsOneWidget);
+    final items = await tester.runAsync(
+      () => h
+          .read(catalogServiceProvider)
+          .watchItems(const ItemFilter(includeArchived: true))
+          .first,
+    );
+    expect(items, isEmpty);
     await h.flushTimers(tester);
   });
 

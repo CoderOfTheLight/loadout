@@ -97,6 +97,15 @@ abstract interface class CatalogService {
     required String itemId,
     required bool archived,
   });
+
+  /// "Deletes" the item through the single write path: the applier
+  /// hard-deletes the row when no history references it and archives it
+  /// otherwise. Either way the item leaves every list and its name frees.
+  Future<Result<void>> deleteItem({required String itemId});
+
+  /// [deleteItem]'s routine for every live item — one command, one
+  /// transaction. Previously-archived items are left alone.
+  Future<Result<void>> deleteAllItems();
   Stream<List<ItemSummary>> watchItems(ItemFilter filter);
   Stream<ItemDetail> watchItem(String itemId);
   Future<List<String>> categorySuggestions();
@@ -416,6 +425,18 @@ final class DriftCatalogService implements CatalogService {
     final result = await _submit(
       SetItemArchived(itemId: ItemId(itemId), archived: archived),
     );
+    return result.fold((_) => const Ok(null), Err.new);
+  }
+
+  @override
+  Future<Result<void>> deleteItem({required String itemId}) async {
+    final result = await _submit(DeleteItem(itemId: ItemId(itemId)));
+    return result.fold((_) => const Ok(null), Err.new);
+  }
+
+  @override
+  Future<Result<void>> deleteAllItems() async {
+    final result = await _submit(const DeleteAllItems());
     return result.fold((_) => const Ok(null), Err.new);
   }
 

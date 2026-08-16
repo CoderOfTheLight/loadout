@@ -61,6 +61,8 @@ final class CommandValidator {
       CreateItem() => _createItem(command, state),
       UpdateItem() => _updateItem(command, state),
       SetItemArchived() => _setItemArchived(command, state),
+      DeleteItem() => _deleteItem(command, state),
+      DeleteAllItems() => null,
       CreateFolder() => _createFolder(command, state),
       RenameFolder() => _renameFolder(command, state),
       ReorderFolders() => _reorderFolders(command, state),
@@ -178,6 +180,14 @@ final class CommandValidator {
     }
     return null;
   }
+
+  /// Deleting an archived item is allowed (hard-delete if unblocked, else a
+  /// successful no-op); the hard-vs-archive choice is the applier's.
+  /// DeleteAllItems needs no check at all — no live items is a legal no-op.
+  DomainError? _deleteItem(DeleteItem c, WorkspaceReadModel state) =>
+      state.item(c.itemId as String) == null
+      ? const NotFoundError('item not found')
+      : null;
 
   DomainError? _itemFields({
     String? name,
@@ -681,6 +691,24 @@ final class CommandValidator {
     if (recipe == null) return const NotFoundError('recipe not found');
     if (recipe.archived) {
       return const ValidationError('recipe is archived; unarchive it first');
+    }
+    if (c.name != null) {
+      final trimmed = c.name!.trim();
+      if (trimmed.isEmpty || trimmed.length > 120) {
+        return const ValidationError('recipe name must be 1-120 characters');
+      }
+      // The recipe and its output item share one name: while the recipe is
+      // in the items list, the rename answers to the live-name index. A
+      // recipe outside the list has no uniqueness constraint at all.
+      if (recipe.outputItemId != null &&
+          state.isItemNameTakenLive(
+            trimmed,
+            excludingItemId: recipe.outputItemId,
+          )) {
+        return const ValidationError(
+          'a live item with this name already exists',
+        );
+      }
     }
     return _revisionDraft(
       c.revision,

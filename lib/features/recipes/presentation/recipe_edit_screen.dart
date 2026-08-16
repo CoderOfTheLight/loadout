@@ -68,7 +68,6 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _yieldController = TextEditingController();
-  final _yieldLabelController = TextEditingController();
   final _noteController = TextEditingController();
   final List<_IngredientRow> _rows = [];
 
@@ -95,7 +94,6 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
   String _signature() => [
     _nameController.text,
     _yieldController.text,
-    _yieldLabelController.text,
     _noteController.text,
     for (final row in _rows)
       '${row.itemId ?? ''}:${row.nameController.text}:'
@@ -116,7 +114,6 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
   void dispose() {
     _nameController.dispose();
     _yieldController.dispose();
-    _yieldLabelController.dispose();
     _noteController.dispose();
     for (final row in _rows) {
       row.dispose();
@@ -156,7 +153,6 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
     final latest = detail.revisions.first; // newest first
     _nextRevision = latest.revision + 1;
     _yieldController.text = QuantityCodec.format(latest.yieldQuantity);
-    _yieldLabelController.text = latest.yieldLabel ?? '';
     _noteController.text = latest.note;
     for (final line in latest.lines) {
       _rows.add(
@@ -224,7 +220,6 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
             !salesFolderIds.contains(summary.item.folderId?.value))
           summary.item.name.trim().toLowerCase(): summary.item,
     };
-    final outputItem = _outputItemId == null ? null : itemsById[_outputItemId];
     final theme = Theme.of(context);
     return PopScope(
       canPop: !_dirty,
@@ -259,26 +254,9 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
                     ),
                     const SizedBox(height: 16),
                   ],
-                  // v5: only a recipe that is already in the items list has
-                  // an output item, and only revise mode can see one.
-                  if (_isRevise && _outputItemId != null) ...[
-                    InputDecorator(
-                      decoration: const InputDecoration(
-                        labelText: 'Output item',
-                        helperText:
-                            'Fixed for this recipe — revisions change the '
-                            'method, not the output.',
-                        border: OutlineInputBorder(),
-                        enabled: false,
-                      ),
-                      child: Text(outputItem?.name ?? 'Unknown item'),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
                   TextFormField(
                     key: const Key('recipe-name'),
                     controller: _nameController,
-                    enabled: !_isRevise,
                     textCapitalization: TextCapitalization.sentences,
                     decoration: const InputDecoration(
                       labelText: 'Recipe name',
@@ -293,31 +271,12 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
                     },
                   ),
                   const SizedBox(height: 16),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: QuantityFormField(
-                          key: const Key('recipe-yield'),
-                          controller: _yieldController,
-                          allowFractions: true,
-                          labelText: 'How many one batch makes',
-                          requiredMessage: 'Enter how many one batch makes',
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: TextFormField(
-                          key: const Key('recipe-yield-label'),
-                          controller: _yieldLabelController,
-                          decoration: const InputDecoration(
-                            labelText: 'What a batch is called (optional)',
-                            hintText: 'e.g. 12 tacos',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ),
-                    ],
+                  QuantityFormField(
+                    key: const Key('recipe-yield'),
+                    controller: _yieldController,
+                    allowFractions: true,
+                    labelText: 'Yield',
+                    requiredMessage: 'Enter the yield',
                   ),
                   const SizedBox(height: 24),
                   Text(
@@ -683,12 +642,11 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
     });
     final valid = _formKey.currentState?.validate() ?? false;
     if (!valid || _rows.isEmpty) return;
-    final yieldLabel = _yieldLabelController.text.trim();
     final draft = RecipeFormDraft(
       name: _nameController.text.trim(),
       outputItemId: _outputItemId,
       yieldQuantity: QuantityFormField.tryParse(_yieldController.text)!,
-      yieldLabel: yieldLabel.isEmpty ? null : yieldLabel,
+      yieldLabel: null,
       note: _noteController.text.trim(),
       lines: [
         for (final row in _rows)
