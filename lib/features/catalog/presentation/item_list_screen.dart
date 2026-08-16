@@ -43,6 +43,8 @@
 /// Folder management is its own screen, reached from the overflow menu.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -162,6 +164,11 @@ class _ItemListScreenState extends ConsumerState<ItemListScreen> {
   bool _includeArchived = false;
   String _query = '';
 
+  /// Barcode-scanner capability, probed once (false until answered). The
+  /// "Scan items in…" entry simply stays hidden until the probe says yes —
+  /// availability is a capability, not an error.
+  bool _scanAvailable = false;
+
   /// Recipe-output item ids whose rows are expanded to show their lines.
   /// Screen-local: leaving the list folds every group again.
   final Set<String> _expandedRecipes = {};
@@ -181,6 +188,14 @@ class _ItemListScreenState extends ConsumerState<ItemListScreen> {
   void initState() {
     super.initState();
     _scroll.addListener(_trackActiveSection);
+    unawaited(_probeScanner());
+  }
+
+  Future<void> _probeScanner() async {
+    final available = await ref.read(barcodeScanServiceProvider).isAvailable();
+    if (mounted && available) {
+      setState(() => _scanAvailable = true);
+    }
   }
 
   @override
@@ -437,6 +452,8 @@ class _ItemListScreenState extends ConsumerState<ItemListScreen> {
                   setState(() => _includeArchived = !_includeArchived);
                 case 'folders':
                   _openFolderManagement();
+                case 'scan-in':
+                  context.push('/items/scan-in');
                 case 'delete-all':
                   _deleteAllItems(liveItemCount);
               }
@@ -451,6 +468,11 @@ class _ItemListScreenState extends ConsumerState<ItemListScreen> {
                 value: 'folders',
                 child: Text('Manage folders'),
               ),
+              if (_scanAvailable)
+                const PopupMenuItem(
+                  value: 'scan-in',
+                  child: Text('Scan items in…'),
+                ),
               PopupMenuItem(
                 value: 'delete-all',
                 // Disabled instead of failing after the tap: with no live

@@ -23,7 +23,8 @@ import 'package:loadout/data/db/app_database.dart';
 import 'package:loadout/infrastructure/db/open_database.dart';
 import 'package:loadout/infrastructure/security/key_manager.dart';
 
-import '../generated/migrations/schema_v4.dart';
+import '../generated/migrations/schema_v4.dart' as v4_schema;
+import '../generated/migrations/schema_v5.dart' as v5_schema;
 
 void main() {
   late Directory temp;
@@ -42,7 +43,9 @@ void main() {
   /// workspace row, a folder, two items (one in the folder), a recipe
   /// bound to an output item, one revision, one linked line.
   Future<void> createUsedV4Phone() async {
-    final v4 = DatabaseAtV4(openLoadoutExecutor(file: dbFile, key: key));
+    final v4 = v4_schema.DatabaseAtV4(
+      openLoadoutExecutor(file: dbFile, key: key),
+    );
     await v4.customStatement(
       "INSERT INTO workspace_meta (id, workspace_uid, display_name, "
       "created_at_micros, created_by_app_version) "
@@ -94,7 +97,9 @@ void main() {
     // ADD COLUMN and failed later, outside any transaction, leaving
     // user_version at 4. (The CHECK mirrors what drift's addColumn emits;
     // only the column's existence matters to the defect.)
-    final strand = DatabaseAtV4(openLoadoutExecutor(file: dbFile, key: key));
+    final strand = v4_schema.DatabaseAtV4(
+      openLoadoutExecutor(file: dbFile, key: key),
+    );
     await strand.customStatement(
       'ALTER TABLE items ADD COLUMN unit_label TEXT NULL '
       'CHECK (LENGTH("unit_label") BETWEEN 1 AND 24)',
@@ -170,6 +175,171 @@ void main() {
     final violations = await db.customSelect('PRAGMA foreign_key_check').get();
     expect(violations, isEmpty, reason: 'migration left dangling references');
 
+    await db.close();
+  });
+
+  /// A v5 database on a real keyed file, seeded like a used phone:
+  /// workspace row, a folder, two items (one filed with a unit label), a
+  /// recipe bound to an output item, one revision, one linked
+  /// recipe_lines_v2 row.
+  Future<void> createUsedV5Phone() async {
+    final v5 = v5_schema.DatabaseAtV5(
+      openLoadoutExecutor(file: dbFile, key: key),
+    );
+    await v5.customStatement(
+      "INSERT INTO workspace_meta (id, workspace_uid, display_name, "
+      "created_at_micros, created_by_app_version) "
+      "VALUES (1, '01HZZZZZZZZZZZZZZZZZZZZZZZ', 'My stall', 1, '1.0.0')",
+    );
+    await v5.customStatement(
+      "INSERT INTO folders (id, name, position, demand_basis, always_planned, "
+      "hue_name, icon_name, created_at_micros, updated_at_micros) "
+      "VALUES ('01HFOLDER00000000000000001', 'Cooked on site', 0, "
+      "'per_person', 0, 'clay', 'outdoor_grill', 1, 1)",
+    );
+    await v5.customStatement(
+      "INSERT INTO items (id, name, unit, pack_size_micros, unit_label, "
+      "folder_id, created_at_micros, updated_at_micros) "
+      "VALUES ('01HITEM000000000000000001', 'Soup', 'each', 1000000, "
+      "'ladles', '01HFOLDER00000000000000001', 1, 1)",
+    );
+    await v5.customStatement(
+      "INSERT INTO items (id, name, unit, pack_size_micros, "
+      "created_at_micros, updated_at_micros) "
+      "VALUES ('01HITEM000000000000000002', 'Flour', 'each', 1000000, 1, 1)",
+    );
+    await v5.customStatement(
+      "INSERT INTO recipes (id, output_item_id, name, created_at_micros) "
+      "VALUES ('01HRECIPE0000000000000001', '01HITEM000000000000000001', "
+      "'Soup batch', 1)",
+    );
+    await v5.customStatement(
+      "INSERT INTO recipe_revisions (id, recipe_id, revision, yield_micros, "
+      "source_kind, note, created_at_micros) "
+      "VALUES ('01HREV0000000000000000001', '01HRECIPE0000000000000001', 1, "
+      "10000000, 'form', '', 1)",
+    );
+    await v5.customStatement(
+      "INSERT INTO recipe_lines_v2 (revision_id, line_index, "
+      "ingredient_name, unit_label, ingredient_item_id, "
+      "quantity_per_batch_micros) "
+      "VALUES ('01HREV0000000000000000001', 0, 'Flour', 'cups', "
+      "'01HITEM000000000000000002', 500000)",
+    );
+    await v5.close();
+  }
+
+  test('a used v5 phone database migrates through the production open path '
+      'to v6', () async {
+    await createUsedV5Phone();
+
+    // Reopen exactly as bootstrap does: production executor, same key.
+    final db = AppDatabase(openLoadoutExecutor(file: dbFile, key: key));
+    // Forces the lazy open, which runs onUpgrade v5→v6 under PRAGMA
+    // foreign_keys = ON — the phone's exact condition.
+    final version = await db.customSelect('PRAGMA user_version').get();
+    expect(version.single.read<int>('user_version'), 6);
+
+    // Both items intact: unit_label preserved, barcode NULL — a migration
+    // never scans anything.
+    final items = await db
+        .customSelect(
+          'SELECT name, unit_label, barcode FROM items ORDER BY name',
+        )
+        .get();
+    expect(items, hasLength(2));
+    expect(items[0].read<String>('name'), 'Flour');
+    expect(items[0].read<String?>('unit_label'), isNull);
+    expect(items[0].read<String?>('barcode'), isNull);
+    expect(items[1].read<String>('name'), 'Soup');
+    expect(items[1].read<String?>('unit_label'), 'ladles');
+    expect(items[1].read<String?>('barcode'), isNull);
+
+    // The v5 recipe line rides byte for byte.
+    final lines = await db
+        .customSelect(
+          'SELECT ingredient_name, unit_label, ingredient_item_id, '
+          'quantity_per_batch_micros FROM recipe_lines_v2',
+        )
+        .get();
+    expect(lines, hasLength(1));
+    expect(lines.single.read<String>('ingredient_name'), 'Flour');
+    expect(lines.single.read<String?>('unit_label'), 'cups');
+    expect(
+      lines.single.read<String?>('ingredient_item_id'),
+      '01HITEM000000000000000002',
+    );
+    expect(lines.single.read<int>('quantity_per_batch_micros'), 500000);
+
+    // Foreign keys intact, and the new index arrived.
+    final violations = await db.customSelect('PRAGMA foreign_key_check').get();
+    expect(violations, isEmpty, reason: 'migration left dangling references');
+    final index = await db
+        .customSelect(
+          "SELECT name FROM sqlite_master "
+          "WHERE name = 'uidx_items_barcode_live'",
+        )
+        .get();
+    expect(index, hasLength(1));
+
+    await db.close();
+  });
+
+  test('THE WHITE-SCREEN PIN AT v6: a v5 phone stranded mid-v6 (barcode '
+      'column — and even the index — already present, user_version still 5) '
+      'completes its migration instead of dying on "duplicate column '
+      'name"', () async {
+    await createUsedV5Phone();
+
+    // Reproduce the stranded state: a hypothetical partial v6 left the ADD
+    // COLUMN (and index) behind with user_version still 5. The v6 wrapper
+    // makes this unreachable in production — this pins that even if it
+    // happened, the block completes instead of wedging the phone the way
+    // the pre-atomic v5 rollout did. (The CHECK mirrors what drift's
+    // addColumn emits; only existence matters to the defect.)
+    final strand = v5_schema.DatabaseAtV5(
+      openLoadoutExecutor(file: dbFile, key: key),
+    );
+    await strand.customStatement(
+      'ALTER TABLE items ADD COLUMN barcode TEXT NULL '
+      'CHECK (LENGTH("barcode") BETWEEN 1 AND 64)',
+    );
+    await strand.customStatement(
+      'CREATE UNIQUE INDEX IF NOT EXISTS uidx_items_barcode_live '
+      'ON items (barcode) '
+      'WHERE archived_at_micros IS NULL AND barcode IS NOT NULL',
+    );
+    await strand.close();
+
+    // The owner's next launch: must open, finish the migration, keep data.
+    final db = AppDatabase(openLoadoutExecutor(file: dbFile, key: key));
+    final version = await db.customSelect('PRAGMA user_version').get();
+    expect(version.single.read<int>('user_version'), 6);
+
+    final items = await db
+        .customSelect(
+          'SELECT name, unit_label, barcode FROM items ORDER BY name',
+        )
+        .get();
+    expect(items, hasLength(2));
+    expect(items[1].read<String?>('unit_label'), 'ladles');
+    expect(items[1].read<String?>('barcode'), isNull);
+
+    final lines = await db
+        .customSelect('SELECT ingredient_name FROM recipe_lines_v2')
+        .get();
+    expect(lines, hasLength(1), reason: 'v5 recipe data kept');
+
+    final index = await db
+        .customSelect(
+          "SELECT name FROM sqlite_master "
+          "WHERE name = 'uidx_items_barcode_live'",
+        )
+        .get();
+    expect(index, hasLength(1), reason: 'exactly one index, no duplicate');
+
+    final violations = await db.customSelect('PRAGMA foreign_key_check').get();
+    expect(violations, isEmpty);
     await db.close();
   });
 }

@@ -19,6 +19,7 @@ final class Item {
     this.unit = ItemUnit.each,
     this.packSize = Quantity.one,
     this.unitLabel,
+    this.barcode,
     this.servesPerUnit,
     this.perPersonRatio,
     this.folderId,
@@ -44,6 +45,12 @@ final class Item {
   /// never converts between labels and never does unit arithmetic —
   /// forecasting works on the bare amounts exactly as before.
   final String? unitLabel;
+
+  /// v6: the raw barcode payload exactly as the scan detector delivered it
+  /// (1–64 chars). The app never interprets it — payloads are stored and
+  /// compared verbatim, unique among LIVE items only (archiving frees it).
+  /// Null = never scanned.
+  final String? barcode;
 
   /// How many people ONE of this item serves ("1 pizza serves 4"). Null when
   /// the owner never said — then a first-ever event simply gets no estimate.

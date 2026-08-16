@@ -26,6 +26,18 @@
 /// counts soap at midnight and a made-up number would become permanent
 /// history the forecast trusts. A skipped line records nothing and teaches
 /// nothing, and the card says so. Per-person lines keep today's behaviour.
+///
+/// Quick fills ("a faster way to check what was used"): two plain word
+/// chips for the common extremes. 'Nothing used' writes a direct depletion
+/// of 0 — everything came back. 'All gone' writes the loaded value, else
+/// the planned-load prefill, and flags the stockout (all gone usually
+/// means demand was censored; untoggle it when supply exactly met demand);
+/// with neither number on record it invents nothing — it only flags the
+/// stockout and focuses the depletion field. Both flow through the same
+/// [CloseoutLineCard.onChanged] path typing does, so state recompute, the
+/// confirm-flip haptic, and the debounced autosave all fire normally.
+/// Hidden on skipped lines and behind a completed worksheet (where the
+/// depletion is derived and read-only).
 library;
 
 import 'package:flutter/material.dart';
@@ -168,6 +180,10 @@ class _CloseoutLineCardState extends State<CloseoutLineCard> {
   /// Last seen confirmed state, so the check-off haptic fires exactly once
   /// per flip into confirmed — never per keystroke, never on rebuilds.
   late bool _wasConfirmed = widget.line.confirmed;
+
+  /// Marks the direct-depletion field's subtree so 'All gone' can focus it
+  /// when it has no number to offer.
+  final GlobalKey _depletionFieldKey = GlobalKey();
 
   @override
   void didUpdateWidget(CloseoutLineCard oldWidget) {
@@ -349,27 +365,99 @@ class _CloseoutLineCardState extends State<CloseoutLineCard> {
     );
   }
 
-  /// The counting body shared by both bases: direct depletion (or the
-  /// derived read-only display), the expandable worksheet, and the flags.
+  /// 'Nothing used': everything came back — a confirmed zero, through the
+  /// same handler typing reaches (§5: zero is a legal label).
+  void _quickFillNothingUsed() {
+    widget.line.depletion.text = QuantityCodec.format(Quantity.zero);
+    widget.onChanged();
+  }
+
+  /// 'All gone': depletion = the loaded value if set, else the planned-load
+  /// prefill — and the stockout flag flips ON either way, because all gone
+  /// usually means demand was censored (the owner untoggles it when supply
+  /// exactly met demand). With neither number on record the chip invents
+  /// nothing: it only sets the flag and focuses the depletion field.
+  void _quickFillAllGone() {
+    final line = widget.line;
+    line.stockout = true;
+    final loaded = line.loadedQuantity;
+    if (loaded != null) {
+      line.depletion.text = QuantityCodec.format(loaded);
+    } else if (line.plannedLoadMicros != null) {
+      line.depletion.text = QuantityCodec.format(
+        Quantity.fromMicros(line.plannedLoadMicros!),
+      );
+    } else {
+      _focusDepletionField();
+    }
+    widget.onChanged();
+  }
+
+  /// Focuses the direct-depletion field. [QuantityFormField] owns its
+  /// [TextFormField] and exposes no focus node, so walk the keyed subtree —
+  /// it contains exactly one [EditableText] — and focus that node.
+  void _focusDepletionField() {
+    final fieldContext = _depletionFieldKey.currentContext;
+    if (fieldContext == null) return;
+    FocusNode? node;
+    void visit(Element element) {
+      if (node != null) return;
+      final candidate = element.widget;
+      if (candidate is EditableText) {
+        node = candidate.focusNode;
+        return;
+      }
+      element.visitChildren(visit);
+    }
+
+    (fieldContext as Element).visitChildren(visit);
+    node?.requestFocus();
+  }
+
+  /// The counting body shared by both bases: the quick-fill chips, direct
+  /// depletion (or the derived read-only display), the expandable
+  /// worksheet, and the flags.
   List<Widget> _entryFields(ThemeData theme) {
     final line = widget.line;
     return [
+      if (!line.worksheetComplete) ...[
+        // Quick fills: plain word chips, one tap for the common extremes.
+        Wrap(
+          spacing: 8,
+          children: [
+            ActionChip(
+              label: const Text('Nothing used'),
+              tooltip: 'Everything came back',
+              onPressed: _quickFillNothingUsed,
+            ),
+            ActionChip(
+              label: const Text('All gone'),
+              tooltip: 'Nothing came back',
+              onPressed: _quickFillAllGone,
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+      ],
       if (line.worksheetComplete)
         _derivedDepletion(theme)
       else
-        QuantityFormField(
-          controller: line.depletion,
-          labelText: 'Depletion',
-          unitLabel: line.unitLabel,
-          isRequired: false,
-          allowZero: true,
-          helperText: line.demandBasis == DemandBasis.perEvent
-              ? 'What was used or sold — excludes waste.'
-              : 'What sold — excludes waste.',
-          onChanged: (_) => widget.onChanged(),
-          validator: (value) => value.micros > maxDepletionMicros
-              ? 'Larger than Loadout supports'
-              : null,
+        KeyedSubtree(
+          key: _depletionFieldKey,
+          child: QuantityFormField(
+            controller: line.depletion,
+            labelText: 'Depletion',
+            unitLabel: line.unitLabel,
+            isRequired: false,
+            allowZero: true,
+            helperText: line.demandBasis == DemandBasis.perEvent
+                ? 'What was used or sold — excludes waste.'
+                : 'What sold — excludes waste.',
+            onChanged: (_) => widget.onChanged(),
+            validator: (value) => value.micros > maxDepletionMicros
+                ? 'Larger than Loadout supports'
+                : null,
+          ),
         ),
       const SizedBox(height: 4),
       Align(

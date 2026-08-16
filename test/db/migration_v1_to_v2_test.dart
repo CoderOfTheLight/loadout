@@ -68,9 +68,9 @@ void main() {
     expect(await db.ledgerDao.onHandMicros(item.id), 9000000);
     final movement = await (db.select(db.inventoryMovements)).getSingle();
     expect(movement.note, 'first load');
-    // Opening the real database now lands on the current version (v4); the
+    // Opening the real database now lands on the current version; the
     // v1 rows above survived the whole staircase.
-    expect(db.schemaVersion, 5);
+    expect(db.schemaVersion, 6);
   });
 
   test(

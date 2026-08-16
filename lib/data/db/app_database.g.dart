@@ -2029,6 +2029,18 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _barcodeMeta = const VerificationMeta(
+    'barcode',
+  );
+  @override
+  late final GeneratedColumn<String> barcode = GeneratedColumn<String>(
+    'barcode',
+    aliasedName,
+    true,
+    check: () => ComparableExpr(barcode.length).isBetweenValues(1, 64),
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _archivedAtMicrosMeta = const VerificationMeta(
     'archivedAtMicros',
   );
@@ -2077,6 +2089,7 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
     perPersonNumerator,
     perPersonDenominator,
     unitLabel,
+    barcode,
     archivedAtMicros,
     createdAtMicros,
     updatedAtMicros,
@@ -2194,6 +2207,12 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
         unitLabel.isAcceptableOrUnknown(data['unit_label']!, _unitLabelMeta),
       );
     }
+    if (data.containsKey('barcode')) {
+      context.handle(
+        _barcodeMeta,
+        barcode.isAcceptableOrUnknown(data['barcode']!, _barcodeMeta),
+      );
+    }
     if (data.containsKey('archived_at_micros')) {
       context.handle(
         _archivedAtMicrosMeta,
@@ -2286,6 +2305,10 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
         DriftSqlType.string,
         data['${effectivePrefix}unit_label'],
       ),
+      barcode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}barcode'],
+      ),
       archivedAtMicros: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}archived_at_micros'],
@@ -2354,6 +2377,14 @@ class Item extends DataClass implements Insertable<Item> {
   /// label shown. Nullable + column-level CHECK only, so the v5 ALTER TABLE
   /// ADD COLUMN carries the constraint and v4 rows ride it byte for byte.
   final String? unitLabel;
+
+  /// v6. The item's barcode: the RAW payload string exactly as the scan
+  /// detector delivers it. The app never interprets it — no symbology
+  /// rules, no check digits, no normalization; payloads are stored and
+  /// compared verbatim. NULL = never scanned, the honest default for every
+  /// pre-v6 row. Nullable + column-level CHECK only, so the v6 ALTER TABLE
+  /// ADD COLUMN carries the constraint and v5 rows ride it byte for byte.
+  final String? barcode;
   final int? archivedAtMicros;
   final int createdAtMicros;
   final int updatedAtMicros;
@@ -2371,6 +2402,7 @@ class Item extends DataClass implements Insertable<Item> {
     this.perPersonNumerator,
     this.perPersonDenominator,
     this.unitLabel,
+    this.barcode,
     this.archivedAtMicros,
     required this.createdAtMicros,
     required this.updatedAtMicros,
@@ -2406,6 +2438,9 @@ class Item extends DataClass implements Insertable<Item> {
     }
     if (!nullToAbsent || unitLabel != null) {
       map['unit_label'] = Variable<String>(unitLabel);
+    }
+    if (!nullToAbsent || barcode != null) {
+      map['barcode'] = Variable<String>(barcode);
     }
     if (!nullToAbsent || archivedAtMicros != null) {
       map['archived_at_micros'] = Variable<int>(archivedAtMicros);
@@ -2446,6 +2481,9 @@ class Item extends DataClass implements Insertable<Item> {
       unitLabel: unitLabel == null && nullToAbsent
           ? const Value.absent()
           : Value(unitLabel),
+      barcode: barcode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(barcode),
       archivedAtMicros: archivedAtMicros == null && nullToAbsent
           ? const Value.absent()
           : Value(archivedAtMicros),
@@ -2479,6 +2517,7 @@ class Item extends DataClass implements Insertable<Item> {
         json['perPersonDenominator'],
       ),
       unitLabel: serializer.fromJson<String?>(json['unitLabel']),
+      barcode: serializer.fromJson<String?>(json['barcode']),
       archivedAtMicros: serializer.fromJson<int?>(json['archivedAtMicros']),
       createdAtMicros: serializer.fromJson<int>(json['createdAtMicros']),
       updatedAtMicros: serializer.fromJson<int>(json['updatedAtMicros']),
@@ -2501,6 +2540,7 @@ class Item extends DataClass implements Insertable<Item> {
       'perPersonNumerator': serializer.toJson<int?>(perPersonNumerator),
       'perPersonDenominator': serializer.toJson<int?>(perPersonDenominator),
       'unitLabel': serializer.toJson<String?>(unitLabel),
+      'barcode': serializer.toJson<String?>(barcode),
       'archivedAtMicros': serializer.toJson<int?>(archivedAtMicros),
       'createdAtMicros': serializer.toJson<int>(createdAtMicros),
       'updatedAtMicros': serializer.toJson<int>(updatedAtMicros),
@@ -2521,6 +2561,7 @@ class Item extends DataClass implements Insertable<Item> {
     Value<int?> perPersonNumerator = const Value.absent(),
     Value<int?> perPersonDenominator = const Value.absent(),
     Value<String?> unitLabel = const Value.absent(),
+    Value<String?> barcode = const Value.absent(),
     Value<int?> archivedAtMicros = const Value.absent(),
     int? createdAtMicros,
     int? updatedAtMicros,
@@ -2546,6 +2587,7 @@ class Item extends DataClass implements Insertable<Item> {
         ? perPersonDenominator.value
         : this.perPersonDenominator,
     unitLabel: unitLabel.present ? unitLabel.value : this.unitLabel,
+    barcode: barcode.present ? barcode.value : this.barcode,
     archivedAtMicros: archivedAtMicros.present
         ? archivedAtMicros.value
         : this.archivedAtMicros,
@@ -2579,6 +2621,7 @@ class Item extends DataClass implements Insertable<Item> {
           ? data.perPersonDenominator.value
           : this.perPersonDenominator,
       unitLabel: data.unitLabel.present ? data.unitLabel.value : this.unitLabel,
+      barcode: data.barcode.present ? data.barcode.value : this.barcode,
       archivedAtMicros: data.archivedAtMicros.present
           ? data.archivedAtMicros.value
           : this.archivedAtMicros,
@@ -2607,6 +2650,7 @@ class Item extends DataClass implements Insertable<Item> {
           ..write('perPersonNumerator: $perPersonNumerator, ')
           ..write('perPersonDenominator: $perPersonDenominator, ')
           ..write('unitLabel: $unitLabel, ')
+          ..write('barcode: $barcode, ')
           ..write('archivedAtMicros: $archivedAtMicros, ')
           ..write('createdAtMicros: $createdAtMicros, ')
           ..write('updatedAtMicros: $updatedAtMicros')
@@ -2629,6 +2673,7 @@ class Item extends DataClass implements Insertable<Item> {
     perPersonNumerator,
     perPersonDenominator,
     unitLabel,
+    barcode,
     archivedAtMicros,
     createdAtMicros,
     updatedAtMicros,
@@ -2650,6 +2695,7 @@ class Item extends DataClass implements Insertable<Item> {
           other.perPersonNumerator == this.perPersonNumerator &&
           other.perPersonDenominator == this.perPersonDenominator &&
           other.unitLabel == this.unitLabel &&
+          other.barcode == this.barcode &&
           other.archivedAtMicros == this.archivedAtMicros &&
           other.createdAtMicros == this.createdAtMicros &&
           other.updatedAtMicros == this.updatedAtMicros);
@@ -2669,6 +2715,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
   final Value<int?> perPersonNumerator;
   final Value<int?> perPersonDenominator;
   final Value<String?> unitLabel;
+  final Value<String?> barcode;
   final Value<int?> archivedAtMicros;
   final Value<int> createdAtMicros;
   final Value<int> updatedAtMicros;
@@ -2687,6 +2734,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     this.perPersonNumerator = const Value.absent(),
     this.perPersonDenominator = const Value.absent(),
     this.unitLabel = const Value.absent(),
+    this.barcode = const Value.absent(),
     this.archivedAtMicros = const Value.absent(),
     this.createdAtMicros = const Value.absent(),
     this.updatedAtMicros = const Value.absent(),
@@ -2706,6 +2754,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     this.perPersonNumerator = const Value.absent(),
     this.perPersonDenominator = const Value.absent(),
     this.unitLabel = const Value.absent(),
+    this.barcode = const Value.absent(),
     this.archivedAtMicros = const Value.absent(),
     required int createdAtMicros,
     required int updatedAtMicros,
@@ -2730,6 +2779,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     Expression<int>? perPersonNumerator,
     Expression<int>? perPersonDenominator,
     Expression<String>? unitLabel,
+    Expression<String>? barcode,
     Expression<int>? archivedAtMicros,
     Expression<int>? createdAtMicros,
     Expression<int>? updatedAtMicros,
@@ -2753,6 +2803,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
       if (perPersonDenominator != null)
         'per_person_denominator': perPersonDenominator,
       if (unitLabel != null) 'unit_label': unitLabel,
+      if (barcode != null) 'barcode': barcode,
       if (archivedAtMicros != null) 'archived_at_micros': archivedAtMicros,
       if (createdAtMicros != null) 'created_at_micros': createdAtMicros,
       if (updatedAtMicros != null) 'updated_at_micros': updatedAtMicros,
@@ -2774,6 +2825,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     Value<int?>? perPersonNumerator,
     Value<int?>? perPersonDenominator,
     Value<String?>? unitLabel,
+    Value<String?>? barcode,
     Value<int?>? archivedAtMicros,
     Value<int>? createdAtMicros,
     Value<int>? updatedAtMicros,
@@ -2794,6 +2846,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
       perPersonNumerator: perPersonNumerator ?? this.perPersonNumerator,
       perPersonDenominator: perPersonDenominator ?? this.perPersonDenominator,
       unitLabel: unitLabel ?? this.unitLabel,
+      barcode: barcode ?? this.barcode,
       archivedAtMicros: archivedAtMicros ?? this.archivedAtMicros,
       createdAtMicros: createdAtMicros ?? this.createdAtMicros,
       updatedAtMicros: updatedAtMicros ?? this.updatedAtMicros,
@@ -2845,6 +2898,9 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     if (unitLabel.present) {
       map['unit_label'] = Variable<String>(unitLabel.value);
     }
+    if (barcode.present) {
+      map['barcode'] = Variable<String>(barcode.value);
+    }
     if (archivedAtMicros.present) {
       map['archived_at_micros'] = Variable<int>(archivedAtMicros.value);
     }
@@ -2876,6 +2932,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
           ..write('perPersonNumerator: $perPersonNumerator, ')
           ..write('perPersonDenominator: $perPersonDenominator, ')
           ..write('unitLabel: $unitLabel, ')
+          ..write('barcode: $barcode, ')
           ..write('archivedAtMicros: $archivedAtMicros, ')
           ..write('createdAtMicros: $createdAtMicros, ')
           ..write('updatedAtMicros: $updatedAtMicros, ')
@@ -12322,6 +12379,7 @@ typedef $$ItemsTableCreateCompanionBuilder =
       Value<int?> perPersonNumerator,
       Value<int?> perPersonDenominator,
       Value<String?> unitLabel,
+      Value<String?> barcode,
       Value<int?> archivedAtMicros,
       required int createdAtMicros,
       required int updatedAtMicros,
@@ -12342,6 +12400,7 @@ typedef $$ItemsTableUpdateCompanionBuilder =
       Value<int?> perPersonNumerator,
       Value<int?> perPersonDenominator,
       Value<String?> unitLabel,
+      Value<String?> barcode,
       Value<int?> archivedAtMicros,
       Value<int> createdAtMicros,
       Value<int> updatedAtMicros,
@@ -12606,6 +12665,11 @@ class $$ItemsTableFilterComposer extends Composer<_$AppDatabase, $ItemsTable> {
 
   ColumnFilters<String> get unitLabel => $composableBuilder(
     column: $table.unitLabel,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get barcode => $composableBuilder(
+    column: $table.barcode,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -12942,6 +13006,11 @@ class $$ItemsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get barcode => $composableBuilder(
+    column: $table.barcode,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get archivedAtMicros => $composableBuilder(
     column: $table.archivedAtMicros,
     builder: (column) => ColumnOrderings(column),
@@ -13037,6 +13106,9 @@ class $$ItemsTableAnnotationComposer
 
   GeneratedColumn<String> get unitLabel =>
       $composableBuilder(column: $table.unitLabel, builder: (column) => column);
+
+  GeneratedColumn<String> get barcode =>
+      $composableBuilder(column: $table.barcode, builder: (column) => column);
 
   GeneratedColumn<int> get archivedAtMicros => $composableBuilder(
     column: $table.archivedAtMicros,
@@ -13356,6 +13428,7 @@ class $$ItemsTableTableManager
                 Value<int?> perPersonNumerator = const Value.absent(),
                 Value<int?> perPersonDenominator = const Value.absent(),
                 Value<String?> unitLabel = const Value.absent(),
+                Value<String?> barcode = const Value.absent(),
                 Value<int?> archivedAtMicros = const Value.absent(),
                 Value<int> createdAtMicros = const Value.absent(),
                 Value<int> updatedAtMicros = const Value.absent(),
@@ -13374,6 +13447,7 @@ class $$ItemsTableTableManager
                 perPersonNumerator: perPersonNumerator,
                 perPersonDenominator: perPersonDenominator,
                 unitLabel: unitLabel,
+                barcode: barcode,
                 archivedAtMicros: archivedAtMicros,
                 createdAtMicros: createdAtMicros,
                 updatedAtMicros: updatedAtMicros,
@@ -13394,6 +13468,7 @@ class $$ItemsTableTableManager
                 Value<int?> perPersonNumerator = const Value.absent(),
                 Value<int?> perPersonDenominator = const Value.absent(),
                 Value<String?> unitLabel = const Value.absent(),
+                Value<String?> barcode = const Value.absent(),
                 Value<int?> archivedAtMicros = const Value.absent(),
                 required int createdAtMicros,
                 required int updatedAtMicros,
@@ -13412,6 +13487,7 @@ class $$ItemsTableTableManager
                 perPersonNumerator: perPersonNumerator,
                 perPersonDenominator: perPersonDenominator,
                 unitLabel: unitLabel,
+                barcode: barcode,
                 archivedAtMicros: archivedAtMicros,
                 createdAtMicros: createdAtMicros,
                 updatedAtMicros: updatedAtMicros,

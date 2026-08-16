@@ -200,6 +200,16 @@ class Items extends Table {
   TextColumn get unitLabel =>
       text().nullable().check(unitLabel.length.isBetweenValues(1, 24))();
 
+  // ----------------------------------------------------------- v6 barcode
+  /// v6. The item's barcode: the RAW payload string exactly as the scan
+  /// detector delivers it. The app never interprets it — no symbology
+  /// rules, no check digits, no normalization; payloads are stored and
+  /// compared verbatim. NULL = never scanned, the honest default for every
+  /// pre-v6 row. Nullable + column-level CHECK only, so the v6 ALTER TABLE
+  /// ADD COLUMN carries the constraint and v5 rows ride it byte for byte.
+  TextColumn get barcode =>
+      text().nullable().check(barcode.length.isBetweenValues(1, 64))();
+
   IntColumn get archivedAtMicros => integer().nullable()();
   IntColumn get createdAtMicros => integer()();
   IntColumn get updatedAtMicros => integer()();
@@ -208,6 +218,9 @@ class Items extends Table {
 }
 // Live-name uniqueness is the partial index uidx_items_name_live (§4.1):
 // UNIQUE ON items(lower(name)) WHERE archived_at_micros IS NULL.
+// Live-barcode uniqueness is the partial index uidx_items_barcode_live (v6):
+// UNIQUE ON items(barcode) WHERE archived_at_micros IS NULL AND barcode IS
+// NOT NULL — archiving an item frees its barcode exactly as it frees names.
 
 // ---------------------------------------------------------------- events
 

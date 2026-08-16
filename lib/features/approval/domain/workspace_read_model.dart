@@ -15,6 +15,11 @@ abstract interface class WorkspaceReadModel {
   /// [name] case-insensitively (partial index uidx_items_name_live).
   bool isItemNameTakenLive(String name, {String? excludingItemId});
 
+  /// True when a LIVE item other than [excludingItemId] already carries
+  /// exactly [barcode] (partial index uidx_items_barcode_live). Payloads
+  /// are compared VERBATIM — never trimmed, cased, or normalized.
+  bool isItemBarcodeTakenLive(String barcode, {String? excludingItemId});
+
   /// Folder by id, or null when unknown.
   FolderState? folder(String id);
 
@@ -61,6 +66,7 @@ final class ItemState {
     required this.packSizeMicros,
     required this.archived,
     required this.hasMovements,
+    this.barcode,
     this.servesPerUnitMicros,
     this.perPersonNumerator,
     this.perPersonDenominator,
@@ -71,6 +77,10 @@ final class ItemState {
   final ItemUnit unit;
   final int packSizeMicros;
   final bool archived;
+
+  /// v6: the stored raw barcode payload, or null when never scanned. Loaded
+  /// so unarchiving can re-check live uniqueness the way names are checked.
+  final String? barcode;
 
   /// True once the item has any movement — locks the unit (§4).
   final bool hasMovements;

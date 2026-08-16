@@ -29,7 +29,7 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Loadout scans printed recipes with the camera. Photos are read on this phone and never leave it.</string>
+	<string>Loadout uses the camera to scan printed recipes and item barcodes. Everything is read on this phone and never leaves it.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

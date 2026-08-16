@@ -41,6 +41,8 @@
 /// revision log.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -58,6 +60,7 @@ import '../../../core/quantity.dart';
 import '../../../core/result.dart';
 import '../../../core/unit_ratio.dart';
 import '../../../core/units.dart';
+import '../application/barcode_scan_service.dart';
 import '../domain/demand_basis.dart';
 import '../domain/folder.dart';
 import '../domain/item.dart';
@@ -127,7 +130,31 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
   /// (uniqueness); mirrored onto the name field inline.
   String? _rejectedDuplicateName;
 
+  /// v6: the stored barcode payload, hydrated on edit and updated by the
+  /// immediate link/remove actions below. Barcode changes deliberately do
+  /// NOT ride the Save button: `updateItem` never touches the barcode (the
+  /// draft doesn't carry one), so linking commits immediately through
+  /// `setItemBarcode` — the same side-action grammar as "Record a count".
+  String? _barcode;
+
+  /// Barcode-scanner capability, probed once (false until answered). With
+  /// no barcode and no scanner there is no row at all.
+  bool _scanAvailable = false;
+
   bool get _isEdit => widget.itemId != null;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_probeScanner());
+  }
+
+  Future<void> _probeScanner() async {
+    final available = await ref.read(barcodeScanServiceProvider).isAvailable();
+    if (mounted && available) {
+      setState(() => _scanAvailable = true);
+    }
+  }
 
   @override
   void dispose() {
@@ -431,6 +458,7 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
       };
       _notes.text = item.notes;
       _unitLabel.text = item.unitLabel ?? '';
+      _barcode = item.barcode;
       _folderId = item.folderId?.value;
       _storedOverride = item.demandBasis;
       _category = item.category ?? '';
@@ -552,6 +580,10 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
                         ],
                       ),
                     ),
+                    if (_isEdit && (_barcode != null || _scanAvailable)) ...[
+                      const SizedBox(height: 24),
+                      _buildBarcodeRow(theme),
+                    ],
                     const SizedBox(height: 24),
                     InkWell(
                       borderRadius: BorderRadius.circular(Radii.small),
@@ -673,6 +705,149 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
         ),
       ),
     );
+  }
+
+  // ------------------------------------------------------------- barcode
+  // v6, edit mode only. Content privacy: the payload appears ONLY as the
+  // small caption below "Barcode linked" — the owner's own data on her own
+  // screen — never in a snackbar and never in a log.
+
+  Widget _buildBarcodeRow(ThemeData theme) {
+    final barcode = _barcode;
+    if (barcode == null) {
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: OutlinedButton.icon(
+          key: const Key('scan-barcode'),
+          onPressed: _scanBarcode,
+          icon: const Icon(Icons.qr_code_scanner_outlined),
+          label: const Text('Scan barcode'),
+        ),
+      );
+    }
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Barcode linked', style: theme.textTheme.bodyLarge),
+              Text(
+                barcode,
+                key: const Key('barcode-caption'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontFeatures: Numerals.tabular,
+                ),
+              ),
+            ],
+          ),
+        ),
+        TextButton(
+          key: const Key('remove-barcode'),
+          onPressed: _removeBarcode,
+          child: const Text('Remove'),
+        ),
+      ],
+    );
+  }
+
+  /// Scans one barcode and links it immediately through `setItemBarcode`
+  /// (the single write path; the validator rejects a payload another live
+  /// item carries).
+  Future<void> _scanBarcode() async {
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()),
+      ),
+    );
+    BarcodeScan? scan;
+    String? failureCode;
+    try {
+      scan = await ref.read(barcodeScanServiceProvider).scanOne();
+    } on BarcodeScanException catch (e) {
+      failureCode = e.code; // a stable channel code, never a payload
+    }
+    if (!mounted) {
+      return;
+    }
+    Navigator.of(context, rootNavigator: true).pop(); // the progress dialog
+    if (failureCode != null) {
+      _showSnack(
+        failureCode == 'camera_denied'
+            ? 'Camera access is off. Turn it on in Settings to scan.'
+            : "Couldn't open the camera. Try again.",
+      );
+      return;
+    }
+    if (scan == null) {
+      return; // owner cancelled: nothing changes
+    }
+    final result = await ref
+        .read(catalogServiceProvider)
+        .setItemBarcode(itemId: widget.itemId!, barcode: scan.payload);
+    if (!mounted) {
+      return;
+    }
+    switch (result) {
+      case Ok():
+        setState(() => _barcode = scan!.payload);
+        _showSnack('Barcode linked');
+      case Err(:final error):
+        _showSnack(
+          error.message.contains('barcode')
+              ? 'Another item already has this barcode'
+              // Content-free by design (§9).
+              : "Couldn't save this entry. Try again.",
+        );
+    }
+  }
+
+  /// Clears the stored barcode — immediate, behind its own plain-words
+  /// confirm (a scan either assigns a payload or removes one; the Save
+  /// button never touches it).
+  Future<void> _removeBarcode() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove this barcode?'),
+        content: const Text(
+          'Scanning it will no longer bring up this item. You can scan a '
+          'barcode again any time.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Keep it'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    final result = await ref
+        .read(catalogServiceProvider)
+        .setItemBarcode(itemId: widget.itemId!, barcode: null);
+    if (!mounted) {
+      return;
+    }
+    switch (result) {
+      case Ok():
+        setState(() => _barcode = null);
+        _showSnack('Barcode removed');
+      case Err():
+        // Content-free by design (§9).
+        _showSnack("Couldn't save this entry. Try again.");
+    }
   }
 
   /// One value, two phrasings: typing into one side clears the other, so

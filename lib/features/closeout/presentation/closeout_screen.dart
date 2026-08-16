@@ -15,6 +15,18 @@
 /// (proposal §3), and per-event lines start as "didn't count it" — see
 /// closeout_line_card.dart.
 ///
+/// Scan to count ("a faster way to check what was used"): an app-bar text
+/// action, probe-gated like the recipe screen's scanner — availability is
+/// a capability, not an error. The loop: scanOne → resolve the item via
+/// its barcode → the matching line in THIS worksheet → a compact "How many
+/// came back?" sheet → scan again. Saves go through the SAME edit path
+/// typing uses (controllers, then [_touched]) so state recompute, section
+/// Done flips, and the debounced autosave all fire normally; when loaded
+/// is blank but a planned load exists the save fills it, and a save
+/// through this sheet — only this sheet — defaults an unset waste to 0,
+/// so a scan-count alone can complete a line. Cancel stops silently;
+/// failures speak content-free (never a channel code, never a payload).
+///
 /// Design-spec §4 treatment: a pinned progress header under the app bar
 /// (determinate bar + "23 of 60 confirmed" in tabular `titleMedium` on
 /// opaque `surfaceContainerLow`); section headers with the 24 dp folder
@@ -39,7 +51,9 @@ import '../../../app/widgets/empty_state.dart';
 import '../../../app/widgets/folder_chip.dart';
 import '../../../core/quantity.dart';
 import '../../../core/quantity_codec.dart';
+import '../../../app/widgets/quantity_form_field.dart';
 import '../../approval/domain/proposal.dart';
+import '../../catalog/application/barcode_scan_service.dart';
 import '../../catalog/application/catalog_service.dart';
 import '../../catalog/domain/demand_basis.dart';
 import '../../catalog/domain/folder.dart';
@@ -95,6 +109,13 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
   bool _submitting = false;
   Timer? _autosave;
 
+  /// Scanner probe result (read once in initState; false until answered).
+  /// The 'Scan to count' action stays hidden until this says yes.
+  bool _scanAvailable = false;
+
+  /// Re-entry guard for the scan loop.
+  bool _scanning = false;
+
   /// Resolved while mounted: `dispose()` runs after the element is defunct,
   /// so reading `ref` there throws and the pending draft would be lost.
   CloseoutService? _closeoutService;
@@ -103,6 +124,16 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
   void initState() {
     super.initState();
     _load();
+    unawaited(_probeScanAvailability());
+  }
+
+  /// Reads the scanner probe once (the recipe screen's pattern):
+  /// availability is a capability, not an error — the action simply stays
+  /// hidden until the probe says yes.
+  Future<void> _probeScanAvailability() async {
+    final available = await ref.read(barcodeScanServiceProvider).isAvailable();
+    if (!mounted) return;
+    setState(() => _scanAvailable = available);
   }
 
   @override
@@ -317,6 +348,112 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
     }
   }
 
+  /// The scan-to-count loop: scanOne → resolve via the barcode → the
+  /// matching line in this worksheet → the count sheet → scan again.
+  /// The owner cancelling the scanner (or 'Done' on the sheet) stops the
+  /// loop silently; a miss re-opens the scanner after its snackbar.
+  Future<void> _scanToCount() async {
+    if (_scanning) return;
+    _scanning = true;
+    try {
+      final scanner = ref.read(barcodeScanServiceProvider);
+      final catalog = ref.read(catalogServiceProvider);
+      while (mounted && !_confirmed) {
+        final BarcodeScan? scan;
+        try {
+          scan = await scanner.scanOne();
+        } on BarcodeScanException catch (error) {
+          if (!mounted) return;
+          // Content-free by design: the code picks the copy, and
+          // 'camera_denied' points at Settings — nothing else surfaces.
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                error.code == 'camera_denied'
+                    ? 'Camera access is off. Turn it on in Settings.'
+                    : "Couldn't open the camera. Try again.",
+              ),
+            ),
+          );
+          return;
+        }
+        if (scan == null || !mounted) return; // cancelled: stop silently
+        final item = await catalog.itemByBarcode(scan.payload);
+        if (!mounted) return;
+        if (item == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("That barcode isn't linked to any item."),
+            ),
+          );
+          continue; // re-open the scanner
+        }
+        CloseoutLineController? line;
+        for (final candidate in _lines) {
+          if (candidate.itemId == item.id.value) {
+            line = candidate;
+            break;
+          }
+        }
+        if (line == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('"${item.name}" isn\'t on this event\'s list.'),
+            ),
+          );
+          continue; // re-open the scanner
+        }
+        final scanNext = await _showScanCountSheet(line);
+        if (scanNext != true) return; // 'Done' or dismissed: stop the loop
+      }
+    } finally {
+      _scanning = false;
+    }
+  }
+
+  /// The compact count sheet for one scanned line. Resolves true when the
+  /// owner saved and wants the scanner back ('Save & scan next'), false or
+  /// null when the session is over.
+  Future<bool?> _showScanCountSheet(CloseoutLineController line) {
+    return showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+        ),
+        child: _ScanCountSheet(
+          line: line,
+          onSave: (returned) => _applyScanCount(line, returned),
+        ),
+      ),
+    );
+  }
+
+  /// Writes a scanned "came back" count through the SAME path typing uses:
+  /// controllers first, then [_touched] (state recompute + the debounced
+  /// autosave). When loaded is blank but a planned load exists, the load
+  /// fills from it; and a save through this sheet — only this sheet —
+  /// defaults an unset waste to 0 (the sheet caption says so), so a
+  /// scan-count alone can complete a line. Without a loaded value the line
+  /// just gains its returned count and stays in progress. Scanning a
+  /// skipped line means somebody counted it after all, so the skip lifts —
+  /// a skipped line would silently record nothing.
+  void _applyScanCount(CloseoutLineController line, Quantity returned) {
+    line.returned.text = QuantityCodec.format(returned);
+    if (line.loaded.text.trim().isEmpty && line.plannedLoadMicros != null) {
+      line.loaded.text = QuantityCodec.format(
+        Quantity.fromMicros(line.plannedLoadMicros!),
+      );
+    }
+    if (line.loaded.text.trim().isNotEmpty && line.waste.text.trim().isEmpty) {
+      line.waste.text = QuantityCodec.format(Quantity.zero);
+    }
+    line.skipped = false;
+    line.worksheetOpen = true;
+    _touched();
+  }
+
   CloseoutFormDraft _buildDraft() => CloseoutFormDraft(
     eventId: widget.eventId,
     confirmedExposure: int.tryParse(_exposure.text.trim()),
@@ -505,7 +642,19 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
       );
     }
     return Scaffold(
-      appBar: AppBar(title: Text(title)),
+      appBar: AppBar(
+        title: Text(title),
+        actions: [
+          // Probe-gated (like the recipe screen's scanner): hidden until
+          // the device says it can present a scanner at all.
+          if (_scanAvailable && _lines.isNotEmpty)
+            TextButton(
+              key: const Key('scan-to-count'),
+              onPressed: _scanToCount,
+              child: const Text('Scan to count'),
+            ),
+        ],
+      ),
       body: SafeArea(
         child: Column(
           children: [
@@ -758,6 +907,107 @@ class _SectionHeader extends StatelessWidget {
                   ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The compact scan-to-count sheet: the item's name, one fraction-capable
+/// "How many came back?" count, and two words — 'Save & scan next' keeps
+/// the loop going, 'Done' saves whatever is typed and ends it. When the
+/// save can complete the line (loaded set, or a planned load about to fill
+/// it) the caption says plainly that waste will count as 0 unless set on
+/// the card.
+class _ScanCountSheet extends StatefulWidget {
+  const _ScanCountSheet({required this.line, required this.onSave});
+
+  final CloseoutLineController line;
+
+  /// Fires with the parsed count before the sheet pops; the screen writes
+  /// it through the same edit path typing uses.
+  final ValueChanged<Quantity> onSave;
+
+  @override
+  State<_ScanCountSheet> createState() => _ScanCountSheetState();
+}
+
+class _ScanCountSheetState extends State<_ScanCountSheet> {
+  /// Prefilled from the line's returned value, if any.
+  late final TextEditingController _count = TextEditingController(
+    text: widget.line.returned.text,
+  );
+
+  @override
+  void dispose() {
+    _count.dispose();
+    super.dispose();
+  }
+
+  Quantity? get _value {
+    final text = _count.text.trim();
+    return text.isEmpty ? null : QuantityFormField.tryParse(text);
+  }
+
+  /// True when saving can complete the line: loaded already holds a value,
+  /// or the planned-load prefill is about to fill it — the cases where an
+  /// unset waste defaults to 0 on save.
+  bool get _completesLine =>
+      widget.line.loaded.text.trim().isNotEmpty ||
+      widget.line.plannedLoadMicros != null;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final value = _value;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(widget.line.itemName, style: theme.textTheme.titleLarge),
+            const SizedBox(height: 12),
+            QuantityFormField(
+              controller: _count,
+              labelText: 'How many came back?',
+              unitLabel: widget.line.unitLabel,
+              isRequired: false,
+              allowZero: true,
+              allowFractions: true,
+              autofocus: true,
+              onChanged: (_) => setState(() {}),
+            ),
+            if (_completesLine) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Waste counts as 0 unless you set it on the card.',
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+            const SizedBox(height: 16),
+            FilledButton(
+              style: FilledButton.styleFrom(minimumSize: primaryButtonMinSize),
+              onPressed: value == null
+                  ? null
+                  : () {
+                      widget.onSave(value);
+                      Navigator.of(context).pop(true);
+                    },
+              child: const Text('Save & scan next'),
+            ),
+            TextButton(
+              onPressed: () {
+                final current = _value;
+                if (current != null) {
+                  widget.onSave(current);
+                }
+                Navigator.of(context).pop(false);
+              },
+              child: const Text('Done'),
+            ),
+          ],
+        ),
       ),
     );
   }

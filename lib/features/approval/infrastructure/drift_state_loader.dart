@@ -57,6 +57,15 @@ final class PrefetchedState implements WorkspaceReadModel {
   }
 
   @override
+  bool isItemBarcodeTakenLive(String barcode, {String? excludingItemId}) =>
+      // Exact-string match on purpose: payloads are compared verbatim,
+      // never normalized (mirrors uidx_items_barcode_live, which has no
+      // lower()).
+      items.values.any(
+        (i) => !i.archived && i.id != excludingItemId && i.barcode == barcode,
+      );
+
+  @override
   FolderState? folder(String id) => folders[id];
 
   @override
@@ -218,6 +227,7 @@ final class DriftStateLoader {
           packSizeMicros: row.packSizeMicros,
           archived: row.archivedAtMicros != null,
           hasMovements: withMovements.contains(row.id),
+          barcode: row.barcode,
           servesPerUnitMicros: row.servesPerUnitMicros,
           perPersonNumerator: row.perPersonNumerator,
           perPersonDenominator: row.perPersonDenominator,

@@ -97,6 +97,19 @@ const schemaV5RecipeLinesBackfill =
     'rl.ingredient_item_id, rl.quantity_per_batch_micros '
     'FROM recipe_lines rl JOIN items i ON i.id = rl.ingredient_item_id';
 
+/// v6 (barcodes): live-barcode uniqueness, mirroring `uidx_items_name_live`
+/// — archiving an item frees its barcode for a future item exactly as it
+/// frees the name. No `lower()`: payloads are stored and compared VERBATIM,
+/// never normalized, and NULL ("never scanned") rows never collide. Run by
+/// onCreate on fresh databases and by the `from < 6` onUpgrade block on
+/// migrated ones; IF NOT EXISTS keeps the block re-entrant for a file
+/// stranded mid-v6 (the v5 white-screen class of defect).
+const schemaV6Indices = <String>[
+  'CREATE UNIQUE INDEX IF NOT EXISTS uidx_items_barcode_live '
+      'ON items (barcode) '
+      'WHERE archived_at_micros IS NULL AND barcode IS NOT NULL',
+];
+
 /// v5: `uidx_recipes_output_live` recreated verbatim after the `recipes`
 /// copy-rewrite (dropping a table drops its indexes). On the now-nullable
 /// column, NULLs never collide — "not added to items yet" rows are unlimited;

@@ -18,6 +18,7 @@ import '../features/backup/presentation/restore_screen.dart';
 import '../features/catalog/presentation/item_detail_screen.dart';
 import '../features/catalog/presentation/item_edit_screen.dart';
 import '../features/catalog/presentation/item_list_screen.dart';
+import '../features/catalog/presentation/scan_items_in_screen.dart';
 import '../features/closeout/presentation/closeout_screen.dart';
 import '../features/events/presentation/event_detail_screen.dart';
 import '../features/events/presentation/event_edit_screen.dart';
@@ -190,6 +191,11 @@ final routerProvider = Provider<GoRouter>((ref) {
                     path: 'new',
                     parentNavigatorKey: rootKey,
                     builder: (_, _) => const ItemEditScreen(),
+                  ),
+                  GoRoute(
+                    path: 'scan-in',
+                    parentNavigatorKey: rootKey,
+                    builder: (_, _) => const ScanItemsInScreen(),
                   ),
                   GoRoute(
                     path: ':itemId',

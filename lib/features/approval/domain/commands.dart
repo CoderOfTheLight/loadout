@@ -27,6 +27,7 @@ final class CreateItem extends WorkspaceCommand {
     this.unit = ItemUnit.each,
     this.packSize = Quantity.one,
     this.unitLabel,
+    this.barcode,
     this.servesPerUnit,
     this.perPersonRatio,
     this.folderId,
@@ -42,6 +43,11 @@ final class CreateItem extends WorkspaceCommand {
   /// v5: optional DISPLAY label for the amount ("tsp", "cup", "lbs";
   /// 1–24 chars). Never converted, never computed with.
   final String? unitLabel;
+
+  /// v6: the raw barcode payload exactly as the detector delivered it
+  /// (1–64 chars). Never interpreted, compared verbatim; unique among LIVE
+  /// items.
+  final String? barcode;
 
   /// Defaulted, not asked: units left the product surface in v2.
   final ItemUnit unit;
@@ -82,6 +88,8 @@ final class UpdateItem extends WorkspaceCommand {
     this.packSize,
     this.unitLabel,
     this.clearUnitLabel = false,
+    this.barcode,
+    this.clearBarcode = false,
     this.servesPerUnit,
     this.clearServesPerUnit = false,
     this.perPersonRatio,
@@ -110,6 +118,14 @@ final class UpdateItem extends WorkspaceCommand {
 
   /// Erases `unit_label`. Ignored when [unitLabel] is set.
   final bool clearUnitLabel;
+
+  /// v6: null means "leave alone"; use [clearBarcode] to erase it. The raw
+  /// payload verbatim, unique among LIVE items (validator-enforced).
+  final String? barcode;
+
+  /// Erases `barcode`. Setting this AND [barcode] together is a
+  /// validation error — a scan either assigns a payload or removes one.
+  final bool clearBarcode;
 
   /// Null means "leave alone"; use [clearServesPerUnit] to erase it.
   final Quantity? servesPerUnit;

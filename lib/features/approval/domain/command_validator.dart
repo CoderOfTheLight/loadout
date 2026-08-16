@@ -99,6 +99,7 @@ final class CommandValidator {
       name: c.name,
       packSize: c.packSize,
       unitLabel: c.unitLabel,
+      barcode: c.barcode,
       servesPerUnit: c.servesPerUnit,
       perPersonRatio: c.perPersonRatio,
       perEventBaseline: c.perEventBaseline,
@@ -114,6 +115,9 @@ final class CommandValidator {
     if (folder != null) return folder;
     if (state.isItemNameTakenLive(c.name.trim())) {
       return const ValidationError('a live item with this name already exists');
+    }
+    if (c.barcode != null && state.isItemBarcodeTakenLive(c.barcode!)) {
+      return const ValidationError('another item already has this barcode');
     }
     // The opening count rides along as one `adjust` movement in the same
     // transaction, so it answers to the same envelope the ledger does.
@@ -134,12 +138,19 @@ final class CommandValidator {
       name: c.name,
       packSize: c.packSize,
       unitLabel: c.unitLabel,
+      barcode: c.barcode,
       servesPerUnit: c.servesPerUnit,
       perPersonRatio: c.perPersonRatio,
       perEventBaseline: c.perEventBaseline,
       category: c.category,
     );
     if (fields != null) return fields;
+    // v6: a scan either assigns a payload or removes one — a command
+    // carrying both has no coherent post state and is rejected outright
+    // (unlike the leave-alone clear_* pairs, where the set value wins).
+    if (c.barcode != null && c.clearBarcode) {
+      return const ValidationError('set a barcode or clear it, not both');
+    }
     // The POST state may never carry both cold-start phrasings at once —
     // checked against the stored values, not just this command's fields.
     final servesAfter =
@@ -159,6 +170,10 @@ final class CommandValidator {
         state.isItemNameTakenLive(c.name!.trim(), excludingItemId: item.id)) {
       return const ValidationError('a live item with this name already exists');
     }
+    if (c.barcode != null &&
+        state.isItemBarcodeTakenLive(c.barcode!, excludingItemId: item.id)) {
+      return const ValidationError('another item already has this barcode');
+    }
     if (c.unit != null && c.unit != item.unit && item.hasMovements) {
       return const ImmutableRecordError(
         'unit is locked after the first movement; archive and recreate '
@@ -171,12 +186,23 @@ final class CommandValidator {
   DomainError? _setItemArchived(SetItemArchived c, WorkspaceReadModel state) {
     final item = state.item(c.itemId as String);
     if (item == null) return const NotFoundError('item not found');
-    if (!c.archived &&
-        item.archived &&
-        state.isItemNameTakenLive(item.name, excludingItemId: item.id)) {
-      return const ValidationError(
-        'a live item with this name already exists; rename it first',
-      );
+    if (!c.archived && item.archived) {
+      if (state.isItemNameTakenLive(item.name, excludingItemId: item.id)) {
+        return const ValidationError(
+          'a live item with this name already exists; rename it first',
+        );
+      }
+      // v6: archiving freed the barcode; a live item may have claimed it
+      // since, and two live items can never share one payload.
+      if (item.barcode != null &&
+          state.isItemBarcodeTakenLive(
+            item.barcode!,
+            excludingItemId: item.id,
+          )) {
+        return const ValidationError(
+          'another item already has this barcode; clear it first',
+        );
+      }
     }
     return null;
   }
@@ -193,6 +219,7 @@ final class CommandValidator {
     String? name,
     Quantity? packSize,
     String? unitLabel,
+    String? barcode,
     Quantity? servesPerUnit,
     UnitRatio? perPersonRatio,
     Quantity? perEventBaseline,
@@ -206,6 +233,14 @@ final class CommandValidator {
     }
     final label = _unitLabelCheck(unitLabel);
     if (label != null) return label;
+    // v6: bounds only — the payload itself is stored and compared verbatim
+    // (mirrors the SQL CHECK on `items.barcode`). RAW length on purpose:
+    // payloads are stored verbatim, so the bound the validator enforces
+    // must be the bound the CHECK measures — a trimmed measure would pass
+    // a 64+whitespace payload through to a SqliteException rollback.
+    if (barcode != null && (barcode.trim().isEmpty || barcode.length > 64)) {
+      return const ValidationError('barcode must be 1-64 characters');
+    }
     if (servesPerUnit != null) {
       if (servesPerUnit.micros <= 0) {
         return const ValidationError(

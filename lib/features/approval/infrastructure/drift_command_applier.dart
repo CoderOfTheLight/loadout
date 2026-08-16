@@ -359,6 +359,9 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
             unit: c.unit.dbValue,
             packSizeMicros: c.packSize.micros,
             unitLabel: Value(c.unitLabel?.trim()),
+            // Verbatim on purpose: the payload is stored exactly as the
+            // detector delivered it, never trimmed or normalized.
+            barcode: Value(c.barcode),
             servesPerUnitMicros: Value(c.servesPerUnit?.micros),
             perPersonNumerator: Value(c.perPersonRatio?.numerator),
             perPersonDenominator: Value(c.perPersonRatio?.denominator),
@@ -396,6 +399,12 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
         unitLabel: switch (c) {
           UpdateItem(unitLabel: final label?) => Value(label.trim()),
           UpdateItem(clearUnitLabel: true) => const Value(null),
+          _ => const Value.absent(),
+        },
+        // Verbatim on purpose (no trim): payloads are never normalized.
+        barcode: switch (c) {
+          UpdateItem(barcode: final barcode?) => Value(barcode),
+          UpdateItem(clearBarcode: true) => const Value(null),
           _ => const Value.absent(),
         },
         servesPerUnitMicros: switch (c) {

@@ -82,9 +82,14 @@ abstract interface class CatalogService {
   /// opening `adjust` movement — ONE command, ONE transaction, so the new
   /// item can never exist without the count the owner just typed. Returns
   /// the created itemId.
+  ///
+  /// v6: [barcode] rides the same single command (the "scan items in" flow
+  /// creates the item WITH its barcode linked and its count, atomically).
+  /// Deliberately not on [ItemDraft]: only a scan may supply a payload.
   Future<Result<String>> createItem(
     ItemDraft draft, {
     Quantity openingCount = Quantity.zero,
+    String? barcode,
   });
 
   /// Applies the whole draft. A null `draft.servesPerUnit` CLEARS the stored
@@ -106,6 +111,21 @@ abstract interface class CatalogService {
   /// [deleteItem]'s routine for every live item — one command, one
   /// transaction. Previously-archived items are left alone.
   Future<Result<void>> deleteAllItems();
+
+  /// v6: the LIVE item carrying exactly [barcode], or null. Payloads are
+  /// compared VERBATIM — never trimmed, cased, or otherwise normalized —
+  /// and archived items never match: archiving frees a barcode for a
+  /// future item, exactly as it frees the name.
+  Future<Item?> itemByBarcode(String barcode);
+
+  /// v6: assigns [barcode] to the item — or clears the stored one when
+  /// null — through the single write path (an UpdateItem command). The
+  /// payload is stored verbatim; a barcode already carried by another live
+  /// item is rejected by the validator.
+  Future<Result<void>> setItemBarcode({
+    required String itemId,
+    String? barcode,
+  });
   Stream<List<ItemSummary>> watchItems(ItemFilter filter);
   Stream<ItemDetail> watchItem(String itemId);
   Future<List<String>> categorySuggestions();
@@ -196,6 +216,7 @@ final class DriftCatalogService implements CatalogService {
   Future<Result<String>> createItem(
     ItemDraft draft, {
     Quantity openingCount = Quantity.zero,
+    String? barcode,
   }) async {
     final result = await _submit(
       CreateItem(
@@ -203,6 +224,7 @@ final class DriftCatalogService implements CatalogService {
         unit: draft.unit,
         packSize: draft.packSize,
         unitLabel: draft.unitLabel,
+        barcode: barcode,
         servesPerUnit: draft.servesPerUnit,
         perPersonRatio: draft.perPersonRatio,
         folderId: draft.folderId == null ? null : FolderId(draft.folderId!),
@@ -441,6 +463,36 @@ final class DriftCatalogService implements CatalogService {
   }
 
   @override
+  Future<Item?> itemByBarcode(String barcode) async {
+    // Exact match, live rows only: uidx_items_barcode_live guarantees at
+    // most one.
+    final row = await _db
+        .customSelect(
+          'SELECT * FROM items '
+          'WHERE barcode = ?1 AND archived_at_micros IS NULL',
+          variables: [Variable<String>(barcode)],
+          readsFrom: {_db.items},
+        )
+        .getSingleOrNull();
+    return row == null ? null : _toItem(row);
+  }
+
+  @override
+  Future<Result<void>> setItemBarcode({
+    required String itemId,
+    String? barcode,
+  }) async {
+    final result = await _submit(
+      UpdateItem(
+        itemId: ItemId(itemId),
+        barcode: barcode,
+        clearBarcode: barcode == null,
+      ),
+    );
+    return result.fold((_) => const Ok(null), Err.new);
+  }
+
+  @override
   Stream<List<ItemSummary>> watchItems(ItemFilter filter) => _db
       .customSelect(
         'SELECT i.*, COALESCE(SUM(m.delta_micros), 0) AS on_hand '
@@ -510,6 +562,7 @@ final class DriftCatalogService implements CatalogService {
     unit: ItemUnit.fromDb(row.read<String>('unit')),
     packSize: Quantity.fromMicros(row.read<int>('pack_size_micros')),
     unitLabel: row.read<String?>('unit_label'),
+    barcode: row.read<String?>('barcode'),
     servesPerUnit: switch (row.read<int?>('serves_per_unit_micros')) {
       final micros? => Quantity.fromMicros(micros),
       null => null,

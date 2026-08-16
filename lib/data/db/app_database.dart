@@ -64,7 +64,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(NativeDatabase super.executor);
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -80,6 +80,9 @@ class AppDatabase extends _$AppDatabase {
         await customStatement(sql);
       }
       for (final sql in schemaV5RecipeLinesV2Triggers) {
+        await customStatement(sql);
+      }
+      for (final sql in schemaV6Indices) {
         await customStatement(sql);
       }
       await _seedV1(); // same transaction
@@ -258,6 +261,26 @@ class AppDatabase extends _$AppDatabase {
       if (outputStillNotNull.isNotEmpty) {
         await m.alterTable(TableMigration(recipes));
         await customStatement(schemaV5RecipesOutputIndex);
+      }
+    }
+    if (from < 6 && to >= 6) {
+      // v6: items learn their barcode. One plain nullable ADD COLUMN —
+      // every v5 row rides byte for byte, NULL = never scanned, nothing
+      // changes until the owner scans one — plus the live-uniqueness
+      // partial index (schemaV6Indices), which mirrors uidx_items_name_live
+      // so archiving an item frees its barcode exactly as it frees names.
+      //
+      // RE-ENTRANT like the v5 block: the column add is guarded and the
+      // index DDL carries IF NOT EXISTS, so a file stranded mid-v6
+      // (barcode present, user_version still 5) completes the remainder
+      // instead of dying on "duplicate column name" — the defect class
+      // that white-screened the owner's phone at v5 (see
+      // test/db/migration_real_open_path_test.dart).
+      if (!await _columnExists('items', 'barcode')) {
+        await m.addColumn(items, items.barcode);
+      }
+      for (final sql in schemaV6Indices) {
+        await customStatement(sql);
       }
     }
   }

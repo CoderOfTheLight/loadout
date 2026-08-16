@@ -1,6 +1,6 @@
-/// Canonical encoding for the delete commands (design §6.4): stable kind
-/// strings and byte-for-byte payload shapes — the encoding IS the
-/// idempotency comparison, so these bytes are pinned exactly.
+/// Canonical encoding pins (design §6.4): stable kind strings and
+/// byte-for-byte payload shapes — the encoding IS the idempotency
+/// comparison, so these bytes are pinned exactly.
 library;
 
 import 'package:flutter_test/flutter_test.dart';
@@ -21,6 +21,50 @@ void main() {
     const command = DeleteAllItems();
     expect(commandKind(command), 'DeleteAllItems');
     expect(encodeCommandPayload(command), '{}');
+  });
+
+  group('v6 barcode payload keys ride next to the unit_label keys', () {
+    test('CreateItem: barcode written explicitly, null when never scanned', () {
+      const command = CreateItem(name: 'Buns', barcode: '5000112637922');
+      expect(commandKind(command), 'CreateItem');
+      expect(
+        encodeCommandPayload(command),
+        '{"name":"Buns","unit":"each","pack_size_micros":1000000,'
+        '"unit_label":null,"barcode":"5000112637922",'
+        '"serves_per_unit_micros":null,"per_person_numerator":null,'
+        '"per_person_denominator":null,"folder_id":null,'
+        '"demand_basis":null,"per_event_baseline_micros":null,'
+        '"opening_count_micros":null,"category":null,"notes":""}',
+      );
+    });
+
+    test('UpdateItem: barcode and clear_barcode both encode', () {
+      final command = UpdateItem(
+        itemId: ItemId('A' * 26),
+        barcode: '5000112637922',
+      );
+      expect(commandKind(command), 'UpdateItem');
+      expect(
+        encodeCommandPayload(command),
+        '{"item_id":"${'A' * 26}","name":null,"unit":null,'
+        '"pack_size_micros":null,"unit_label":null,"clear_unit_label":false,'
+        '"barcode":"5000112637922","clear_barcode":false,'
+        '"serves_per_unit_micros":null,"clear_serves_per_unit":false,'
+        '"per_person_numerator":null,"per_person_denominator":null,'
+        '"clear_per_person_ratio":false,"folder_id":null,'
+        '"clear_folder":false,"demand_basis":null,"clear_demand_basis":false,'
+        '"per_event_baseline_micros":null,"clear_per_event_baseline":false,'
+        '"category":null,"notes":null}',
+      );
+    });
+
+    test('UpdateItem: a clear encodes null + true, byte-stable', () {
+      final command = UpdateItem(itemId: ItemId('A' * 26), clearBarcode: true);
+      expect(
+        encodeCommandPayload(command),
+        contains('"barcode":null,"clear_barcode":true'),
+      );
+    });
   });
 
   group('AddRecipeRevision carries the optional rename', () {
