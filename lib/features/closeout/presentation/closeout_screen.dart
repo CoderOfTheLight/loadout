@@ -19,13 +19,15 @@
 /// action, probe-gated like the recipe screen's scanner — availability is
 /// a capability, not an error. The loop: scanOne → resolve the item via
 /// its barcode → the matching line in THIS worksheet → a compact "How many
-/// came back?" sheet → scan again. Saves go through the SAME edit path
+/// are left?" sheet → scan again. Saves go through the SAME edit path
 /// typing uses (controllers, then [_touched]) so state recompute, section
-/// Done flips, and the debounced autosave all fire normally; when loaded
-/// is blank but a planned load exists the save fills it, and a save
-/// through this sheet — only this sheet — defaults an unset waste to 0,
-/// so a scan-count alone can complete a line. Cancel stops silently;
-/// failures speak content-free (never a channel code, never a payload).
+/// Done flips, and the debounced autosave all fire normally, and commit
+/// through THE one leftover rule the card's lead field uses
+/// ([CloseoutLineController.applyLeftoverDefaults]): a blank loaded fills
+/// from the planned load and a blank waste counts as 0 once loaded is
+/// known, so a scan-count alone can complete a line. Cancel stops
+/// silently; failures speak content-free (never a channel code, never a
+/// payload).
 ///
 /// Design-spec §4 treatment: a pinned progress header under the app bar
 /// (determinate bar + "23 of 60 confirmed" in tabular `titleMedium` on
@@ -49,6 +51,8 @@ import '../../../app/unit_display.dart';
 import '../../../app/widgets/content_column.dart';
 import '../../../app/widgets/empty_state.dart';
 import '../../../app/widgets/folder_chip.dart';
+import '../../../core/money.dart';
+import '../../../core/money_codec.dart';
 import '../../../core/quantity.dart';
 import '../../../core/quantity_codec.dart';
 import '../../../app/widgets/quantity_form_field.dart';
@@ -327,7 +331,13 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
     line.stockout = stockout;
     line.approximate = approximate;
     line.skipped = skipped;
-    line.worksheetOpen = loaded != null || returned != null || waste != null;
+    // Loaded/waste live in the worksheet, as does the direct used field —
+    // open it whenever a restored value would otherwise be invisible. A
+    // leftover-only restore shows on the card's lead field already.
+    line.worksheetOpen =
+        loaded != null ||
+        waste != null ||
+        (!worksheetComplete && depletion != null);
   }
 
   /// Every edit: rebuild derived displays and (re)schedule the debounced
@@ -430,25 +440,19 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
     );
   }
 
-  /// Writes a scanned "came back" count through the SAME path typing uses:
+  /// Writes a scanned leftover count through the SAME path typing uses:
   /// controllers first, then [_touched] (state recompute + the debounced
-  /// autosave). When loaded is blank but a planned load exists, the load
-  /// fills from it; and a save through this sheet — only this sheet —
-  /// defaults an unset waste to 0 (the sheet caption says so), so a
+  /// autosave). The commit runs THE one leftover rule shared with the
+  /// card's lead field ([CloseoutLineController.applyLeftoverDefaults]):
+  /// a blank loaded fills from the planned load, and a blank waste counts
+  /// as 0 once loaded is known (the sheet caption says so), so a
   /// scan-count alone can complete a line. Without a loaded value the line
-  /// just gains its returned count and stays in progress. Scanning a
+  /// just gains its leftover count and stays in progress. Scanning a
   /// skipped line means somebody counted it after all, so the skip lifts —
   /// a skipped line would silently record nothing.
   void _applyScanCount(CloseoutLineController line, Quantity returned) {
     line.returned.text = QuantityCodec.format(returned);
-    if (line.loaded.text.trim().isEmpty && line.plannedLoadMicros != null) {
-      line.loaded.text = QuantityCodec.format(
-        Quantity.fromMicros(line.plannedLoadMicros!),
-      );
-    }
-    if (line.loaded.text.trim().isNotEmpty && line.waste.text.trim().isEmpty) {
-      line.waste.text = QuantityCodec.format(Quantity.zero);
-    }
+    line.applyLeftoverDefaults();
     line.skipped = false;
     line.worksheetOpen = true;
     _touched();
@@ -494,7 +498,36 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
   /// bar's "2 items not confirmed yet" summary.
   int get _remainingCount => _lines.length - _doneCount;
 
+  /// v7: "Counted so far" for the confirm sheet — the not-skipped lines'
+  /// depletions at the items' CURRENT prices (the applier snapshots these
+  /// same prices onto the confirmed lines, so this is the number the Spent
+  /// section will then freeze). Null when no priced line has a count yet:
+  /// the sheet then says nothing rather than invent a $0.
+  Money? get _countedSoFar {
+    final catalog =
+        ref
+            .read(itemListProvider(const ItemFilter(includeArchived: true)))
+            .valueOrNull ??
+        const <ItemSummary>[];
+    final priceById = {
+      for (final summary in catalog)
+        summary.item.id.value: summary.item.unitPrice,
+    };
+    Money? counted;
+    for (final line in _lines) {
+      if (line.skipped) continue;
+      final price = priceById[line.itemId];
+      final depletion = line.effectiveDepletion;
+      if (price == null || depletion == null) continue;
+      counted = (counted ?? Money.zero).plus(
+        price.timesQuantityMicros(depletion.micros),
+      );
+    }
+    return counted;
+  }
+
   Future<void> _confirmFlow(String exposureLabel) async {
+    final countedSoFar = _countedSoFar;
     final proceed = await showModalBottomSheet<bool>(
       context: context,
       builder: (sheetContext) => SafeArea(
@@ -517,6 +550,15 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
                 '${_exposureValue ?? '—'} $exposureLabel · '
                 '$_confirmedCount of ${_lines.length} items confirmed',
               ),
+              if (countedSoFar case final counted?) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Counted so far: ${MoneyCodec.format(counted)}',
+                  style: Theme.of(sheetContext).textTheme.bodyMedium?.copyWith(
+                    fontFeatures: Numerals.tabular,
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
               FilledButton(
                 style: FilledButton.styleFrom(
@@ -913,11 +955,12 @@ class _SectionHeader extends StatelessWidget {
 }
 
 /// The compact scan-to-count sheet: the item's name, one fraction-capable
-/// "How many came back?" count, and two words — 'Save & scan next' keeps
-/// the loop going, 'Done' saves whatever is typed and ends it. When the
-/// save can complete the line (loaded set, or a planned load about to fill
-/// it) the caption says plainly that waste will count as 0 unless set on
-/// the card.
+/// "How many are left?" count — the same leftover question, the same
+/// `returned` field, and the same commit rule as the card's lead field —
+/// and two words: 'Save & scan next' keeps the loop going, 'Done' saves
+/// whatever is typed and ends it. When the save can complete the line
+/// (loaded set, or a planned load about to fill it) the caption says
+/// plainly that waste will count as 0 unless set on the card.
 class _ScanCountSheet extends StatefulWidget {
   const _ScanCountSheet({required this.line, required this.onSave});
 
@@ -950,10 +993,8 @@ class _ScanCountSheetState extends State<_ScanCountSheet> {
 
   /// True when saving can complete the line: loaded already holds a value,
   /// or the planned-load prefill is about to fill it — the cases where an
-  /// unset waste defaults to 0 on save.
-  bool get _completesLine =>
-      widget.line.loaded.text.trim().isNotEmpty ||
-      widget.line.plannedLoadMicros != null;
+  /// unset waste defaults to 0 on save (the one leftover rule).
+  bool get _completesLine => widget.line.leftoverCanComplete;
 
   @override
   Widget build(BuildContext context) {
@@ -970,7 +1011,7 @@ class _ScanCountSheetState extends State<_ScanCountSheet> {
             const SizedBox(height: 12),
             QuantityFormField(
               controller: _count,
-              labelText: 'How many came back?',
+              labelText: 'How many are left?',
               unitLabel: widget.line.unitLabel,
               isRequired: false,
               allowZero: true,

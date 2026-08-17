@@ -1,5 +1,6 @@
 import '../../../core/folder_appearance.dart';
 import '../../../core/ids.dart';
+import '../../../core/money.dart';
 import '../../../core/quantity.dart';
 import '../../../core/time.dart';
 import '../../../core/unit_ratio.dart';
@@ -28,6 +29,7 @@ final class CreateItem extends WorkspaceCommand {
     this.packSize = Quantity.one,
     this.unitLabel,
     this.barcode,
+    this.unitPrice,
     this.servesPerUnit,
     this.perPersonRatio,
     this.folderId,
@@ -48,6 +50,11 @@ final class CreateItem extends WorkspaceCommand {
   /// (1–64 chars). Never interpreted, compared verbatim; unique among LIVE
   /// items.
   final String? barcode;
+
+  /// v7: what one unit costs, in integer cents (1 cent to $1,000,000,
+  /// validator-enforced against the shared cap). Null when the owner never
+  /// priced it — the honest default; nothing costs anything until she does.
+  final Money? unitPrice;
 
   /// Defaulted, not asked: units left the product surface in v2.
   final ItemUnit unit;
@@ -90,6 +97,8 @@ final class UpdateItem extends WorkspaceCommand {
     this.clearUnitLabel = false,
     this.barcode,
     this.clearBarcode = false,
+    this.unitPrice,
+    this.clearUnitPrice = false,
     this.servesPerUnit,
     this.clearServesPerUnit = false,
     this.perPersonRatio,
@@ -126,6 +135,14 @@ final class UpdateItem extends WorkspaceCommand {
   /// Erases `barcode`. Setting this AND [barcode] together is a
   /// validation error — a scan either assigns a payload or removes one.
   final bool clearBarcode;
+
+  /// v7: null means "leave alone"; use [clearUnitPrice] to erase it. Integer
+  /// cents against the shared 1-cent-to-$1,000,000 cap.
+  final Money? unitPrice;
+
+  /// Erases `unit_price_cents`. Setting this AND [unitPrice] together is a
+  /// validation error — a command either sets a price or removes one.
+  final bool clearUnitPrice;
 
   /// Null means "leave alone"; use [clearServesPerUnit] to erase it.
   final Quantity? servesPerUnit;

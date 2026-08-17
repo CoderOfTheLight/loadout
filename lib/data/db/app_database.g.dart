@@ -2041,6 +2041,19 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _unitPriceCentsMeta = const VerificationMeta(
+    'unitPriceCents',
+  );
+  @override
+  late final GeneratedColumn<int> unitPriceCents = GeneratedColumn<int>(
+    'unit_price_cents',
+    aliasedName,
+    true,
+    check: () =>
+        ComparableExpr(unitPriceCents).isBetweenValues(1, unitPriceCapCents),
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _archivedAtMicrosMeta = const VerificationMeta(
     'archivedAtMicros',
   );
@@ -2090,6 +2103,7 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
     perPersonDenominator,
     unitLabel,
     barcode,
+    unitPriceCents,
     archivedAtMicros,
     createdAtMicros,
     updatedAtMicros,
@@ -2213,6 +2227,15 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
         barcode.isAcceptableOrUnknown(data['barcode']!, _barcodeMeta),
       );
     }
+    if (data.containsKey('unit_price_cents')) {
+      context.handle(
+        _unitPriceCentsMeta,
+        unitPriceCents.isAcceptableOrUnknown(
+          data['unit_price_cents']!,
+          _unitPriceCentsMeta,
+        ),
+      );
+    }
     if (data.containsKey('archived_at_micros')) {
       context.handle(
         _archivedAtMicrosMeta,
@@ -2309,6 +2332,10 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
         DriftSqlType.string,
         data['${effectivePrefix}barcode'],
       ),
+      unitPriceCents: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}unit_price_cents'],
+      ),
       archivedAtMicros: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}archived_at_micros'],
@@ -2385,6 +2412,16 @@ class Item extends DataClass implements Insertable<Item> {
   /// pre-v6 row. Nullable + column-level CHECK only, so the v6 ALTER TABLE
   /// ADD COLUMN carries the constraint and v5 rows ride it byte for byte.
   final String? barcode;
+
+  /// v7. What ONE unit of this item costs, in integer CENTS — never a
+  /// double, never a fraction of a cent. The owner's CURRENT price: freely
+  /// editable master data, used to cost an upcoming event's forecast.
+  /// History never reads it — a closeout line snapshots the price at
+  /// confirm time into its own column instead. NULL = no price, the honest
+  /// default for every pre-v7 row. Nullable + column-level CHECK only, so
+  /// the v7 ALTER TABLE ADD COLUMN carries the constraint and v6 rows ride
+  /// it byte for byte.
+  final int? unitPriceCents;
   final int? archivedAtMicros;
   final int createdAtMicros;
   final int updatedAtMicros;
@@ -2403,6 +2440,7 @@ class Item extends DataClass implements Insertable<Item> {
     this.perPersonDenominator,
     this.unitLabel,
     this.barcode,
+    this.unitPriceCents,
     this.archivedAtMicros,
     required this.createdAtMicros,
     required this.updatedAtMicros,
@@ -2441,6 +2479,9 @@ class Item extends DataClass implements Insertable<Item> {
     }
     if (!nullToAbsent || barcode != null) {
       map['barcode'] = Variable<String>(barcode);
+    }
+    if (!nullToAbsent || unitPriceCents != null) {
+      map['unit_price_cents'] = Variable<int>(unitPriceCents);
     }
     if (!nullToAbsent || archivedAtMicros != null) {
       map['archived_at_micros'] = Variable<int>(archivedAtMicros);
@@ -2484,6 +2525,9 @@ class Item extends DataClass implements Insertable<Item> {
       barcode: barcode == null && nullToAbsent
           ? const Value.absent()
           : Value(barcode),
+      unitPriceCents: unitPriceCents == null && nullToAbsent
+          ? const Value.absent()
+          : Value(unitPriceCents),
       archivedAtMicros: archivedAtMicros == null && nullToAbsent
           ? const Value.absent()
           : Value(archivedAtMicros),
@@ -2518,6 +2562,7 @@ class Item extends DataClass implements Insertable<Item> {
       ),
       unitLabel: serializer.fromJson<String?>(json['unitLabel']),
       barcode: serializer.fromJson<String?>(json['barcode']),
+      unitPriceCents: serializer.fromJson<int?>(json['unitPriceCents']),
       archivedAtMicros: serializer.fromJson<int?>(json['archivedAtMicros']),
       createdAtMicros: serializer.fromJson<int>(json['createdAtMicros']),
       updatedAtMicros: serializer.fromJson<int>(json['updatedAtMicros']),
@@ -2541,6 +2586,7 @@ class Item extends DataClass implements Insertable<Item> {
       'perPersonDenominator': serializer.toJson<int?>(perPersonDenominator),
       'unitLabel': serializer.toJson<String?>(unitLabel),
       'barcode': serializer.toJson<String?>(barcode),
+      'unitPriceCents': serializer.toJson<int?>(unitPriceCents),
       'archivedAtMicros': serializer.toJson<int?>(archivedAtMicros),
       'createdAtMicros': serializer.toJson<int>(createdAtMicros),
       'updatedAtMicros': serializer.toJson<int>(updatedAtMicros),
@@ -2562,6 +2608,7 @@ class Item extends DataClass implements Insertable<Item> {
     Value<int?> perPersonDenominator = const Value.absent(),
     Value<String?> unitLabel = const Value.absent(),
     Value<String?> barcode = const Value.absent(),
+    Value<int?> unitPriceCents = const Value.absent(),
     Value<int?> archivedAtMicros = const Value.absent(),
     int? createdAtMicros,
     int? updatedAtMicros,
@@ -2588,6 +2635,9 @@ class Item extends DataClass implements Insertable<Item> {
         : this.perPersonDenominator,
     unitLabel: unitLabel.present ? unitLabel.value : this.unitLabel,
     barcode: barcode.present ? barcode.value : this.barcode,
+    unitPriceCents: unitPriceCents.present
+        ? unitPriceCents.value
+        : this.unitPriceCents,
     archivedAtMicros: archivedAtMicros.present
         ? archivedAtMicros.value
         : this.archivedAtMicros,
@@ -2622,6 +2672,9 @@ class Item extends DataClass implements Insertable<Item> {
           : this.perPersonDenominator,
       unitLabel: data.unitLabel.present ? data.unitLabel.value : this.unitLabel,
       barcode: data.barcode.present ? data.barcode.value : this.barcode,
+      unitPriceCents: data.unitPriceCents.present
+          ? data.unitPriceCents.value
+          : this.unitPriceCents,
       archivedAtMicros: data.archivedAtMicros.present
           ? data.archivedAtMicros.value
           : this.archivedAtMicros,
@@ -2651,6 +2704,7 @@ class Item extends DataClass implements Insertable<Item> {
           ..write('perPersonDenominator: $perPersonDenominator, ')
           ..write('unitLabel: $unitLabel, ')
           ..write('barcode: $barcode, ')
+          ..write('unitPriceCents: $unitPriceCents, ')
           ..write('archivedAtMicros: $archivedAtMicros, ')
           ..write('createdAtMicros: $createdAtMicros, ')
           ..write('updatedAtMicros: $updatedAtMicros')
@@ -2674,6 +2728,7 @@ class Item extends DataClass implements Insertable<Item> {
     perPersonDenominator,
     unitLabel,
     barcode,
+    unitPriceCents,
     archivedAtMicros,
     createdAtMicros,
     updatedAtMicros,
@@ -2696,6 +2751,7 @@ class Item extends DataClass implements Insertable<Item> {
           other.perPersonDenominator == this.perPersonDenominator &&
           other.unitLabel == this.unitLabel &&
           other.barcode == this.barcode &&
+          other.unitPriceCents == this.unitPriceCents &&
           other.archivedAtMicros == this.archivedAtMicros &&
           other.createdAtMicros == this.createdAtMicros &&
           other.updatedAtMicros == this.updatedAtMicros);
@@ -2716,6 +2772,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
   final Value<int?> perPersonDenominator;
   final Value<String?> unitLabel;
   final Value<String?> barcode;
+  final Value<int?> unitPriceCents;
   final Value<int?> archivedAtMicros;
   final Value<int> createdAtMicros;
   final Value<int> updatedAtMicros;
@@ -2735,6 +2792,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     this.perPersonDenominator = const Value.absent(),
     this.unitLabel = const Value.absent(),
     this.barcode = const Value.absent(),
+    this.unitPriceCents = const Value.absent(),
     this.archivedAtMicros = const Value.absent(),
     this.createdAtMicros = const Value.absent(),
     this.updatedAtMicros = const Value.absent(),
@@ -2755,6 +2813,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     this.perPersonDenominator = const Value.absent(),
     this.unitLabel = const Value.absent(),
     this.barcode = const Value.absent(),
+    this.unitPriceCents = const Value.absent(),
     this.archivedAtMicros = const Value.absent(),
     required int createdAtMicros,
     required int updatedAtMicros,
@@ -2780,6 +2839,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     Expression<int>? perPersonDenominator,
     Expression<String>? unitLabel,
     Expression<String>? barcode,
+    Expression<int>? unitPriceCents,
     Expression<int>? archivedAtMicros,
     Expression<int>? createdAtMicros,
     Expression<int>? updatedAtMicros,
@@ -2804,6 +2864,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
         'per_person_denominator': perPersonDenominator,
       if (unitLabel != null) 'unit_label': unitLabel,
       if (barcode != null) 'barcode': barcode,
+      if (unitPriceCents != null) 'unit_price_cents': unitPriceCents,
       if (archivedAtMicros != null) 'archived_at_micros': archivedAtMicros,
       if (createdAtMicros != null) 'created_at_micros': createdAtMicros,
       if (updatedAtMicros != null) 'updated_at_micros': updatedAtMicros,
@@ -2826,6 +2887,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     Value<int?>? perPersonDenominator,
     Value<String?>? unitLabel,
     Value<String?>? barcode,
+    Value<int?>? unitPriceCents,
     Value<int?>? archivedAtMicros,
     Value<int>? createdAtMicros,
     Value<int>? updatedAtMicros,
@@ -2847,6 +2909,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
       perPersonDenominator: perPersonDenominator ?? this.perPersonDenominator,
       unitLabel: unitLabel ?? this.unitLabel,
       barcode: barcode ?? this.barcode,
+      unitPriceCents: unitPriceCents ?? this.unitPriceCents,
       archivedAtMicros: archivedAtMicros ?? this.archivedAtMicros,
       createdAtMicros: createdAtMicros ?? this.createdAtMicros,
       updatedAtMicros: updatedAtMicros ?? this.updatedAtMicros,
@@ -2901,6 +2964,9 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     if (barcode.present) {
       map['barcode'] = Variable<String>(barcode.value);
     }
+    if (unitPriceCents.present) {
+      map['unit_price_cents'] = Variable<int>(unitPriceCents.value);
+    }
     if (archivedAtMicros.present) {
       map['archived_at_micros'] = Variable<int>(archivedAtMicros.value);
     }
@@ -2933,6 +2999,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
           ..write('perPersonDenominator: $perPersonDenominator, ')
           ..write('unitLabel: $unitLabel, ')
           ..write('barcode: $barcode, ')
+          ..write('unitPriceCents: $unitPriceCents, ')
           ..write('archivedAtMicros: $archivedAtMicros, ')
           ..write('createdAtMicros: $createdAtMicros, ')
           ..write('updatedAtMicros: $updatedAtMicros, ')
@@ -5304,6 +5371,19 @@ class $CloseoutLinesTable extends CloseoutLines
       'REFERENCES inventory_movements (id) ON DELETE RESTRICT',
     ),
   );
+  static const VerificationMeta _unitPriceCentsMeta = const VerificationMeta(
+    'unitPriceCents',
+  );
+  @override
+  late final GeneratedColumn<int> unitPriceCents = GeneratedColumn<int>(
+    'unit_price_cents',
+    aliasedName,
+    true,
+    check: () =>
+        ComparableExpr(unitPriceCents).isBetweenValues(1, unitPriceCapCents),
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     closeoutId,
@@ -5316,6 +5396,7 @@ class $CloseoutLinesTable extends CloseoutLines
     approximate,
     consumptionMovementId,
     wasteMovementId,
+    unitPriceCents,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -5416,6 +5497,15 @@ class $CloseoutLinesTable extends CloseoutLines
         ),
       );
     }
+    if (data.containsKey('unit_price_cents')) {
+      context.handle(
+        _unitPriceCentsMeta,
+        unitPriceCents.isAcceptableOrUnknown(
+          data['unit_price_cents']!,
+          _unitPriceCentsMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -5465,6 +5555,10 @@ class $CloseoutLinesTable extends CloseoutLines
         DriftSqlType.string,
         data['${effectivePrefix}waste_movement_id'],
       ),
+      unitPriceCents: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}unit_price_cents'],
+      ),
     );
   }
 
@@ -5489,6 +5583,16 @@ class CloseoutLine extends DataClass implements Insertable<CloseoutLine> {
   /// Ledger rows written when this revision was applied (evidence links).
   final String? consumptionMovementId;
   final String? wasteMovementId;
+
+  /// v7. The item's `unit_price_cents` AS IT WAS when this revision was
+  /// confirmed — a snapshot, so "what this event cost" survives later price
+  /// edits (revisions re-snapshot: a correction is made at today's
+  /// knowledge). Written once with its row and then frozen with it by the
+  /// table's append-only triggers, which forbid wholesale and enumerate no
+  /// columns — the additive ADD COLUMN disturbs neither them nor existing
+  /// rows. NULL = the item had no price at that moment (every pre-v7 row).
+  /// Same cap and cents discipline as `items.unit_price_cents`.
+  final int? unitPriceCents;
   const CloseoutLine({
     required this.closeoutId,
     required this.itemId,
@@ -5500,6 +5604,7 @@ class CloseoutLine extends DataClass implements Insertable<CloseoutLine> {
     required this.approximate,
     this.consumptionMovementId,
     this.wasteMovementId,
+    this.unitPriceCents,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -5523,6 +5628,9 @@ class CloseoutLine extends DataClass implements Insertable<CloseoutLine> {
     }
     if (!nullToAbsent || wasteMovementId != null) {
       map['waste_movement_id'] = Variable<String>(wasteMovementId);
+    }
+    if (!nullToAbsent || unitPriceCents != null) {
+      map['unit_price_cents'] = Variable<int>(unitPriceCents);
     }
     return map;
   }
@@ -5549,6 +5657,9 @@ class CloseoutLine extends DataClass implements Insertable<CloseoutLine> {
       wasteMovementId: wasteMovementId == null && nullToAbsent
           ? const Value.absent()
           : Value(wasteMovementId),
+      unitPriceCents: unitPriceCents == null && nullToAbsent
+          ? const Value.absent()
+          : Value(unitPriceCents),
     );
   }
 
@@ -5570,6 +5681,7 @@ class CloseoutLine extends DataClass implements Insertable<CloseoutLine> {
         json['consumptionMovementId'],
       ),
       wasteMovementId: serializer.fromJson<String?>(json['wasteMovementId']),
+      unitPriceCents: serializer.fromJson<int?>(json['unitPriceCents']),
     );
   }
   @override
@@ -5588,6 +5700,7 @@ class CloseoutLine extends DataClass implements Insertable<CloseoutLine> {
         consumptionMovementId,
       ),
       'wasteMovementId': serializer.toJson<String?>(wasteMovementId),
+      'unitPriceCents': serializer.toJson<int?>(unitPriceCents),
     };
   }
 
@@ -5602,6 +5715,7 @@ class CloseoutLine extends DataClass implements Insertable<CloseoutLine> {
     bool? approximate,
     Value<String?> consumptionMovementId = const Value.absent(),
     Value<String?> wasteMovementId = const Value.absent(),
+    Value<int?> unitPriceCents = const Value.absent(),
   }) => CloseoutLine(
     closeoutId: closeoutId ?? this.closeoutId,
     itemId: itemId ?? this.itemId,
@@ -5619,6 +5733,9 @@ class CloseoutLine extends DataClass implements Insertable<CloseoutLine> {
     wasteMovementId: wasteMovementId.present
         ? wasteMovementId.value
         : this.wasteMovementId,
+    unitPriceCents: unitPriceCents.present
+        ? unitPriceCents.value
+        : this.unitPriceCents,
   );
   CloseoutLine copyWithCompanion(CloseoutLinesCompanion data) {
     return CloseoutLine(
@@ -5648,6 +5765,9 @@ class CloseoutLine extends DataClass implements Insertable<CloseoutLine> {
       wasteMovementId: data.wasteMovementId.present
           ? data.wasteMovementId.value
           : this.wasteMovementId,
+      unitPriceCents: data.unitPriceCents.present
+          ? data.unitPriceCents.value
+          : this.unitPriceCents,
     );
   }
 
@@ -5663,7 +5783,8 @@ class CloseoutLine extends DataClass implements Insertable<CloseoutLine> {
           ..write('stockout: $stockout, ')
           ..write('approximate: $approximate, ')
           ..write('consumptionMovementId: $consumptionMovementId, ')
-          ..write('wasteMovementId: $wasteMovementId')
+          ..write('wasteMovementId: $wasteMovementId, ')
+          ..write('unitPriceCents: $unitPriceCents')
           ..write(')'))
         .toString();
   }
@@ -5680,6 +5801,7 @@ class CloseoutLine extends DataClass implements Insertable<CloseoutLine> {
     approximate,
     consumptionMovementId,
     wasteMovementId,
+    unitPriceCents,
   );
   @override
   bool operator ==(Object other) =>
@@ -5694,7 +5816,8 @@ class CloseoutLine extends DataClass implements Insertable<CloseoutLine> {
           other.stockout == this.stockout &&
           other.approximate == this.approximate &&
           other.consumptionMovementId == this.consumptionMovementId &&
-          other.wasteMovementId == this.wasteMovementId);
+          other.wasteMovementId == this.wasteMovementId &&
+          other.unitPriceCents == this.unitPriceCents);
 }
 
 class CloseoutLinesCompanion extends UpdateCompanion<CloseoutLine> {
@@ -5708,6 +5831,7 @@ class CloseoutLinesCompanion extends UpdateCompanion<CloseoutLine> {
   final Value<bool> approximate;
   final Value<String?> consumptionMovementId;
   final Value<String?> wasteMovementId;
+  final Value<int?> unitPriceCents;
   final Value<int> rowid;
   const CloseoutLinesCompanion({
     this.closeoutId = const Value.absent(),
@@ -5720,6 +5844,7 @@ class CloseoutLinesCompanion extends UpdateCompanion<CloseoutLine> {
     this.approximate = const Value.absent(),
     this.consumptionMovementId = const Value.absent(),
     this.wasteMovementId = const Value.absent(),
+    this.unitPriceCents = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   CloseoutLinesCompanion.insert({
@@ -5733,6 +5858,7 @@ class CloseoutLinesCompanion extends UpdateCompanion<CloseoutLine> {
     this.approximate = const Value.absent(),
     this.consumptionMovementId = const Value.absent(),
     this.wasteMovementId = const Value.absent(),
+    this.unitPriceCents = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : closeoutId = Value(closeoutId),
        itemId = Value(itemId),
@@ -5748,6 +5874,7 @@ class CloseoutLinesCompanion extends UpdateCompanion<CloseoutLine> {
     Expression<bool>? approximate,
     Expression<String>? consumptionMovementId,
     Expression<String>? wasteMovementId,
+    Expression<int>? unitPriceCents,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -5762,6 +5889,7 @@ class CloseoutLinesCompanion extends UpdateCompanion<CloseoutLine> {
       if (consumptionMovementId != null)
         'consumption_movement_id': consumptionMovementId,
       if (wasteMovementId != null) 'waste_movement_id': wasteMovementId,
+      if (unitPriceCents != null) 'unit_price_cents': unitPriceCents,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -5777,6 +5905,7 @@ class CloseoutLinesCompanion extends UpdateCompanion<CloseoutLine> {
     Value<bool>? approximate,
     Value<String?>? consumptionMovementId,
     Value<String?>? wasteMovementId,
+    Value<int?>? unitPriceCents,
     Value<int>? rowid,
   }) {
     return CloseoutLinesCompanion(
@@ -5791,6 +5920,7 @@ class CloseoutLinesCompanion extends UpdateCompanion<CloseoutLine> {
       consumptionMovementId:
           consumptionMovementId ?? this.consumptionMovementId,
       wasteMovementId: wasteMovementId ?? this.wasteMovementId,
+      unitPriceCents: unitPriceCents ?? this.unitPriceCents,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -5830,6 +5960,9 @@ class CloseoutLinesCompanion extends UpdateCompanion<CloseoutLine> {
     if (wasteMovementId.present) {
       map['waste_movement_id'] = Variable<String>(wasteMovementId.value);
     }
+    if (unitPriceCents.present) {
+      map['unit_price_cents'] = Variable<int>(unitPriceCents.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -5849,6 +5982,7 @@ class CloseoutLinesCompanion extends UpdateCompanion<CloseoutLine> {
           ..write('approximate: $approximate, ')
           ..write('consumptionMovementId: $consumptionMovementId, ')
           ..write('wasteMovementId: $wasteMovementId, ')
+          ..write('unitPriceCents: $unitPriceCents, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -12380,6 +12514,7 @@ typedef $$ItemsTableCreateCompanionBuilder =
       Value<int?> perPersonDenominator,
       Value<String?> unitLabel,
       Value<String?> barcode,
+      Value<int?> unitPriceCents,
       Value<int?> archivedAtMicros,
       required int createdAtMicros,
       required int updatedAtMicros,
@@ -12401,6 +12536,7 @@ typedef $$ItemsTableUpdateCompanionBuilder =
       Value<int?> perPersonDenominator,
       Value<String?> unitLabel,
       Value<String?> barcode,
+      Value<int?> unitPriceCents,
       Value<int?> archivedAtMicros,
       Value<int> createdAtMicros,
       Value<int> updatedAtMicros,
@@ -12670,6 +12806,11 @@ class $$ItemsTableFilterComposer extends Composer<_$AppDatabase, $ItemsTable> {
 
   ColumnFilters<String> get barcode => $composableBuilder(
     column: $table.barcode,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get unitPriceCents => $composableBuilder(
+    column: $table.unitPriceCents,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -13011,6 +13152,11 @@ class $$ItemsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get unitPriceCents => $composableBuilder(
+    column: $table.unitPriceCents,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get archivedAtMicros => $composableBuilder(
     column: $table.archivedAtMicros,
     builder: (column) => ColumnOrderings(column),
@@ -13109,6 +13255,11 @@ class $$ItemsTableAnnotationComposer
 
   GeneratedColumn<String> get barcode =>
       $composableBuilder(column: $table.barcode, builder: (column) => column);
+
+  GeneratedColumn<int> get unitPriceCents => $composableBuilder(
+    column: $table.unitPriceCents,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<int> get archivedAtMicros => $composableBuilder(
     column: $table.archivedAtMicros,
@@ -13429,6 +13580,7 @@ class $$ItemsTableTableManager
                 Value<int?> perPersonDenominator = const Value.absent(),
                 Value<String?> unitLabel = const Value.absent(),
                 Value<String?> barcode = const Value.absent(),
+                Value<int?> unitPriceCents = const Value.absent(),
                 Value<int?> archivedAtMicros = const Value.absent(),
                 Value<int> createdAtMicros = const Value.absent(),
                 Value<int> updatedAtMicros = const Value.absent(),
@@ -13448,6 +13600,7 @@ class $$ItemsTableTableManager
                 perPersonDenominator: perPersonDenominator,
                 unitLabel: unitLabel,
                 barcode: barcode,
+                unitPriceCents: unitPriceCents,
                 archivedAtMicros: archivedAtMicros,
                 createdAtMicros: createdAtMicros,
                 updatedAtMicros: updatedAtMicros,
@@ -13469,6 +13622,7 @@ class $$ItemsTableTableManager
                 Value<int?> perPersonDenominator = const Value.absent(),
                 Value<String?> unitLabel = const Value.absent(),
                 Value<String?> barcode = const Value.absent(),
+                Value<int?> unitPriceCents = const Value.absent(),
                 Value<int?> archivedAtMicros = const Value.absent(),
                 required int createdAtMicros,
                 required int updatedAtMicros,
@@ -13488,6 +13642,7 @@ class $$ItemsTableTableManager
                 perPersonDenominator: perPersonDenominator,
                 unitLabel: unitLabel,
                 barcode: barcode,
+                unitPriceCents: unitPriceCents,
                 archivedAtMicros: archivedAtMicros,
                 createdAtMicros: createdAtMicros,
                 updatedAtMicros: updatedAtMicros,
@@ -16564,6 +16719,7 @@ typedef $$CloseoutLinesTableCreateCompanionBuilder =
       Value<bool> approximate,
       Value<String?> consumptionMovementId,
       Value<String?> wasteMovementId,
+      Value<int?> unitPriceCents,
       Value<int> rowid,
     });
 typedef $$CloseoutLinesTableUpdateCompanionBuilder =
@@ -16578,6 +16734,7 @@ typedef $$CloseoutLinesTableUpdateCompanionBuilder =
       Value<bool> approximate,
       Value<String?> consumptionMovementId,
       Value<String?> wasteMovementId,
+      Value<int?> unitPriceCents,
       Value<int> rowid,
     });
 
@@ -16702,6 +16859,11 @@ class $$CloseoutLinesTableFilterComposer
 
   ColumnFilters<bool> get approximate => $composableBuilder(
     column: $table.approximate,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get unitPriceCents => $composableBuilder(
+    column: $table.unitPriceCents,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -16837,6 +16999,11 @@ class $$CloseoutLinesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get unitPriceCents => $composableBuilder(
+    column: $table.unitPriceCents,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   $$EventCloseoutsTableOrderingComposer get closeoutId {
     final $$EventCloseoutsTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -16964,6 +17131,11 @@ class $$CloseoutLinesTableAnnotationComposer
 
   GeneratedColumn<bool> get approximate => $composableBuilder(
     column: $table.approximate,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get unitPriceCents => $composableBuilder(
+    column: $table.unitPriceCents,
     builder: (column) => column,
   );
 
@@ -17105,6 +17277,7 @@ class $$CloseoutLinesTableTableManager
                 Value<bool> approximate = const Value.absent(),
                 Value<String?> consumptionMovementId = const Value.absent(),
                 Value<String?> wasteMovementId = const Value.absent(),
+                Value<int?> unitPriceCents = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CloseoutLinesCompanion(
                 closeoutId: closeoutId,
@@ -17117,6 +17290,7 @@ class $$CloseoutLinesTableTableManager
                 approximate: approximate,
                 consumptionMovementId: consumptionMovementId,
                 wasteMovementId: wasteMovementId,
+                unitPriceCents: unitPriceCents,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -17131,6 +17305,7 @@ class $$CloseoutLinesTableTableManager
                 Value<bool> approximate = const Value.absent(),
                 Value<String?> consumptionMovementId = const Value.absent(),
                 Value<String?> wasteMovementId = const Value.absent(),
+                Value<int?> unitPriceCents = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CloseoutLinesCompanion.insert(
                 closeoutId: closeoutId,
@@ -17143,6 +17318,7 @@ class $$CloseoutLinesTableTableManager
                 approximate: approximate,
                 consumptionMovementId: consumptionMovementId,
                 wasteMovementId: wasteMovementId,
+                unitPriceCents: unitPriceCents,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

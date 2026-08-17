@@ -180,7 +180,7 @@ void main() {
     final line = await (db.select(db.forecastLines)).getSingle();
     expect(line.expectedUseMicros, 2000000);
     expect(line.loadMicros, 3000000);
-    expect(db.schemaVersion, 6);
+    expect(db.schemaVersion, 7);
   });
 
   test('after upgrade: "recipe without any catalog item" is representable, '

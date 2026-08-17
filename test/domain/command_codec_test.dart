@@ -5,6 +5,7 @@ library;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:loadout/core/ids.dart';
+import 'package:loadout/core/money.dart';
 import 'package:loadout/core/quantity.dart';
 import 'package:loadout/features/approval/domain/command_codec.dart';
 import 'package:loadout/features/approval/domain/commands.dart';
@@ -31,6 +32,7 @@ void main() {
         encodeCommandPayload(command),
         '{"name":"Buns","unit":"each","pack_size_micros":1000000,'
         '"unit_label":null,"barcode":"5000112637922",'
+        '"unit_price_cents":null,'
         '"serves_per_unit_micros":null,"per_person_numerator":null,'
         '"per_person_denominator":null,"folder_id":null,'
         '"demand_basis":null,"per_event_baseline_micros":null,'
@@ -49,6 +51,7 @@ void main() {
         '{"item_id":"${'A' * 26}","name":null,"unit":null,'
         '"pack_size_micros":null,"unit_label":null,"clear_unit_label":false,'
         '"barcode":"5000112637922","clear_barcode":false,'
+        '"unit_price_cents":null,"clear_unit_price":false,'
         '"serves_per_unit_micros":null,"clear_serves_per_unit":false,'
         '"per_person_numerator":null,"per_person_denominator":null,'
         '"clear_per_person_ratio":false,"folder_id":null,'
@@ -63,6 +66,46 @@ void main() {
       expect(
         encodeCommandPayload(command),
         contains('"barcode":null,"clear_barcode":true'),
+      );
+    });
+  });
+
+  group('v7 price payload keys ride next to the barcode keys', () {
+    test('CreateItem: integer cents written explicitly, null when never '
+        'priced', () {
+      final command = CreateItem(
+        name: 'Buns',
+        unitPrice: Money.fromCents(1250),
+      );
+      expect(
+        encodeCommandPayload(command),
+        contains('"barcode":null,"unit_price_cents":1250,'),
+      );
+      expect(
+        encodeCommandPayload(const CreateItem(name: 'Rolls')),
+        contains('"barcode":null,"unit_price_cents":null,'),
+      );
+    });
+
+    test('UpdateItem: unit_price_cents and clear_unit_price both encode', () {
+      final command = UpdateItem(
+        itemId: ItemId('A' * 26),
+        unitPrice: Money.fromCents(99),
+      );
+      expect(
+        encodeCommandPayload(command),
+        contains('"unit_price_cents":99,"clear_unit_price":false'),
+      );
+    });
+
+    test('UpdateItem: a clear encodes null + true, byte-stable', () {
+      final command = UpdateItem(
+        itemId: ItemId('A' * 26),
+        clearUnitPrice: true,
+      );
+      expect(
+        encodeCommandPayload(command),
+        contains('"unit_price_cents":null,"clear_unit_price":true'),
       );
     });
   });

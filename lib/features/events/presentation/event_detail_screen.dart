@@ -4,7 +4,8 @@
 /// hardcoded), Close out (primary-styled once the date passes; closed events
 /// show `Closed on <date>` + Revise), the disabled Production tile, and
 /// Accuracy review (closed only). Planned items and, for closed events, the
-/// closeout revisions summary. App-bar: Edit; Activate (planned → active);
+/// "Spent" cost summary (v7, from the closeout's snapshotted prices) and
+/// the closeout revisions summary. App-bar: Edit; Activate (planned → active);
 /// Cancel (planned ONLY — an activated event must be closed out, §12.15).
 library;
 
@@ -17,8 +18,11 @@ import '../../../app/theme.dart';
 import '../../../app/widgets/content_column.dart';
 import '../../../app/widgets/empty_state.dart';
 import '../../../app/widgets/folder_chip.dart';
+import '../../../core/money.dart';
+import '../../../core/money_codec.dart';
 import '../../catalog/application/catalog_service.dart';
 import '../../catalog/domain/folder.dart';
+import '../../closeout/application/closeout_service.dart';
 import '../application/event_service.dart';
 import '../domain/event.dart';
 import 'event_ui.dart';
@@ -31,6 +35,18 @@ import 'folder_sections.dart';
 final _activatingProvider = StateProvider.autoDispose.family<bool, String>(
   (ref, eventId) => false,
 );
+
+/// The latest revision's cost lines for the "Spent" section (v7): confirmed
+/// depletions with the unit prices SNAPSHOTTED at confirm time — a later
+/// catalog price edit never moves a closed event's number. Watches the
+/// revisions stream so a revise recomputes; empty when never closed out.
+final _closeoutCostLinesProvider = FutureProvider.autoDispose
+    .family<List<CloseoutCostLine>, String>((ref, eventId) async {
+      ref.watch(closeoutRevisionsProvider(eventId));
+      return ref
+          .watch(closeoutServiceProvider)
+          .latestCloseoutCostLines(eventId);
+    });
 
 class EventDetailScreen extends ConsumerWidget {
   const EventDetailScreen({super.key, required this.eventId});
@@ -169,6 +185,9 @@ class _EventDetailBody extends ConsumerWidget {
                 else
                   _PlannedItemSections(plannedItems: detail.plannedItems),
                 if (event.status == EventStatus.closed) ...[
+                  // Spaces itself: it renders nothing when no closeout line
+                  // carried a price snapshot.
+                  _SpentSummary(eventId: eventId),
                   const SizedBox(height: 24),
                   _RevisionsSummary(
                     eventId: eventId,
@@ -439,6 +458,85 @@ class _CancelEventDialogState extends State<_CancelEventDialog> {
       ),
     ],
   );
+}
+
+/// "What it all was" for a closed event (v7): Σ (confirmed depletion ×
+/// the unit price snapshotted at confirm) over the latest revision's
+/// priced lines. The money is frozen history — editing an item's price
+/// later never moves it; only a revise (which re-snapshots) can. Honesty:
+/// lines whose price was unknown at confirm are counted out loud, never
+/// treated as free, and with no priced line at all the section does not
+/// render — a "$0" over unknown prices would pretend the event was free.
+/// A never-closed event has no lines, so it shows nothing.
+class _SpentSummary extends ConsumerWidget {
+  const _SpentSummary({required this.eventId});
+
+  final String eventId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final lines =
+        ref.watch(_closeoutCostLinesProvider(eventId)).valueOrNull ??
+        const <CloseoutCostLine>[];
+    var total = Money.zero;
+    var pricedCount = 0;
+    var unpricedCount = 0;
+    for (final line in lines) {
+      if (line.unitPriceCents case final cents?) {
+        total = total.plus(
+          Money.fromCents(cents).timesQuantityMicros(line.depletionMicros),
+        );
+        pricedCount++;
+      } else {
+        unpricedCount++;
+      }
+    }
+    if (pricedCount == 0) {
+      return const SizedBox.shrink();
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 24),
+        Text('Spent', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 8),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  MoneyCodec.format(total),
+                  style: Numerals.glance(theme.textTheme),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'What this event used, at the prices recorded when you '
+                  'closed out.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                if (unpricedCount > 0) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    unpricedCount == 1
+                        ? '1 item had no price — not counted.'
+                        : '$unpricedCount items had no price — not counted.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 /// Closeout revisions summary for closed events (design §9: after closing

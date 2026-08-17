@@ -179,7 +179,7 @@ void main() {
         )
         .get();
     expect(index, hasLength(1));
-    expect(db.schemaVersion, 6);
+    expect(db.schemaVersion, 7);
   });
 
   test('after upgrade: one LIVE item per barcode, NULLs never collide, and '

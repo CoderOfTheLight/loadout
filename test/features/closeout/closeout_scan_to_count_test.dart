@@ -1,11 +1,13 @@
 /// Scan-to-count on the closeout over a fake [BarcodeScanService] (the
 /// real one needs a device camera): the app-bar action hides when the
-/// probe says no; a scan resolves the item, opens the "How many came
-/// back?" sheet, and saves through the SAME edit path typing uses — the
-/// planned load fills a blank loaded, waste defaults to 0 only on a sheet
-/// save, and the draft carries it all; a barcode nobody linked and an item
-/// not on this event's list each say so and re-open the scanner; scanner
-/// failures speak content-free, with 'camera_denied' pointing at Settings.
+/// probe says no; a scan resolves the item, opens the "How many are
+/// left?" sheet — the same leftover question as the card's lead field —
+/// and saves through the SAME edit path typing uses, committing through
+/// the one leftover rule: the planned load fills a blank loaded, a blank
+/// waste counts as 0 once loaded is known, and the draft carries it all; a
+/// barcode nobody linked and an item not on this event's list each say so
+/// and re-open the scanner; scanner failures speak content-free, with
+/// 'camera_denied' pointing at Settings.
 library;
 
 import 'package:flutter/material.dart';
@@ -137,21 +139,20 @@ void main() {
     await tester.tap(find.byKey(const Key('scan-to-count')));
     await tester.pumpAndSettle();
 
-    // The compact sheet: name, one count field, and the waste caption —
-    // shown because this save can complete the line.
-    expect(
-      find.widgetWithText(TextFormField, 'How many came back?'),
-      findsOneWidget,
+    // The compact sheet: name, one leftover count — the same question the
+    // card's lead field asks — and the waste caption, shown because this
+    // save can complete the line.
+    final sheetCount = find.descendant(
+      of: find.byType(BottomSheet),
+      matching: find.widgetWithText(TextFormField, 'How many are left?'),
     );
+    expect(sheetCount, findsOneWidget);
     expect(
       find.text('Waste counts as 0 unless you set it on the card.'),
       findsOneWidget,
     );
 
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'How many came back?'),
-      '2',
-    );
+    await tester.enterText(sheetCount, '2');
     await tester.pump();
     await tester.tap(find.text('Save & scan next'));
     await tester.pumpAndSettle();
@@ -162,7 +163,7 @@ void main() {
     // Loaded filled from the planned load, waste defaulted to 0, so the
     // worksheet derives 12 − 2 − 0 and the line confirms — and the section
     // header flipped to Done through the normal mechanics.
-    expect(find.text('Depletion: 10'), findsOneWidget);
+    expect(find.text('Used: 10'), findsOneWidget);
     expect(find.text('Confirmed'), findsOneWidget);
     expect(find.text('1 of 1 confirmed'), findsOneWidget);
     expect(find.text('Done'), findsOneWidget);
@@ -198,7 +199,10 @@ void main() {
 
     // The count field takes fractions.
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'How many came back?'),
+      find.descendant(
+        of: find.byType(BottomSheet),
+        matching: find.widgetWithText(TextFormField, 'How many are left?'),
+      ),
       '1 1/2',
     );
     await tester.pump();
@@ -243,7 +247,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('"Salsa" isn\'t on this event\'s list.'), findsOneWidget);
-    expect(find.text('How many came back?'), findsNothing);
+    // No count sheet opened — the card's own lead field is the only place
+    // asking the leftover question.
+    expect(find.byType(BottomSheet), findsNothing);
     // The loop went back to the scanner; the cancel ended it.
     expect(fake.scanCalls, 2);
 

@@ -40,6 +40,7 @@ final class CloseoutLine {
     this.approximate = false,
     this.consumptionMovementId,
     this.wasteMovementId,
+    this.unitPriceCents,
   });
 
   final ItemId itemId;
@@ -53,4 +54,10 @@ final class CloseoutLine {
   /// Ledger rows written when this revision was applied (evidence links).
   final MovementId? consumptionMovementId;
   final MovementId? wasteMovementId;
+
+  /// v7: the item's price in integer cents AS IT WAS when this revision was
+  /// confirmed — a snapshot, immutable with its row, so "what this event
+  /// cost" survives later price edits. Null = the item had no price at that
+  /// moment (including every pre-v7 row).
+  final int? unitPriceCents;
 }

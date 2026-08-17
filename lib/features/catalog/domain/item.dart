@@ -1,4 +1,5 @@
 import '../../../core/ids.dart';
+import '../../../core/money.dart';
 import '../../../core/quantity.dart';
 import '../../../core/time.dart';
 import '../../../core/unit_ratio.dart';
@@ -20,6 +21,7 @@ final class Item {
     this.packSize = Quantity.one,
     this.unitLabel,
     this.barcode,
+    this.unitPrice,
     this.servesPerUnit,
     this.perPersonRatio,
     this.folderId,
@@ -51,6 +53,12 @@ final class Item {
   /// compared verbatim, unique among LIVE items only (archiving frees it).
   /// Null = never scanned.
   final String? barcode;
+
+  /// v7: what ONE unit costs, integer cents (1 cent to $1,000,000). The
+  /// owner's CURRENT price — what an upcoming event's forecast costs
+  /// against. Null = never priced; a closed event's cost reads the
+  /// closeout-line snapshot instead, never this.
+  final Money? unitPrice;
 
   /// How many people ONE of this item serves ("1 pizza serves 4"). Null when
   /// the owner never said — then a first-ever event simply gets no estimate.
@@ -92,6 +100,7 @@ final class ItemDraft {
   const ItemDraft({
     required this.name,
     this.unitLabel,
+    this.unitPrice,
     this.servesPerUnit,
     this.perPersonRatio,
     this.folderId,
@@ -108,6 +117,11 @@ final class ItemDraft {
   /// v5: display label for the amount; null shows nothing (and clears on
   /// update — the form always submits its whole state).
   final String? unitLabel;
+
+  /// v7: what one unit costs. Whole-state form data like every other draft
+  /// field — null clears the stored price on update (unlike barcode, which
+  /// only a scan may supply and which therefore stays off the draft).
+  final Money? unitPrice;
 
   /// Null clears the stored value on update ("I don't know" is a legal
   /// answer, and the form always submits its whole state).

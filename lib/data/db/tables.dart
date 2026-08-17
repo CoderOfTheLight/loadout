@@ -119,6 +119,13 @@ class Folders extends Table {
 /// realistic top end). Mirrored by [maxServesPerUnitMicros] in the validator.
 const int servesPerUnitCapMicros = 10000000000;
 
+/// Hard cap for `items.unit_price_cents` and `closeout_lines.unit_price_cents`
+/// (v7): 100 000 000 cents — $1,000,000 for ONE unit, with 1 cent the floor
+/// (a free item simply has no price: NULL). Integer CENTS everywhere; a
+/// `double` never touches money. Mirrored by `maxUnitPriceCents` in the
+/// validator exactly as the other caps mirror theirs.
+const int unitPriceCapCents = 100000000;
+
 /// An item is a NAME + HOW MANY YOU HAVE (derived from the ledger) +
 /// optionally HOW MANY PEOPLE ONE SERVES. `unit` and `pack_size_micros`
 /// survive from v1 but are no longer part of the product surface: every item
@@ -209,6 +216,19 @@ class Items extends Table {
   /// ADD COLUMN carries the constraint and v5 rows ride it byte for byte.
   TextColumn get barcode =>
       text().nullable().check(barcode.length.isBetweenValues(1, 64))();
+
+  // ------------------------------------------------------------- v7 price
+  /// v7. What ONE unit of this item costs, in integer CENTS — never a
+  /// double, never a fraction of a cent. The owner's CURRENT price: freely
+  /// editable master data, used to cost an upcoming event's forecast.
+  /// History never reads it — a closeout line snapshots the price at
+  /// confirm time into its own column instead. NULL = no price, the honest
+  /// default for every pre-v7 row. Nullable + column-level CHECK only, so
+  /// the v7 ALTER TABLE ADD COLUMN carries the constraint and v6 rows ride
+  /// it byte for byte.
+  IntColumn get unitPriceCents => integer().nullable().check(
+    unitPriceCents.isBetweenValues(1, unitPriceCapCents),
+  )();
 
   IntColumn get archivedAtMicros => integer().nullable()();
   IntColumn get createdAtMicros => integer()();
@@ -370,6 +390,19 @@ class CloseoutLines extends Table {
     InventoryMovements,
     #id,
     onDelete: KeyAction.restrict,
+  )();
+
+  // ------------------------------------------------------------- v7 price
+  /// v7. The item's `unit_price_cents` AS IT WAS when this revision was
+  /// confirmed — a snapshot, so "what this event cost" survives later price
+  /// edits (revisions re-snapshot: a correction is made at today's
+  /// knowledge). Written once with its row and then frozen with it by the
+  /// table's append-only triggers, which forbid wholesale and enumerate no
+  /// columns — the additive ADD COLUMN disturbs neither them nor existing
+  /// rows. NULL = the item had no price at that moment (every pre-v7 row).
+  /// Same cap and cents discipline as `items.unit_price_cents`.
+  IntColumn get unitPriceCents => integer().nullable().check(
+    unitPriceCents.isBetweenValues(1, unitPriceCapCents),
   )();
   @override
   Set<Column> get primaryKey => {closeoutId, itemId};

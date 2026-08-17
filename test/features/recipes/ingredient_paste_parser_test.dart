@@ -117,6 +117,86 @@ void main() {
     });
   });
 
+  group('parsePasteLine kitchen abbreviations', () {
+    // (input, amount micros, expected label, expected name). Cryptic
+    // abbreviations expand to readable labels; readable ones stay verbatim.
+    const table = <(String, int, String, String)>[
+      ('1 c flour', 1000000, 'cup', 'flour'),
+      ('1 c. flour', 1000000, 'cup', 'flour'),
+      ('1 C flour', 1000000, 'cup', 'flour'),
+      ('1 1/2 c sugar', 1500000, 'cup', 'sugar'),
+      ('1 t salt', 1000000, 'tsp', 'salt'),
+      ('1 T butter', 1000000, 'tbsp', 'butter'),
+      ('2 T oil', 2000000, 'tbsp', 'oil'),
+      ('1 tbs sugar', 1000000, 'tbsp', 'sugar'),
+      ('1 qt stock', 1000000, 'qt', 'stock'),
+      ('2 qts stock', 2000000, 'qts', 'stock'),
+      ('2 quarts stock', 2000000, 'quarts', 'stock'),
+      ('2 pts cream', 2000000, 'pts', 'cream'),
+      ('1 pt cream', 1000000, 'pt', 'cream'),
+      ('2 pints cream', 2000000, 'pints', 'cream'),
+      ('1 gal milk', 1000000, 'gal', 'milk'),
+      ('2 gallons milk', 2000000, 'gallons', 'milk'),
+      ('4 fl oz cream', 4000000, 'fl oz', 'cream'),
+      ('4 fl. oz. cream', 4000000, 'fl oz', 'cream'),
+      ('4 floz cream', 4000000, 'fl oz', 'cream'),
+      ('2 sticks butter', 2000000, 'sticks', 'butter'),
+      ('1 stick of butter', 1000000, 'stick', 'butter'),
+    ];
+
+    for (final (input, micros, label, name) in table) {
+      test('"$input" → $micros micros, label "$label", name "$name"', () {
+        final line = parsePasteLine(input)!;
+        expect(line.quantityPerBatch!.micros, micros);
+        expect(line.unitLabel, label);
+        expect(line.name, name);
+      });
+    }
+
+    test('single letters never swallow words that start with them', () {
+      final carrots = parsePasteLine('2 carrots')!;
+      expect(carrots.quantityPerBatch, Quantity.whole(2));
+      expect(carrots.unitLabel, isNull);
+      expect(carrots.name, 'carrots');
+
+      final tomatoes = parsePasteLine('2 tomatoes')!;
+      expect(tomatoes.quantityPerBatch, Quantity.whole(2));
+      expect(tomatoes.unitLabel, isNull);
+      expect(tomatoes.name, 'tomatoes');
+    });
+
+    test('"1 To taste" is not a tablespoon — the letter must stand alone', () {
+      final line = parsePasteLine('1 To taste')!;
+      expect(line.quantityPerBatch, Quantity.whole(1));
+      expect(line.unitLabel, isNull);
+      expect(line.name, 'To taste');
+    });
+
+    test('"2 T-bone steaks" is a plain count, not 2 tbsp of "-bone"', () {
+      final line = parsePasteLine('2 T-bone steaks')!;
+      expect(line.quantityPerBatch, Quantity.whole(2));
+      expect(line.unitLabel, isNull);
+      expect(line.name, 'T-bone steaks');
+    });
+
+    test('already-working labels stay verbatim — no canonicalising', () {
+      final cups = parsePasteLine('2 cups sugar')!;
+      expect(cups.quantityPerBatch, Quantity.whole(2));
+      expect(cups.unitLabel, 'cups');
+      expect(cups.name, 'sugar');
+
+      final tbsp = parsePasteLine('1 tbsp oil')!;
+      expect(tbsp.quantityPerBatch, Quantity.whole(1));
+      expect(tbsp.unitLabel, 'tbsp');
+      expect(tbsp.name, 'oil');
+
+      final bags = parsePasteLine('3 bags onions')!;
+      expect(bags.quantityPerBatch, Quantity.whole(3));
+      expect(bags.unitLabel, 'bags');
+      expect(bags.name, 'onions');
+    });
+  });
+
   group('parseIngredientPaste matching', () {
     final catalog = [
       _item('i1', 'Carrots'),

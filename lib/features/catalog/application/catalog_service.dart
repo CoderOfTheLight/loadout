@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 
 import '../../../core/folder_appearance.dart';
 import '../../../core/ids.dart';
+import '../../../core/money.dart';
 import '../../../core/quantity.dart';
 import '../../../core/result.dart';
 import '../../../core/time.dart';
@@ -225,6 +226,7 @@ final class DriftCatalogService implements CatalogService {
         packSize: draft.packSize,
         unitLabel: draft.unitLabel,
         barcode: barcode,
+        unitPrice: draft.unitPrice,
         servesPerUnit: draft.servesPerUnit,
         perPersonRatio: draft.perPersonRatio,
         folderId: draft.folderId == null ? null : FolderId(draft.folderId!),
@@ -257,6 +259,8 @@ final class DriftCatalogService implements CatalogService {
         packSize: draft.packSize,
         unitLabel: draft.unitLabel,
         clearUnitLabel: draft.unitLabel == null,
+        unitPrice: draft.unitPrice,
+        clearUnitPrice: draft.unitPrice == null,
         servesPerUnit: draft.servesPerUnit,
         clearServesPerUnit: draft.servesPerUnit == null,
         perPersonRatio: draft.perPersonRatio,
@@ -563,6 +567,10 @@ final class DriftCatalogService implements CatalogService {
     packSize: Quantity.fromMicros(row.read<int>('pack_size_micros')),
     unitLabel: row.read<String?>('unit_label'),
     barcode: row.read<String?>('barcode'),
+    unitPrice: switch (row.read<int?>('unit_price_cents')) {
+      final cents? => Money.fromCents(cents),
+      null => null,
+    },
     servesPerUnit: switch (row.read<int?>('serves_per_unit_micros')) {
       final micros? => Quantity.fromMicros(micros),
       null => null,

@@ -1,3 +1,5 @@
+import 'package:drift/drift.dart' show Variable;
+
 import '../../../core/errors.dart';
 import '../../../core/ids.dart';
 import '../../../core/quantity.dart';
@@ -44,6 +46,33 @@ final class CloseoutPrefillLine {
   final int? plannedLoadMicros;
 }
 
+/// One latest-revision closeout line with everything "what did this event
+/// cost" needs (v7): the confirmed depletion, the price snapshot taken when
+/// that revision was confirmed, and the item's display name.
+final class CloseoutCostLine {
+  const CloseoutCostLine({
+    required this.itemId,
+    required this.itemName,
+    required this.depletionMicros,
+    this.unitPriceCents,
+  });
+
+  final String itemId;
+
+  /// The item's current name (a rename shows through; the MONEY never
+  /// moves — it is the snapshot below).
+  final String itemName;
+
+  /// Confirmed depletion in micros of units (1 unit = 1e6 micros).
+  final int depletionMicros;
+
+  /// The item's price in integer cents as it was at confirm time; null =
+  /// price unknown then (the item was unpriced, or the row predates v7). A
+  /// null line contributes nothing to a total and should say so on screen
+  /// rather than pretend the event was cheaper.
+  final int? unitPriceCents;
+}
+
 /// The label factory's screen surface (design §6.5). Draft autosave is an
 /// explicit exception to the command path; confirm/revise go through it.
 abstract interface class CloseoutService {
@@ -55,6 +84,11 @@ abstract interface class CloseoutService {
   Future<Result<CommandReceipt>> confirm(CloseoutFormDraft draft);
   Future<Result<CommandReceipt>> revise(CloseoutFormDraft draft);
   Stream<List<EventCloseout>> watchRevisions(String eventId);
+
+  /// v7: the LATEST-revision closeout lines for [eventId] with their price
+  /// snapshots and item names, ordered by item name (id tiebreak) — the one
+  /// query an event-total needs. Empty when the event was never closed out.
+  Future<List<CloseoutCostLine>> latestCloseoutCostLines(String eventId);
 }
 
 final class DriftCloseoutService implements CloseoutService {
@@ -189,11 +223,41 @@ final class DriftCloseoutService implements CloseoutService {
                     wasteMovementId: line.wasteMovementId == null
                         ? null
                         : MovementId(line.wasteMovementId!),
+                    unitPriceCents: line.unitPriceCents,
                   ),
               ],
             ),
         ],
       );
+
+  @override
+  Future<List<CloseoutCostLine>> latestCloseoutCostLines(String eventId) async {
+    final header = await _db.closeoutDao.latestHeaderForEvent(eventId);
+    if (header == null) return const [];
+    // The join reaches items only for the NAME; the money is the line's own
+    // frozen snapshot, never the item's current price.
+    final rows = await _db
+        .customSelect(
+          'SELECT l.item_id AS item_id, i.name AS name, '
+          'l.depletion_micros AS depletion_micros, '
+          'l.unit_price_cents AS unit_price_cents '
+          'FROM closeout_lines l JOIN items i ON i.id = l.item_id '
+          'WHERE l.closeout_id = ?1 '
+          'ORDER BY lower(i.name), l.item_id',
+          variables: [Variable<String>(header.id)],
+          readsFrom: {_db.closeoutLines, _db.items},
+        )
+        .get();
+    return [
+      for (final row in rows)
+        CloseoutCostLine(
+          itemId: row.read<String>('item_id'),
+          itemName: row.read<String>('name'),
+          depletionMicros: row.read<int>('depletion_micros'),
+          unitPriceCents: row.read<int?>('unit_price_cents'),
+        ),
+    ];
+  }
 
   /// Form → command lines. The command path re-validates everything; this
   /// only rejects forms that are structurally incomplete.

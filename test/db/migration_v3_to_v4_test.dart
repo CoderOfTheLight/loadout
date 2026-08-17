@@ -110,7 +110,7 @@ void main() {
     expect(line.expectedUseMicros, 2000000);
     expect(line.loadMicros, 3000000);
     expect(line.demandBasis, 'per_event');
-    expect(db.schemaVersion, 6);
+    expect(db.schemaVersion, 7);
   });
 
   test('a fresh database seeds the reconciliation identities: every hue '

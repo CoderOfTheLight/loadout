@@ -43,7 +43,7 @@ void main() {
     expect(draft, isNull);
 
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Depletion'),
+      find.widgetWithText(TextFormField, 'How many are left?'),
       '5',
     );
     // 200 ms in: still inside the debounce window — nothing saved yet.
@@ -53,14 +53,17 @@ void main() {
     );
     expect(draft, isNull);
 
-    // 600 ms in: the debounced save has fired.
+    // 600 ms in: the debounced save has fired. A leftover count alone (no
+    // loaded value, no planned load) stays exactly that — no depletion is
+    // invented.
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump();
     draft = await tester.runAsync<CloseoutFormDraft?>(
       () => h.read(closeoutServiceProvider).loadDraft(eventId),
     );
     expect(draft, isNotNull);
-    expect(draft!.lines.single.depletion!.micros, 5000000);
+    expect(draft!.lines.single.returned!.micros, 5000000);
+    expect(draft.lines.single.depletion, isNull);
     expect(draft.confirmedExposure, 150);
 
     // More edits: flags and exposure ride the same debounced save.

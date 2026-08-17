@@ -64,7 +64,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(NativeDatabase super.executor);
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -281,6 +281,32 @@ class AppDatabase extends _$AppDatabase {
       }
       for (final sql in schemaV6Indices) {
         await customStatement(sql);
+      }
+    }
+    if (from < 7 && to >= 7) {
+      // v7: prices on everything — integer CENTS, never doubles. Two plain
+      // nullable ADD COLUMNs; every v6 row rides byte for byte and nothing
+      // costs anything until the owner types a price.
+      //
+      // items.unit_price_cents is the CURRENT price (mutable master data,
+      // NULL = no price). closeout_lines.unit_price_cents is the snapshot
+      // the applier takes at confirm time, so "what this event cost"
+      // survives later price edits — and it is legal on the append-only
+      // table because its forbid-triggers are blanket UPDATE/DELETE aborts
+      // that enumerate no columns: an additive column changes neither them
+      // nor a single existing row (old rows stay NULL = price unknown
+      // then).
+      //
+      // RE-ENTRANT like the v5/v6 blocks: both adds are guarded, so a file
+      // stranded mid-v7 (one column present, user_version still 6)
+      // completes the remainder instead of dying on "duplicate column
+      // name" — the defect class that white-screened the owner's phone at
+      // v5 (see test/db/migration_real_open_path_test.dart).
+      if (!await _columnExists('items', 'unit_price_cents')) {
+        await m.addColumn(items, items.unitPriceCents);
+      }
+      if (!await _columnExists('closeout_lines', 'unit_price_cents')) {
+        await m.addColumn(closeoutLines, closeoutLines.unitPriceCents);
       }
     }
   }

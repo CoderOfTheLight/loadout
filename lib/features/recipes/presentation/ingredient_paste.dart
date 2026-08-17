@@ -159,10 +159,50 @@ final RegExp _multiplier = RegExp(
 final RegExp _measurement = RegExp(
   '^($_amount)'
   r'\s*'
-  r'(kg|g|mg|ml|cl|dl|l|oz|lbs?|cups?|tbsp|tsp|litres?|liters?|grams?|kilos?)'
+  r'(kg|g|mg|ml|cl|dl|l|fl\.?\s*oz|oz|lbs?|cups?|tbsp|tbs|tsp|litres?'
+  r'|liters?|grams?|kilos?|qts?|quarts?|pts?|pints?|gal(?:lons?)?|sticks?)'
   r'\b\.?\s*(?:of\s+)?(.*)$',
   caseSensitive: false,
 );
+
+/// "1 c flour", "1 t salt", "1 T butter": single-letter kitchen
+/// abbreviations. Kept out of [_measurement] because they need stricter
+/// delimiting — the letter must be a standalone token (whitespace before,
+/// a dot or whitespace after, then a name), so "2 carrots", "1 To taste"
+/// and "2 T-bone steaks" stay plain counts — and because t/T is a
+/// case-SENSITIVE kitchen convention: lowercase t is a teaspoon, capital
+/// T a tablespoon.
+final RegExp _singleLetterMeasure = RegExp(
+  '^($_amount)'
+  r'\s+([cCtT])(?:\.\s*|\s+)(?:of\s+)?(\p{L}.*)$',
+  unicode: true,
+);
+
+/// Display labels for [_singleLetterMeasure]: cryptic letters expand to
+/// readable words, and the exact letter decides the case-sensitive pair.
+const Map<String, String> _singleLetterLabels = {
+  'c': 'cup',
+  'C': 'cup',
+  't': 'tsp',
+  'T': 'tbsp',
+};
+
+/// The few multi-letter [_measurement] forms that read better expanded,
+/// keyed on the token lowercased with dots and spaces stripped so "tbs",
+/// "Tbs", "fl oz", "fl. oz." and "floz" all canonicalise. Every token not
+/// in this map — including every previously supported measure ("g",
+/// "cups", "tbsp") and the readable new ones ("qt", "pts", "gal",
+/// "sticks") — keeps the typed word verbatim, exactly as before.
+const Map<String, String> _canonicalMeasureLabels = {
+  'tbs': 'tbsp',
+  'floz': 'fl oz',
+};
+
+final RegExp _labelNoise = RegExp(r'[.\s]+');
+
+String _measureLabel(String token) =>
+    _canonicalMeasureLabels[token.toLowerCase().replaceAll(_labelNoise, '')] ??
+    token;
 
 /// "2 dozen eggs": amount 2 with the label "dozen" — displayed exactly as
 /// written, never expanded to 24 (labels are text, not arithmetic).
@@ -215,10 +255,18 @@ ParsedPasteLine? parsePasteLine(String raw) {
         rawText: rawText,
         name: rest,
         quantityPerBatch: _parseCount(m.group(1)!),
-        unitLabel: m.group(2),
+        unitLabel: _measureLabel(m.group(2)!),
       );
     }
     return ParsedPasteLine(rawText: rawText, name: line);
+  }
+  if (_singleLetterMeasure.firstMatch(line) case final m?) {
+    return ParsedPasteLine(
+      rawText: rawText,
+      name: m.group(3)!.trim(),
+      quantityPerBatch: _parseCount(m.group(1)!),
+      unitLabel: _singleLetterLabels[m.group(2)!],
+    );
   }
   if (_dozen.firstMatch(line) case final m?) {
     final rest = m.group(3)!.trim();

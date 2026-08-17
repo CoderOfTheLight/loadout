@@ -10,9 +10,10 @@
 ///    the item's name, its folder, its current on-hand, and "How many
 ///    arrived?" — submitting records a RECEIVE movement (note 'Scanned in')
 ///    through the one inventory write path.
-///  * UNKNOWN: a "New item" sheet — name, "How many do you have?", folder —
-///    creating the item WITH the barcode linked and the count as its
-///    opening count in ONE command (`CatalogService.createItem(barcode:)`).
+///  * UNKNOWN: a "New item" sheet — name, "How many do you have?", an
+///    optional "Price each" (v7, exact cents), folder — creating the item
+///    WITH the barcode linked, the count as its opening count, and the
+///    price in ONE command (`CatalogService.createItem(barcode:)`).
 ///
 /// Cancelling the scanner lands on the hub, silently. A 'camera_denied'
 /// failure shows an inline settings pointer on the hub; other failures a
@@ -30,6 +31,7 @@ import '../../../app/providers.dart';
 import '../../../app/theme.dart';
 import '../../../app/widgets/empty_state.dart';
 import '../../../app/widgets/folder_chip.dart';
+import '../../../app/widgets/money_form_field.dart';
 import '../../../app/widgets/quantity_form_field.dart';
 import '../../../app/widgets/section_header.dart';
 import '../../../core/quantity.dart';
@@ -544,6 +546,7 @@ class _NewItemSheetState extends ConsumerState<_NewItemSheet> {
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
   final _count = TextEditingController();
+  final _price = TextEditingController();
 
   /// Null = Unfiled, exactly as the item form starts.
   String? _folderId;
@@ -558,6 +561,7 @@ class _NewItemSheetState extends ConsumerState<_NewItemSheet> {
   void dispose() {
     _name.dispose();
     _count.dispose();
+    _price.dispose();
     super.dispose();
   }
 
@@ -585,7 +589,12 @@ class _NewItemSheetState extends ConsumerState<_NewItemSheet> {
     final result = await ref
         .read(catalogServiceProvider)
         .createItem(
-          ItemDraft(name: name, folderId: _folderId),
+          ItemDraft(
+            name: name,
+            folderId: _folderId,
+            // Optional (v7): empty = no price; the field validated already.
+            unitPrice: MoneyFormField.tryParse(_price.text),
+          ),
           openingCount: count,
           barcode: widget.payload,
         );
@@ -690,6 +699,14 @@ class _NewItemSheetState extends ConsumerState<_NewItemSheet> {
                 isRequired: false,
                 labelText: 'How many do you have?',
                 helperText: 'Leave blank if you have none yet.',
+              ),
+              const SizedBox(height: Space.l),
+              MoneyFormField(
+                key: const Key('scan-new-price'),
+                controller: _price,
+                labelText: 'Price each (optional)',
+                hintText: '12.50',
+                textInputAction: TextInputAction.next,
               ),
               const SizedBox(height: Space.l),
               InkWell(

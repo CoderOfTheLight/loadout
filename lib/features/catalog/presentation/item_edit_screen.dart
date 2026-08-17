@@ -8,6 +8,11 @@
 ///     fractions ("1.5", "1/2", "1 1/2") exactly like every other amount
 ///     field. Edit mode shows the ledger-derived count read-only with a
 ///     button to record a movement.
+///   * **Price each** — optional money entry ([MoneyFormField], exact
+///     integer cents, v7). Prefilled on edit and resubmitted with the whole
+///     draft: an empty field clears a stored price, and the prefill is what
+///     keeps an unrelated rename from silently wiping one (updateItem is
+///     whole-state).
 ///   * **Unit** — an optional DISPLAY label for the amount ("tsp", "cup",
 ///     "lbs"; 1–24 chars), free text with suggestion chips. Shown after
 ///     the amount everywhere; the app never converts between labels and
@@ -54,6 +59,7 @@ import '../../../app/widgets/content_column.dart';
 import '../../../app/widgets/count_form_field.dart';
 import '../../../app/widgets/empty_state.dart';
 import '../../../app/widgets/form_action_bar.dart';
+import '../../../app/widgets/money_form_field.dart';
 import '../../../app/widgets/quantity_form_field.dart';
 import '../../../core/errors.dart';
 import '../../../core/quantity.dart';
@@ -92,6 +98,7 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
   final _count = TextEditingController();
+  final _price = TextEditingController();
   final _unitLabel = TextEditingController();
   final _serves = TextEditingController();
   final _perPerson = TextEditingController();
@@ -160,6 +167,7 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
   void dispose() {
     _name.dispose();
     _count.dispose();
+    _price.dispose();
     _unitLabel.dispose();
     _serves.dispose();
     _perPerson.dispose();
@@ -304,6 +312,10 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
     final draft = ItemDraft(
       name: _name.text.trim(),
       unitLabel: label.isEmpty ? null : label,
+      // Whole-state grammar: the field is prefilled from the item, so an
+      // empty field is the owner's answer — no price (clears a stored one
+      // on update). The validator already vouched for non-empty text.
+      unitPrice: MoneyFormField.tryParse(_price.text),
       servesPerUnit: serves,
       perPersonRatio: ratio,
       folderId: _folderId,
@@ -457,6 +469,12 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
         null => '',
       };
       _notes.text = item.notes;
+      // CRITICAL: updateItem is whole-state — without this prefill, saving
+      // any edit would silently wipe a stored price.
+      _price.text = switch (item.unitPrice) {
+        final price? => MoneyFormField.formatFieldText(price),
+        null => '',
+      };
       _unitLabel.text = item.unitLabel ?? '';
       _barcode = item.barcode;
       _folderId = item.folderId?.value;
@@ -540,6 +558,17 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
                             : null,
                         onChanged: (_) => _markDirty(),
                       ),
+                    const SizedBox(height: 24),
+                    MoneyFormField(
+                      controller: _price,
+                      labelText: 'Price each (optional)',
+                      hintText: '12.50',
+                      helperText:
+                          'What one costs you. Loadout uses it to estimate '
+                          'event costs. Leave blank for no price.',
+                      textInputAction: TextInputAction.next,
+                      onChanged: (_) => _markDirty(),
+                    ),
                     const SizedBox(height: 24),
                     TextFormField(
                       controller: _unitLabel,

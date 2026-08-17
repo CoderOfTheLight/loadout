@@ -25,6 +25,7 @@ import '../../../app/widgets/content_column.dart';
 import '../../../app/widgets/empty_state.dart';
 import '../../../app/widgets/folder_chip.dart';
 import '../../../app/widgets/warning_banner.dart';
+import '../../../core/money_codec.dart';
 import '../../../core/result.dart';
 import '../../inventory/application/inventory_service.dart';
 import '../domain/folder.dart';
@@ -161,6 +162,10 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
       if (item.category != null) item.category!,
       if (item.servesPerUnit != null)
         'One serves ${formatMicros(item.servesPerUnit!.micros)} people',
+      // v7: the owner's CURRENT price, only when one is set — a closed
+      // event's cost reads its closeout snapshot, never this.
+      if (item.unitPrice case final price?)
+        'Price each · ${MoneyCodec.format(price)}',
     ].join(' · ');
 
     return Scaffold(

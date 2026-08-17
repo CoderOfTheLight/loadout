@@ -83,15 +83,19 @@ void main() {
     // Skips never count as confirmed.
     expect(find.text('0 of 2 confirmed'), findsOneWidget);
     // The per-person line keeps today's behaviour: a Skip item button and
-    // the depletion field (the skipped soap card shows no field).
+    // the leftover lead field (the skipped soap card shows no field).
     expect(find.text('Skip item'), findsOneWidget);
-    expect(find.widgetWithText(TextFormField, 'Depletion'), findsOneWidget);
-
-    // Count the tortillas; the soap stays uncounted.
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'Depletion'),
-      '3',
+    expect(
+      find.widgetWithText(TextFormField, 'How many are left?'),
+      findsOneWidget,
     );
+
+    // Count the tortillas through the direct alternative in the
+    // worksheet; the soap stays uncounted.
+    await tester.ensureVisible(find.textContaining('Worksheet'));
+    await tester.tap(find.textContaining('Worksheet'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextFormField, 'Used'), '3');
     await tester.pumpAndSettle();
     expect(find.text('1 of 2 confirmed'), findsOneWidget);
 
@@ -225,21 +229,29 @@ void main() {
     await h.go(tester, '/events/$eventId/closeout');
 
     // Starts skipped: no field, no way to confuse it with per-person skip.
-    expect(find.widgetWithText(TextFormField, 'Depletion'), findsNothing);
+    expect(
+      find.widgetWithText(TextFormField, 'How many are left?'),
+      findsNothing,
+    );
     expect(find.text('Skip item'), findsNothing);
     expect(find.text('0 of 1 confirmed'), findsOneWidget);
 
-    // This time somebody counted.
+    // This time somebody counted: the leftover lead field appears, and the
+    // worksheet holds the direct used alternative with the per-event copy.
     await tester.tap(find.widgetWithText(FilterChip, "Didn't count it"));
     await tester.pumpAndSettle();
     expect(
-      find.textContaining('What was used or sold — excludes waste.'),
+      find.widgetWithText(TextFormField, 'How many are left?'),
       findsOneWidget,
     );
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'Depletion'),
-      '1',
+    await tester.ensureVisible(find.textContaining('Worksheet'));
+    await tester.tap(find.textContaining('Worksheet'));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('Or enter used directly — what was used or sold.'),
+      findsOneWidget,
     );
+    await tester.enterText(find.widgetWithText(TextFormField, 'Used'), '1');
     await tester.pumpAndSettle();
     expect(find.text('1 of 1 confirmed'), findsOneWidget);
 

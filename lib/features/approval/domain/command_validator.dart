@@ -1,5 +1,6 @@
 import '../../../core/errors.dart';
 import '../../../core/folder_appearance.dart';
+import '../../../core/money.dart';
 import '../../../core/quantity.dart';
 import '../../../core/result.dart';
 import '../../../core/unit_ratio.dart';
@@ -35,6 +36,11 @@ const int maxPerEventBaselineMicros = 1000000000000;
 /// Cap for each part of the flipped "N per person" ratio (v3). Mirrors
 /// `perPersonRatioPartCap` in the schema.
 const int maxPerPersonRatioPart = 10000;
+
+/// Cap for `items.unit_price_cents` and `closeout_lines.unit_price_cents`
+/// (v7): 100 000 000 cents — $1,000,000 for one unit, floor 1 cent. Mirrors
+/// `unitPriceCapCents` in the schema.
+const int maxUnitPriceCents = 100000000;
 
 /// Proof token: only [CommandValidator] can construct one, so a
 /// CommandApplier can require validated input by type.
@@ -100,6 +106,7 @@ final class CommandValidator {
       packSize: c.packSize,
       unitLabel: c.unitLabel,
       barcode: c.barcode,
+      unitPrice: c.unitPrice,
       servesPerUnit: c.servesPerUnit,
       perPersonRatio: c.perPersonRatio,
       perEventBaseline: c.perEventBaseline,
@@ -139,6 +146,7 @@ final class CommandValidator {
       packSize: c.packSize,
       unitLabel: c.unitLabel,
       barcode: c.barcode,
+      unitPrice: c.unitPrice,
       servesPerUnit: c.servesPerUnit,
       perPersonRatio: c.perPersonRatio,
       perEventBaseline: c.perEventBaseline,
@@ -150,6 +158,11 @@ final class CommandValidator {
     // (unlike the leave-alone clear_* pairs, where the set value wins).
     if (c.barcode != null && c.clearBarcode) {
       return const ValidationError('set a barcode or clear it, not both');
+    }
+    // v7: same grammar for money — both together have no coherent post
+    // state.
+    if (c.unitPrice != null && c.clearUnitPrice) {
+      return const ValidationError('set a price or clear it, not both');
     }
     // The POST state may never carry both cold-start phrasings at once —
     // checked against the stored values, not just this command's fields.
@@ -220,6 +233,7 @@ final class CommandValidator {
     Quantity? packSize,
     String? unitLabel,
     String? barcode,
+    Money? unitPrice,
     Quantity? servesPerUnit,
     UnitRatio? perPersonRatio,
     Quantity? perEventBaseline,
@@ -240,6 +254,15 @@ final class CommandValidator {
     // a 64+whitespace payload through to a SqliteException rollback.
     if (barcode != null && (barcode.trim().isEmpty || barcode.length > 64)) {
       return const ValidationError('barcode must be 1-64 characters');
+    }
+    // v7: integer cents against the shared cap (mirrors the SQL CHECK on
+    // both unit_price_cents columns). Money construction already refuses
+    // negatives; zero means "clear the price", never "price of zero".
+    if (unitPrice != null &&
+        (unitPrice.cents < 1 || unitPrice.cents > maxUnitPriceCents)) {
+      return const ValidationError(
+        'price must be between 1 cent and \$1,000,000',
+      );
     }
     if (servesPerUnit != null) {
       if (servesPerUnit.micros <= 0) {

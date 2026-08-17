@@ -14,6 +14,15 @@
 /// with the semantic [StatusColors] amber (spec §5) so every warning —
 /// including the per-event supplies-jump note — carries the same visual
 /// weight.
+///
+/// v7 cost estimate: lines whose item carries a price get a cost caption
+/// (effective load × unit price, exact cents via `timesQuantityMicros`),
+/// and the list closes with an "Estimated cost" summary card. Prices are
+/// the items' CURRENT ones on purpose — this is a live estimate of an
+/// upcoming event, not a record; the after-the-fact number on a closed
+/// event reads the closeout's price snapshots instead. Honesty: unpriced
+/// items are counted out loud, never treated as free, and with no priced
+/// item at all no cost UI renders.
 library;
 
 import 'package:flutter/material.dart';
@@ -26,6 +35,8 @@ import '../../../app/widgets/content_column.dart';
 import '../../../app/widgets/empty_state.dart';
 import '../../../app/widgets/folder_chip.dart';
 import '../../../app/widgets/warning_banner.dart';
+import '../../../core/money.dart';
+import '../../../core/money_codec.dart';
 import '../../catalog/domain/folder.dart';
 import '../../catalog/domain/item.dart';
 import '../../events/application/event_service.dart';
@@ -262,6 +273,23 @@ class _SnapshotBodyState extends ConsumerState<_SnapshotBody> {
     // workspace with no folders at all renders flat, as it always did.
     final folders =
         ref.watch(eventFoldersProvider).valueOrNull ?? const <Folder>[];
+    // v7: Σ (effective load × CURRENT unit price) over the lines that have
+    // both. Exact cents; a priced line with no load number contributes
+    // nothing (its card already shows the missing figure as an em-dash).
+    var estimatedTotal = Money.zero;
+    var costedLines = 0;
+    var unpricedCount = 0;
+    for (final line in snapshot.lines) {
+      final price = items[line.itemId as String]?.unitPrice;
+      if (price == null) {
+        unpricedCount++;
+        continue;
+      }
+      if (line.effectiveLoadMicros case final load?) {
+        estimatedTotal = estimatedTotal.plus(price.timesQuantityMicros(load));
+        costedLines++;
+      }
+    }
     return ContentColumn(
       child: ListView(
         children: [
@@ -309,8 +337,69 @@ class _SnapshotBodyState extends ConsumerState<_SnapshotBody> {
                 ),
               ),
           ],
+          // No priced line → no cost UI at all: an "Estimated cost: $0"
+          // over unpriced items would be an invented number.
+          if (costedLines > 0)
+            _EstimatedCostCard(
+              total: estimatedTotal,
+              unpricedCount: unpricedCount,
+            ),
           const SizedBox(height: 24),
         ],
+      ),
+    );
+  }
+}
+
+/// The closing cost summary (v7): the total the priced lines' loads come
+/// to at the items' CURRENT prices — a LIVE estimate that follows a
+/// catalog price edit, unlike the closed-event "Spent" figure, which reads
+/// the closeout's snapshots. Unpriced items are said out loud, never
+/// silently counted as free.
+class _EstimatedCostCard extends StatelessWidget {
+  const _EstimatedCostCard({required this.total, required this.unpricedCount});
+
+  final Money total;
+
+  /// Shown lines whose item has no price — the honesty caption's count.
+  final int unpricedCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Estimated cost: ${MoneyCodec.format(total)}',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontFeatures: Numerals.tabular,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'At your current item prices.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            if (unpricedCount > 0) ...[
+              const SizedBox(height: 4),
+              Text(
+                unpricedCount == 1
+                    ? '1 item has no price yet — not counted.'
+                    : '$unpricedCount items have no price yet — not counted.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -477,6 +566,23 @@ class _ForecastLineCard extends StatelessWidget {
                   ),
                 ],
               ),
+              // v7: what this load would cost at the item's CURRENT price
+              // (a live estimate — see the library doc). Only when both a
+              // price and a load exist; nothing is ever invented.
+              if ((item?.unitPrice, line.effectiveLoadMicros) case (
+                final price?,
+                final load?,
+              )) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Cost: ${MoneyCodec.format(price.timesQuantityMicros(load))}'
+                  ' · ${MoneyCodec.format(price)} each',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontFeatures: Numerals.tabular,
+                  ),
+                ),
+              ],
               if (overridden) ...[
                 const SizedBox(height: 8),
                 _IndicatorChip(

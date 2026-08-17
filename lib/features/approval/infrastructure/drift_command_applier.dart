@@ -362,6 +362,7 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
             // Verbatim on purpose: the payload is stored exactly as the
             // detector delivered it, never trimmed or normalized.
             barcode: Value(c.barcode),
+            unitPriceCents: Value(c.unitPrice?.cents),
             servesPerUnitMicros: Value(c.servesPerUnit?.micros),
             perPersonNumerator: Value(c.perPersonRatio?.numerator),
             perPersonDenominator: Value(c.perPersonRatio?.denominator),
@@ -405,6 +406,11 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
         barcode: switch (c) {
           UpdateItem(barcode: final barcode?) => Value(barcode),
           UpdateItem(clearBarcode: true) => const Value(null),
+          _ => const Value.absent(),
+        },
+        unitPriceCents: switch (c) {
+          UpdateItem(unitPrice: final price?) => Value(price.cents),
+          UpdateItem(clearUnitPrice: true) => const Value(null),
           _ => const Value.absent(),
         },
         servesPerUnitMicros: switch (c) {
@@ -941,6 +947,21 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
   }) async {
     final createdIds = <String>[closeoutId];
     final touched = <String>{};
+    // v7: each line snapshots the item's CURRENT unit_price_cents at this
+    // moment — confirm and revision alike (a revision re-snapshots at
+    // revision time: a correction is made at today's knowledge; the
+    // superseded revision's rows keep the price of THEIR moment untouched).
+    // Read here, inside the same transaction as the lines it stamps, so a
+    // concurrent price edit can never split a closeout across two prices.
+    final priceRows = lines.isEmpty
+        ? const <Item>[]
+        : await (_db.select(_db.items)..where(
+                (i) => i.id.isIn([for (final l in lines) l.itemId as String]),
+              ))
+              .get();
+    final priceCentsByItem = {
+      for (final row in priceRows) row.id: row.unitPriceCents,
+    };
     final lineCompanions = <CloseoutLinesCompanion>[];
     for (final line in lines) {
       final itemId = line.itemId as String;
@@ -983,6 +1004,7 @@ final class DriftCommandApplier implements CommandApplier, ApprovalService {
           approximate: Value(line.approximate),
           consumptionMovementId: Value(consumeId),
           wasteMovementId: Value(wasteId),
+          unitPriceCents: Value(priceCentsByItem[itemId]),
         ),
       );
     }

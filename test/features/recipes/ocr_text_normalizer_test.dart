@@ -6,6 +6,7 @@
 library;
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:loadout/features/recipes/presentation/ingredient_paste.dart';
 import 'package:loadout/features/recipes/presentation/ocr_text_normalizer.dart';
 
 void main() {
@@ -67,6 +68,31 @@ void main() {
       expect(normalizeOcrLine('2 × rolls'), '2 × rolls');
       expect(normalizeOcrLine('Fresh basil, torn'), 'Fresh basil, torn');
       expect(normalizeOcrLine('2-3 onions'), '2-3 onions');
+    });
+  });
+
+  group('normalize + parse end to end (single-letter cup)', () {
+    test('"½ c sugar" normalizes then parses as half a cup of sugar', () {
+      final line = parsePasteLine(normalizeOcrLine('½ c sugar'))!;
+      expect(line.quantityPerBatch!.micros, 500000);
+      expect(line.unitLabel, 'cup');
+      expect(line.name, 'sugar');
+    });
+
+    test('"1½ c sugar" becomes a mixed number with the cup label', () {
+      final line = parsePasteLine(normalizeOcrLine('1½ c sugar'))!;
+      expect(line.quantityPerBatch!.micros, 1500000);
+      expect(line.unitLabel, 'cup');
+      expect(line.name, 'sugar');
+    });
+
+    test('"1 c flour" passes through untouched and parses as 1 cup', () {
+      const raw = '1 c flour';
+      expect(normalizeOcrLine(raw), raw);
+      final line = parsePasteLine(raw)!;
+      expect(line.quantityPerBatch!.micros, 1000000);
+      expect(line.unitLabel, 'cup');
+      expect(line.name, 'flour');
     });
   });
 

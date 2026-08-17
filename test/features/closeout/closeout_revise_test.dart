@@ -58,12 +58,15 @@ void main() {
     expect(find.text('Revise closeout'), findsOneWidget);
     expect(find.text('Confirming appends revision 2.'), findsOneWidget);
     expect(find.text('120'), findsOneWidget); // confirmed exposure
-    expect(find.text('Depletion: 7'), findsOneWidget); // worksheet derived
+    expect(find.text('Used: 7'), findsOneWidget); // worksheet derived
 
-    // Correct the worksheet: returned 2 → 3, depletion re-derives live.
-    await tester.enterText(find.widgetWithText(TextFormField, 'Returned'), '3');
+    // Correct the leftover count: 2 → 3, used re-derives live.
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'How many are left?'),
+      '3',
+    );
     await tester.pumpAndSettle();
-    expect(find.text('Depletion: 6'), findsOneWidget);
+    expect(find.text('Used: 6'), findsOneWidget);
 
     await tester.tap(find.text('Confirm revision'));
     await tester.pumpAndSettle();
@@ -148,9 +151,11 @@ void main() {
     await h.go(tester, '/events/$eventId/closeout');
 
     // The item without a revision-1 line reopens as skipped; the confirmed
-    // one carries its depletion.
+    // one carries its depletion — a direct entry, so the worksheet reopens
+    // with the "Used" field showing it rather than hiding the number.
     expect(find.text('55'), findsOneWidget);
     expect(find.text('4'), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, 'Used'), findsOneWidget);
     expect(
       find.textContaining('nothing will be recorded for this item'),
       findsOneWidget,

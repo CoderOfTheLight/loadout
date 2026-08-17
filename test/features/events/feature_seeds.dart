@@ -5,6 +5,7 @@ library;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:loadout/app/providers.dart';
+import 'package:loadout/core/money.dart';
 import 'package:loadout/core/quantity.dart';
 import 'package:loadout/core/result.dart';
 import 'package:loadout/core/units.dart';
@@ -36,6 +37,7 @@ Future<String> seedItem(
   ItemUnit unit = ItemUnit.each,
   Quantity? packSize,
   String? folderId,
+  Money? unitPrice,
 }) => unwrap(
   h
       .read(catalogServiceProvider)
@@ -46,6 +48,7 @@ Future<String> seedItem(
           unit: unit,
           packSize: packSize ?? Quantity.one,
           folderId: folderId,
+          unitPrice: unitPrice,
         ),
         openingCount: openingCount,
       ),
