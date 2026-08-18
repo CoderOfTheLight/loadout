@@ -97,9 +97,57 @@ final class QuantityCodec {
   /// Formats micros back to a minimal decimal string with `.` as separator
   /// and no trailing fraction zeros: 1_500_000 → `"1.5"`, 12_000_000 → `"12"`.
   /// Integer arithmetic only; `parse(format(q)) == q` for every quantity.
-  static String format(Quantity value) {
-    final whole = value.micros ~/ Quantity.scale;
-    final fraction = value.micros % Quantity.scale;
+  ///
+  /// This is the ROUND-TRIP form: exact to the last micro, so a form field
+  /// pre-filled with it and saved unchanged stores the same number. It is
+  /// NOT for read-only display of a COMPUTED quantity — a median times an
+  /// attendance times a reserve lands on values like 14.272728, and six
+  /// decimals of engine noise on a screen that counts trays is not a number
+  /// anyone can act on. Use [formatDisplay] there.
+  static String format(Quantity value) => _decimal(value.micros);
+
+  /// Display-only rounding (never storage): the same minimal decimal shape
+  /// as [format], but rounded half-up to at most [maxFractionDigits] and
+  /// with trailing fraction zeros dropped — `14.272728` → `"14.3"`,
+  /// `16` → `"16"`, `0.5` → `"0.5"`, `41.8` → `"41.8"`.
+  ///
+  /// One decimal is the default because Loadout's quantities are COUNTED
+  /// goods (trays, bags, platters): the tenth is the last digit that still
+  /// means something at a serving table, and everything after it is an
+  /// artifact of how the number was derived. Integer arithmetic only —
+  /// `double` never appears, so this is exact rounding, not float rounding.
+  ///
+  /// Callers that show a RATE rather than a count (a per-person figure like
+  /// `0.01 per person`, which a tenth would flatten to zero) pass a larger
+  /// [maxFractionDigits]; nothing else should.
+  static String formatDisplay(Quantity value, {int maxFractionDigits = 1}) =>
+      formatDisplayMicros(value.micros, maxFractionDigits: maxFractionDigits);
+
+  /// [formatDisplay] over raw nonnegative micros, for the display helpers
+  /// that carry the sign themselves.
+  static String formatDisplayMicros(int micros, {int maxFractionDigits = 1}) {
+    const limit = QuantityCodec.maxFractionDigits;
+    if (maxFractionDigits < 0 || maxFractionDigits > limit) {
+      throw ArgumentError.value(
+        maxFractionDigits,
+        'maxFractionDigits',
+        'must be between 0 and $limit',
+      );
+    }
+    // 10^(6 - maxFractionDigits) — the micros step the value snaps to.
+    var step = 1;
+    for (var i = maxFractionDigits; i < limit; i++) {
+      step *= 10;
+    }
+    // Half-up on exact integers: no double ever enters the arithmetic.
+    return _decimal(((micros + step ~/ 2) ~/ step) * step);
+  }
+
+  /// Minimal decimal shape for exact micros: whole part, then the fraction
+  /// digits with trailing zeros trimmed, or no point at all.
+  static String _decimal(int micros) {
+    final whole = micros ~/ Quantity.scale;
+    final fraction = micros % Quantity.scale;
     if (fraction == 0) {
       return '$whole';
     }

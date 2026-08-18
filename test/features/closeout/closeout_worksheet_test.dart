@@ -131,10 +131,17 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('All squared away'), findsNothing);
 
-    // Popped back to the detail screen; the event is closed. Negative
-    // on-hand (nothing was ever received) warns without blocking (§5).
-    expect(find.textContaining('Closed on'), findsOneWidget);
+    // The worksheet is replaced by its report — the artifact the count
+    // produced. Negative on-hand (nothing was ever received) still warns in
+    // the receipt snackbar without blocking (§5).
+    expect(find.text('Closeout report'), findsOneWidget);
     expect(find.textContaining('negative on-hand'), findsOneWidget);
+
+    // Back leads to the event, not into the finished worksheet.
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Closed on'), findsOneWidget);
+    expect(find.text('Finish closeout'), findsNothing);
 
     await tester.runAsync(() async {
       final revisions = await h

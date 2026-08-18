@@ -23,6 +23,7 @@ import '../../../core/money_codec.dart';
 import '../../catalog/application/catalog_service.dart';
 import '../../catalog/domain/folder.dart';
 import '../../closeout/application/closeout_service.dart';
+import '../../closeout/presentation/closeout_report_screen.dart';
 import '../application/event_service.dart';
 import '../domain/event.dart';
 import 'event_ui.dart';
@@ -530,6 +531,15 @@ class _SpentSummary extends ConsumerWidget {
                     ),
                   ),
                 ],
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: () =>
+                        context.push(closeoutReportLocation(eventId)),
+                    child: const Text('See the full count'),
+                  ),
+                ),
               ],
             ),
           ),

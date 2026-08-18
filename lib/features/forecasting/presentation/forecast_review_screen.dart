@@ -11,9 +11,12 @@
 /// event-scoped list (proposal §3), each section led by the folder's
 /// [FolderChip] — the same chip as Items, the picker, and closeout, which
 /// is what makes the app feel organized (design-spec §3). Warnings paint
-/// with the semantic [StatusColors] amber (spec §5) so every warning —
-/// including the per-event supplies-jump note — carries the same visual
-/// weight.
+/// with the semantic [StatusColors] amber — `pending` (spec §5) — so every
+/// warning, including the per-event supplies-jump note, carries the same
+/// visual weight.
+///
+/// Each line card gives ONE answer rather than four equal figures: see
+/// [_ForecastLineCard] for the hierarchy and why.
 ///
 /// v7 cost estimate: lines whose item carries a price get a cost caption
 /// (effective load × unit price, exact cents via `timesQuantityMicros`),
@@ -356,6 +359,10 @@ class _SnapshotBodyState extends ConsumerState<_SnapshotBody> {
 /// catalog price edit, unlike the closed-event "Spent" figure, which reads
 /// the closeout's snapshots. Unpriced items are said out loud, never
 /// silently counted as free.
+///
+/// The money is the card's own hero ([Numerals.hero]): "what will this cost
+/// me?" is the screen's second real answer, and a `titleMedium` sentence
+/// buried it under every line card's figure.
 class _EstimatedCostCard extends StatelessWidget {
   const _EstimatedCostCard({required this.total, required this.unpricedCount});
 
@@ -375,10 +382,15 @@ class _EstimatedCostCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Estimated cost: ${MoneyCodec.format(total)}',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontFeatures: Numerals.tabular,
+              'ESTIMATED COST',
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
               ),
+            ),
+            const SizedBox(height: Space.xs),
+            Text(
+              MoneyCodec.format(total),
+              style: Numerals.hero(theme.textTheme),
             ),
             const SizedBox(height: 4),
             Text(
@@ -446,9 +458,15 @@ class _FolderSectionHeader extends StatelessWidget {
   }
 }
 
-/// Header (§9): `Method: direct_median v2 · computed [relative time]` +
-/// policy chip + exposure — every value from the persisted snapshot row,
-/// never hardcoded.
+/// Header (§9): the provenance line + policy chip + exposure — every value
+/// from the persisted snapshot row, never hardcoded.
+///
+/// The provenance line is [snapshotProvenanceLabel] ("From your last 2
+/// events · updated just now"), NOT the stored method identifier: the owner
+/// is a volunteer kitchen coordinator, and `direct_median v3` is an internal
+/// algorithm name. The identifier stays on the snapshot and stays visible in
+/// the per-line Assumptions detail and on the About screen, where someone
+/// asking that question is actually standing.
 class _SnapshotHeader extends StatelessWidget {
   const _SnapshotHeader({required this.snapshot});
 
@@ -465,8 +483,7 @@ class _SnapshotHeader extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Method: ${snapshot.method} v${snapshot.methodVersion} · '
-              'computed ${relativeTimeLabel(snapshot.createdAt)}',
+              snapshotProvenanceLabel(snapshot),
               style: theme.textTheme.bodyMedium,
             ),
             const SizedBox(height: 8),
@@ -493,8 +510,29 @@ class _SnapshotHeader extends StatelessWidget {
   }
 }
 
-/// One per-item row (§9 `ForecastLineCard`): evidence badge, the four
-/// figures, warning indicators, and the effective override.
+/// One per-item row (§9 `ForecastLineCard`) — ONE answer, not four numbers.
+///
+/// The card used to print Expected / Planned / Load / Acquire at identical
+/// weight: four figures and no answer, so the owner had to work out which
+/// one she was meant to act on. Square's and Tide Guide's rule applies here
+/// exactly — lead with the single actionable figure, demote the rest to
+/// captions, and let the detail live one tap deeper (the line-detail screen,
+/// which this card already opens).
+///
+/// So the hierarchy is:
+///
+///  * **Hero** — "Bring N", the EFFECTIVE load ([ForecastLineView
+///    .effectiveLoadMicros], the override-winning figure the cost caption
+///    already multiplies). That is what the owner physically does.
+///  * **Secondary emphasis** — "Buy N more", and only when an acquisition is
+///    actually needed: it is the other action, and it is silent when there
+///    is nothing to buy rather than printing a 0.
+///  * **Caption tier** — Expected / Planned, still visible, clearly
+///    subordinate, in [Numerals.caption]. The evidence badge and every
+///    warning keep the weight they had.
+///
+/// No forecast math, no stored value and no engine behaviour changes here:
+/// every figure is the same field the four-up layout read.
 class _ForecastLineCard extends StatelessWidget {
   const _ForecastLineCard({
     required this.line,
@@ -511,6 +549,11 @@ class _ForecastLineCard extends StatelessWidget {
     final theme = Theme.of(context);
     final unit = item?.unit;
     final overridden = line.isOverridden;
+    final load = line.effectiveLoadMicros;
+    // Only a real acquisition earns the second emphasis: null (nothing was
+    // computed) and 0 (you already have enough) are both "nothing to buy".
+    final acquire = line.suggestedAcquireMicros;
+    final acquiring = acquire != null && acquire > 0;
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
       clipBehavior: Clip.antiAlias,
@@ -536,51 +579,87 @@ class _ForecastLineCard extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              // Four figures; wraps 2×2 at large type (§9 a11y).
-              Wrap(
-                spacing: 24,
-                runSpacing: 12,
-                children: [
-                  // `suggested*` / `plannedExpectedUse*`, not the raw engine
-                  // fields: those are null on a "1 serves N" line and would
-                  // print four em-dashes beside a usable estimate.
-                  _Figure(
-                    label: 'Expected',
-                    value: formatQuantity(line.plannedExpectedUseMicros, unit),
+              const SizedBox(height: Space.m),
+              // THE answer. A Wrap, not a Row: at 200 % text scale the
+              // 34 pt figure moves to its own line instead of overflowing.
+              if (load != null)
+                // Merged so a screen reader says "Bring 60" in one breath
+                // rather than reading a label and a figure as two rows.
+                MergeSemantics(
+                  child: Wrap(
+                    spacing: Space.s,
+                    runSpacing: Space.xs,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Text('Bring', style: theme.textTheme.titleMedium),
+                      Text(
+                        formatQuantity(load, unit),
+                        style: Numerals.hero(theme.textTheme),
+                      ),
+                      // The engine's own number, struck, when an override
+                      // is in force (§9) — caption tier, beside the hero.
+                      // A strike-through is invisible to a screen reader,
+                      // so the word it means is spoken instead.
+                      if (overridden)
+                        Semantics(
+                          excludeSemantics: true,
+                          label:
+                              'was '
+                              '${formatQuantity(line.suggestedLoadMicros, unit)}',
+                          child: Text(
+                            formatQuantity(line.suggestedLoadMicros, unit),
+                            style: Numerals.caption(theme.textTheme)?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              decoration: TextDecoration.lineThrough,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
-                  _Figure(
-                    label: 'Planned',
-                    value: formatQuantity(line.suggestedPlannedMicros, unit),
+                )
+              else
+                // No number at all — say so in words rather than lead with
+                // an em-dash where the answer belongs. The 'Set a baseline'
+                // prompt below is the way out.
+                Text(
+                  'No number yet.',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
-                  _Figure(
-                    label: 'Load',
-                    value: formatQuantity(line.effectiveLoadMicros, unit),
-                    struckValue: overridden
-                        ? formatQuantity(line.suggestedLoadMicros, unit)
-                        : null,
-                  ),
-                  _Figure(
-                    label: 'Acquire',
-                    value: formatQuantity(line.suggestedAcquireMicros, unit),
-                  ),
-                ],
+                ),
+              if (acquiring) ...[
+                const SizedBox(height: Space.xs),
+                Text(
+                  'Buy ${formatQuantity(acquire, unit)} more',
+                  style: Numerals.glance(theme.textTheme),
+                ),
+              ],
+              const SizedBox(height: Space.s),
+              // The supporting figures: `suggested*` / `plannedExpectedUse*`,
+              // not the raw engine fields, which are null on a "1 serves N"
+              // line and would print em-dashes beside a usable estimate.
+              Text(
+                'Expected ${formatQuantity(line.plannedExpectedUseMicros, unit)}'
+                ' · Planned ${formatQuantity(line.suggestedPlannedMicros, unit)}',
+                style: Numerals.caption(
+                  theme.textTheme,
+                )?.copyWith(color: theme.colorScheme.onSurfaceVariant),
               ),
               // v7: what this load would cost at the item's CURRENT price
               // (a live estimate — see the library doc). Only when both a
               // price and a load exist; nothing is ever invented.
-              if ((item?.unitPrice, line.effectiveLoadMicros) case (
+              if ((item?.unitPrice, load) case (
                 final price?,
-                final load?,
+                final amount?,
               )) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: Space.xs),
                 Text(
-                  'Cost: ${MoneyCodec.format(price.timesQuantityMicros(load))}'
+                  'Cost: '
+                  '${MoneyCodec.format(price.timesQuantityMicros(amount))}'
                   ' · ${MoneyCodec.format(price)} each',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                    fontFeatures: Numerals.tabular,
-                  ),
+                  style: Numerals.caption(
+                    theme.textTheme,
+                  )?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                 ),
               ],
               if (overridden) ...[
@@ -600,8 +679,8 @@ class _ForecastLineCard extends StatelessWidget {
                 _IndicatorChip(
                   icon: Icons.warning_amber_outlined,
                   label: warning,
-                  background: StatusColors.of(context).warning,
-                  foreground: StatusColors.of(context).onWarning,
+                  background: StatusColors.of(context).pending.container,
+                  foreground: StatusColors.of(context).pending.foreground,
                 ),
               ],
               // Only a line with NO number at all needs this prompt; a
@@ -623,14 +702,15 @@ class _ForecastLineCard extends StatelessWidget {
   }
 }
 
+/// A labelled figure on the closed-event accuracy review, where three
+/// numbers side by side ARE the content (forecast vs load vs actual is a
+/// comparison, not an instruction). The planned/active line card leads with
+/// one hero instead — see [_ForecastLineCard].
 class _Figure extends StatelessWidget {
-  const _Figure({required this.label, required this.value, this.struckValue});
+  const _Figure({required this.label, required this.value});
 
   final String label;
   final String value;
-
-  /// The engine value shown struck-through beside an override (§9).
-  final String? struckValue;
 
   @override
   Widget build(BuildContext context) {
@@ -647,21 +727,7 @@ class _Figure extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 2),
-          Wrap(
-            spacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Text(value, style: theme.textTheme.titleMedium),
-              if (struckValue != null)
-                Text(
-                  struckValue!,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                    decoration: TextDecoration.lineThrough,
-                  ),
-                ),
-            ],
-          ),
+          Text(value, style: Numerals.rowQuantity(theme.textTheme)),
         ],
       ),
     );
@@ -755,9 +821,7 @@ class _AccuracyReviewBody extends ConsumerWidget {
                       children: [
                         if (snapshot != null)
                           Text(
-                            'Method: ${snapshot.method} '
-                            'v${snapshot.methodVersion} · computed '
-                            '${relativeTimeLabel(snapshot.createdAt)}',
+                            snapshotProvenanceLabel(snapshot),
                             style: Theme.of(context).textTheme.bodyMedium,
                           ),
                         const SizedBox(height: 8),
@@ -889,15 +953,15 @@ class _AccuracyLineCard extends StatelessWidget {
                       _IndicatorChip(
                         icon: Icons.lightbulb_outline,
                         label: 'Compared against an estimate, not history',
-                        background: StatusColors.of(context).warning,
-                        foreground: StatusColors.of(context).onWarning,
+                        background: StatusColors.of(context).pending.container,
+                        foreground: StatusColors.of(context).pending.foreground,
                       ),
                     if (line.stockout)
                       _IndicatorChip(
                         icon: Icons.warning_amber_outlined,
                         label: 'Ran out',
-                        background: StatusColors.of(context).warning,
-                        foreground: StatusColors.of(context).onWarning,
+                        background: StatusColors.of(context).pending.container,
+                        foreground: StatusColors.of(context).pending.foreground,
                       ),
                     if (line.approximate)
                       _IndicatorChip(

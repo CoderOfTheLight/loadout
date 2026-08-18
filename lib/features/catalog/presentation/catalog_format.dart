@@ -6,7 +6,6 @@ library;
 import 'package:flutter/material.dart';
 
 import '../../../app/unit_display.dart';
-import '../../../core/quantity.dart';
 import '../../../core/quantity_codec.dart';
 import '../../../core/time.dart';
 import '../../../core/unit_ratio.dart';
@@ -17,11 +16,16 @@ import '../domain/demand_basis.dart';
 /// U+2212, the minus used throughout the design copy ("−2").
 const String minusSign = '−';
 
-/// Formats signed micros exactly: `-2_000_000` → `"−2"`, `1_500_000` →
-/// `"1.5"`. Negatives are never clamped (design §9 ItemListScreen).
+/// Formats signed micros for READING: `-2_000_000` → `"−2"`, `1_500_000` →
+/// `"1.5"`, `14_272_728` → `"14.3"`. Negatives are never clamped (design §9
+/// ItemListScreen).
+///
+/// Rounded through [QuantityCodec.formatDisplay], not [QuantityCodec.format]:
+/// screens read counted goods, and micros precision on a row that says
+/// "6 trays" is engine noise. Form fields keep the exact round-trip form.
 String formatMicros(int micros) => micros < 0
-    ? '$minusSign${QuantityCodec.format(Quantity.fromMicros(-micros))}'
-    : QuantityCodec.format(Quantity.fromMicros(micros));
+    ? '$minusSign${QuantityCodec.formatDisplayMicros(-micros)}'
+    : QuantityCodec.formatDisplayMicros(micros);
 
 /// Like [formatMicros] but with an explicit `+` on positive values, for
 /// ledger rows: `5_000_000` → `"+5"`.

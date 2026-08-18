@@ -37,6 +37,12 @@
 /// enablement rule, never a gesture; and THE one per-session celebration on
 /// commit success — a check disc scaling in, one medium haptic, one line of
 /// copy. Once. Never per row.
+///
+/// After the celebration the worksheet is REPLACED by its report
+/// (`/events/:eventId/closeout/report`, [CloseoutReportScreen]): a count
+/// should end in something the owner can read and keep, not in a snackbar
+/// that fades. Nothing about the counting grammar changes — the report is a
+/// read surface built from the confirmed record.
 library;
 
 import 'dart:async';
@@ -44,6 +50,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../app/providers.dart';
 import '../../../app/theme.dart';
@@ -68,6 +75,7 @@ import '../application/closeout_service.dart';
 import '../domain/closeout.dart';
 import '../domain/closeout_form.dart';
 import 'closeout_line_card.dart';
+import 'closeout_report_screen.dart';
 import '../../../app/widgets/form_action_bar.dart';
 
 class CloseoutScreen extends ConsumerStatefulWidget {
@@ -591,11 +599,24 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
       _autosave?.cancel();
       final messenger = ScaffoldMessenger.of(context);
       final navigator = Navigator.of(context);
+      // Captured before the celebration's await, like the two above: after
+      // the route goes this element's context can no longer be looked up.
+      // Null when this screen was pumped without a router (widget tests),
+      // where the old pop-back behaviour still applies.
+      final router = GoRouter.maybeOf(context);
       // The session commit's haptic (§7: mediumImpact, commit only).
       unawaited(HapticFeedback.mediumImpact());
       await _showCelebration();
       messenger.showSnackBar(SnackBar(content: Text(_receiptMessage(receipt))));
-      if (navigator.canPop()) navigator.pop();
+      // A count ends in an ARTIFACT, not a snackbar: the worksheet is
+      // REPLACED by its report, so Back leads to the event rather than
+      // into a finished worksheet. The report is a read surface — see
+      // closeout_report_screen.dart.
+      if (router != null) {
+        router.pushReplacement(closeoutReportLocation(widget.eventId));
+      } else if (navigator.canPop()) {
+        navigator.pop();
+      }
     } else {
       setState(() => _submitting = false);
       // Content-free by design (§9.1).

@@ -104,7 +104,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Confirm'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('Closed on'), findsOneWidget);
+    // The worksheet is replaced by its report (the skipped supply line is
+    // simply not in it — a skip records nothing).
+    expect(find.text('Closeout report'), findsOneWidget);
+    expect(find.text('Dish soap'), findsNothing);
 
     // Tear the tree down before the service-level verification: a live
     // fake-zone drift stream can wedge the executor against real-zone

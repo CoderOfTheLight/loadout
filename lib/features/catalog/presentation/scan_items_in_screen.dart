@@ -31,6 +31,7 @@ import '../../../app/providers.dart';
 import '../../../app/theme.dart';
 import '../../../app/widgets/empty_state.dart';
 import '../../../app/widgets/folder_chip.dart';
+import '../../../app/widgets/form_action_bar.dart';
 import '../../../app/widgets/money_form_field.dart';
 import '../../../app/widgets/quantity_form_field.dart';
 import '../../../app/widgets/section_header.dart';
@@ -248,46 +249,27 @@ class _ScanItemsInScreenState extends ConsumerState<ScanItemsInScreen> {
           ),
         ),
       ),
-      bottomNavigationBar: Material(
-        color: theme.colorScheme.surface,
-        surfaceTintColor: theme.colorScheme.surfaceTint,
-        elevation: 3,
-        child: SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              Space.l,
-              Space.m,
-              Space.l,
-              Space.m,
+      // The shared bar, not a hand-rolled copy of it: this screen carried
+      // its own `Material(elevation: 3)`, which painted the same black band
+      // across the bottom that [FormActionBar] was fixed for.
+      bottomNavigationBar: FormActionBar(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            FilledButton(
+              key: const Key('scan-next'),
+              style: FilledButton.styleFrom(minimumSize: primaryButtonMinSize),
+              onPressed: _scanNext,
+              child: const Text('Scan next'),
             ),
-            child: Align(
-              heightFactor: 1,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: contentMaxWidth),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    FilledButton(
-                      key: const Key('scan-next'),
-                      style: FilledButton.styleFrom(
-                        minimumSize: primaryButtonMinSize,
-                      ),
-                      onPressed: _scanNext,
-                      child: const Text('Scan next'),
-                    ),
-                    const SizedBox(height: Space.s),
-                    OutlinedButton(
-                      key: const Key('scan-done'),
-                      onPressed: _close,
-                      child: const Text('Done'),
-                    ),
-                  ],
-                ),
-              ),
+            const SizedBox(height: Space.s),
+            OutlinedButton(
+              key: const Key('scan-done'),
+              onPressed: _close,
+              child: const Text('Done'),
             ),
-          ),
+          ],
         ),
       ),
     );

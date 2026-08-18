@@ -78,7 +78,14 @@ void main() {
     await tester.tap(find.text('Confirm'));
     await tester.pumpAndSettle();
 
+    // A revision ends in the same artifact a first count does, over the
+    // corrected figures (used 6, not 7).
+    expect(find.text('Closeout report'), findsOneWidget);
+    expect(find.text('6'), findsOneWidget);
+
     // Back on the detail screen: both revisions on record.
+    await tester.pageBack();
+    await tester.pumpAndSettle();
     expect(find.text('Revision 2'), findsOneWidget);
     expect(find.text('Revision 1'), findsOneWidget);
 

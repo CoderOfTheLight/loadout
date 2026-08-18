@@ -18,6 +18,7 @@
 /// to `/items/new` — a checklist with nothing on it is a dead end.
 library;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -262,25 +263,38 @@ class _PlannedItemsSheetState extends ConsumerState<PlannedItemsSheet> {
   void _removeAll(List<String> ids) => setState(() => _selected.removeAll(ids));
 }
 
-/// Pinned §4 section header inside the sheet: 24 dp chip, folder name,
-/// live "3 of 12" fraction, and the labeled bulk action with its count —
-/// "Add all (9)" states the consequence before the tap; when the folder is
-/// fully picked it flips to "Remove all" (both directions labeled, and undo
-/// is the same button while the sheet stays open).
+/// Pinned §4 section header inside the sheet.
+///
+/// The delegate holds DATA ONLY and resolves no theme, for the same reason
+/// `item_list_screen.dart`'s section header does: a `SliverPersistentHeader`
+/// caches the widget its delegate built and re-runs `build` only when
+/// `shouldRebuild` says so, and `shouldRebuild` cannot see a `ColorScheme` —
+/// so a delegate that reads `Theme.of(context)` freezes its colours in
+/// whichever brightness happened to be live when the section first mounted.
+/// Here that was masked by two accidents: `shouldRebuild` returned a blanket
+/// `true`, and the sheet's `setState` rebuilt the whole list on every tap.
+/// Flip the system theme with the sheet open and untouched and the headers
+/// stayed cream on a near-black list. Colours now live in
+/// [_PickerHeaderBar], an ordinary widget whose element depends on the theme
+/// and rebuilds with it.
+///
+/// [selectedCount] is snapshotted in the constructor on purpose: `selected`
+/// is a Set the sheet mutates IN PLACE, so a delegate that held the set
+/// itself would compare equal to its predecessor and never rebuild.
 class _PickerHeaderDelegate extends SliverPersistentHeaderDelegate {
-  const _PickerHeaderDelegate({
+  _PickerHeaderDelegate({
     required this.folder,
     required this.itemIds,
-    required this.selected,
+    required Set<String> selected,
     required this.onAddAll,
     required this.onRemoveAll,
-  });
+  }) : selectedCount = itemIds.where(selected.contains).length;
 
   static const double _extent = 52;
 
   final Folder? folder;
   final List<String> itemIds;
-  final Set<String> selected;
+  final int selectedCount;
   final ValueChanged<List<String>> onAddAll;
   final ValueChanged<List<String>> onRemoveAll;
 
@@ -295,16 +309,51 @@ class _PickerHeaderDelegate extends SliverPersistentHeaderDelegate {
     BuildContext context,
     double shrinkOffset,
     bool overlapsContent,
-  ) {
+  ) => _PickerHeaderBar(
+    folder: folder,
+    itemIds: itemIds,
+    selectedCount: selectedCount,
+    onAddAll: onAddAll,
+    onRemoveAll: onRemoveAll,
+  );
+
+  @override
+  bool shouldRebuild(_PickerHeaderDelegate oldDelegate) =>
+      oldDelegate.selectedCount != selectedCount ||
+      oldDelegate.folder != folder ||
+      !listEquals(oldDelegate.itemIds, itemIds);
+}
+
+/// The header's actual pixels: 24 dp chip, folder name, live "3 of 12"
+/// fraction, and the labeled bulk action with its count — "Add all (9)"
+/// states the consequence before the tap; when the folder is fully picked it
+/// flips to "Remove all" (both directions labeled, and undo is the same
+/// button while the sheet stays open).
+class _PickerHeaderBar extends StatelessWidget {
+  const _PickerHeaderBar({
+    required this.folder,
+    required this.itemIds,
+    required this.selectedCount,
+    required this.onAddAll,
+    required this.onRemoveAll,
+  });
+
+  final Folder? folder;
+  final List<String> itemIds;
+  final int selectedCount;
+  final ValueChanged<List<String>> onAddAll;
+  final ValueChanged<List<String>> onRemoveAll;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final selectedCount = itemIds.where(selected.contains).length;
     final allSelected = selectedCount == itemIds.length;
     final remaining = itemIds.length - selectedCount;
     return Container(
       // Fill the sliver extent exactly — a shorter child breaks the pinned
       // header's geometry.
-      height: _extent,
+      height: _PickerHeaderDelegate._extent,
       decoration: BoxDecoration(
         color: scheme.surfaceContainerLow,
         border: Border(bottom: BorderSide(color: scheme.outlineVariant)),
@@ -341,9 +390,6 @@ class _PickerHeaderDelegate extends SliverPersistentHeaderDelegate {
       ),
     );
   }
-
-  @override
-  bool shouldRebuild(_PickerHeaderDelegate oldDelegate) => true;
 }
 
 /// One 56 dp checkbox row. Selected = checkbox + folder-tint fill + name to

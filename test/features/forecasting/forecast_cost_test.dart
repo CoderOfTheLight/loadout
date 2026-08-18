@@ -1,7 +1,8 @@
 /// Forecast cost estimate (v7) over the REAL snapshot pipeline: a priced
 /// line gets a cost caption (effective load × the item's CURRENT unit
-/// price, exact cents), the list closes with 'Estimated cost: $X' over the
-/// priced lines, and unpriced items are counted out loud ('N items have no
+/// price, exact cents), the list closes with an ESTIMATED COST card whose
+/// hero figure totals the priced lines, and unpriced items are counted out
+/// loud ('N items have no
 /// price yet — not counted.', singular handled). With no priced item at
 /// all, no cost UI renders — an invented $0 would break the honesty rules.
 library;
@@ -95,13 +96,16 @@ void main() {
     );
     expect(find.text(r'Cost: $150 · $2.50 each'), findsOneWidget);
 
-    // The closing summary counts only the priced line — and says so.
+    // The closing summary counts only the priced line — and says so. The
+    // total is the card's own hero figure under an eyebrow label, not a
+    // sentence: it is the screen's second real answer.
     await tester.dragUntilVisible(
-      find.text(r'Estimated cost: $150'),
+      find.text(r'$150'),
       find.byType(ListView),
       const Offset(0, -120),
     );
-    expect(find.text(r'Estimated cost: $150'), findsOneWidget);
+    expect(find.text('ESTIMATED COST'), findsOneWidget);
+    expect(find.text(r'$150'), findsOneWidget);
     expect(find.text('At your current item prices.'), findsOneWidget);
     expect(find.text('1 item has no price yet — not counted.'), findsOneWidget);
     await h.flushTimers(tester);
@@ -130,7 +134,7 @@ void main() {
     await tester.drag(find.byType(ListView), const Offset(0, -600));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Estimated cost'), findsNothing);
+    expect(find.textContaining('ESTIMATED COST'), findsNothing);
     expect(find.textContaining(r'Cost: $'), findsNothing);
     expect(find.textContaining('no price yet'), findsNothing);
     await h.flushTimers(tester);

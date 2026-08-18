@@ -359,8 +359,9 @@ void main() {
     await h.pumpApp(tester);
 
     // Migrated signature (items, no folders) — and still no card: the flag
-    // outlives the session that set it.
-    expect(find.text("You're up to date"), findsOneWidget);
+    // outlives the session that set it. (Home leads with the item count
+    // now, so that stat standing alone is the "nothing else to do" state.)
+    expect(find.text('items on hand'), findsOneWidget);
     expect(find.text('Tidy your items into folders'), findsNothing);
   });
 }

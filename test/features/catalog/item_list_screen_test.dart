@@ -17,11 +17,16 @@
 /// (linked lines as real item rows, unlinked dimmed with "Add to items").
 library;
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:loadout/app/providers.dart';
+import 'package:loadout/app/theme.dart';
 import 'package:loadout/app/widgets/empty_state.dart';
 import 'package:loadout/app/widgets/folder_chip.dart';
+import 'package:loadout/core/folder_appearance.dart';
+import 'package:loadout/core/money.dart';
 import 'package:loadout/core/quantity.dart';
 import 'package:loadout/core/result.dart';
 import 'package:loadout/core/units.dart';
@@ -44,6 +49,7 @@ Future<String> seedItem(
   String? category,
   String? unitLabel,
   Quantity? servesPerUnit,
+  Money? unitPrice,
   // Legacy schema-v1 shape; nothing asks for these any more.
   ItemUnit unit = ItemUnit.each,
   int packWhole = 1,
@@ -55,6 +61,7 @@ Future<String> seedItem(
           name: name,
           unitLabel: unitLabel,
           servesPerUnit: servesPerUnit,
+          unitPrice: unitPrice,
           folderId: folderId,
           unit: unit,
           packSize: Quantity.whole(packWhole),
@@ -62,6 +69,20 @@ Future<String> seedItem(
         ),
       );
   return (result as Ok<String>).value;
+}
+
+/// WCAG 2.2 contrast ratio between two opaque colours — the same formula
+/// the theme builds its pairs with, measured here on what actually painted.
+double contrastRatio(Color a, Color b) {
+  final la = a.computeLuminance();
+  final lb = b.computeLuminance();
+  return (math.max(la, lb) + 0.05) / (math.min(la, lb) + 0.05);
+}
+
+/// The effective hue of the starter folder called [name].
+Future<FolderHue> folderHue(AppHarness h, String name) async {
+  final folders = await h.read(catalogServiceProvider).watchFolders().first;
+  return folders.firstWhere((folder) => folder.name == name).effectiveHue;
 }
 
 Future<void> seedMovement(
@@ -805,5 +826,308 @@ void main() {
     expect(find.byType(FolderManagementScreen), findsOneWidget);
     expect(find.text('Folders'), findsOneWidget);
     await h.flushTimers(tester);
+  });
+
+  testWidgets('pinned section headers follow the system brightness — they do '
+      'not stay cream on a dark list', (tester) async {
+    // Regression (design review): flipping the system to dark left every
+    // pinned folder header painted in the LIGHT ramp, cream strips stranded
+    // on a near-black list.
+    //
+    // Why it happened: `SliverPersistentHeader` caches the widget its
+    // delegate built and re-runs `SliverPersistentHeaderDelegate.build` only
+    // when `shouldRebuild` says so — and `shouldRebuild` compares title,
+    // count and folder, because it cannot see a `ColorScheme`. The delegate
+    // resolved `Theme.of(context)` itself, so the header froze whichever
+    // brightness was live when the section first appeared. (Worse, the
+    // header element's own theme dependency is cleared by
+    // `RenderObjectElement.update`, so nothing else rescued it.) The colours
+    // now live in an ordinary widget below the delegate, which rebuilds with
+    // the theme like everything else on the screen.
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+    await tester.runAsync(() async {
+      final folders = await folderIdsByName(h);
+      await seedItem(h, name: 'Croissants', folderId: folders['Bakery']);
+    });
+    addTearDown(tester.platformDispatcher.clearAllTestValues);
+
+    await h.pumpScreen(tester, const ItemListScreen());
+
+    // The header's own Material — the innermost one wrapping the title.
+    Material header() => tester.widget<Material>(
+      find
+          .ancestor(of: inList('Bakery'), matching: find.byType(Material))
+          .first,
+    );
+    final hue = (await tester.runAsync(() => folderHue(h, 'Bakery')))!;
+
+    // A folder section's band is the folder's own tint, per brightness —
+    // never a grey strip, and never the OTHER brightness's tint.
+    expect(
+      header().color,
+      FolderPalette.derive(Brightness.light).pair(hue).tint,
+    );
+
+    // The flip the design review captured.
+    tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+    await tester.pumpAndSettle();
+
+    final dark = header().color!;
+    expect(
+      dark,
+      FolderPalette.derive(Brightness.dark).pair(hue).tint,
+      reason: 'the header must resolve the DARK folder tint',
+    );
+    expect(
+      dark.computeLuminance(),
+      lessThan(0.1),
+      reason:
+          'a light strip on a dark list reads as a rendering bug, whatever '
+          'token it came from',
+    );
+    // And back: the staleness cut both ways.
+    tester.platformDispatcher.platformBrightnessTestValue = Brightness.light;
+    await tester.pumpAndSettle();
+    expect(
+      header().color,
+      FolderPalette.derive(Brightness.light).pair(hue).tint,
+    );
+  });
+
+  testWidgets('the Add item button is a flat pill — no elevation shadow', (
+    tester,
+  ) async {
+    // Regression (design review): the extended FAB rode Material's default
+    // 6 dp elevation over an opaque black `ThemeData.shadowColor`, which
+    // rendered as a heavy black ring around the button in both modes.
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+
+    await h.pumpScreen(tester, const ItemListScreen());
+
+    final fab = tester.widget<FloatingActionButton>(
+      find.byType(FloatingActionButton),
+    );
+    final theme = loadoutTheme(Brightness.light).floatingActionButtonTheme;
+    expect(fab.elevation ?? theme.elevation, 0);
+    expect(fab.highlightElevation ?? theme.highlightElevation, 0);
+    expect(
+      tester
+          .widget<Material>(
+            find
+                .ancestor(
+                  of: find.text('Add item'),
+                  matching: find.byType(Material),
+                )
+                .first,
+          )
+          .elevation,
+      0,
+    );
+  });
+  testWidgets('jump chips paint the folder colour that is VISIBLE on the '
+      'live brightness — the dark-mode dot regression', (tester) async {
+    // Regression (design review): the jump chip drew its mark as an 8 dp
+    // dot filled straight from `folderHueSeeds`. The seeds are DARK by
+    // construction (fern is #356859) because they are seeds for a light
+    // page — on the dark ramp's near-black surface every one of them scored
+    // under the text floor, so the mark was simply not there. Folder colour
+    // is only ever `FolderPalette.pair(hue)`, which is derived per
+    // brightness, and the chip that draws it is the one every other folder
+    // surface uses.
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+    addTearDown(tester.platformDispatcher.clearAllTestValues);
+    await tester.runAsync(() async {
+      final folders = await folderIdsByName(h);
+      await seedItem(h, name: 'Croissants', folderId: folders['Bakery']);
+    });
+    final hue = (await tester.runAsync(() => folderHue(h, 'Bakery')))!;
+
+    await h.pumpScreen(tester, const ItemListScreen());
+    tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+    await tester.pumpAndSettle();
+
+    // The chip row's own chip for Bakery (never the section header's).
+    final chips = tester.widgetList<FolderChip>(
+      find.descendant(
+        of: find.byKey(itemListJumpRowKey),
+        matching: find.byType(FolderChip),
+      ),
+    );
+    final chip = chips.firstWhere((candidate) => candidate.hue == hue);
+    expect(chip.size, FolderChipSize.small);
+    final chipFinder = find.byWidget(chip);
+    final mark = tester.widget<Icon>(
+      find.descendant(of: chipFinder, matching: find.byType(Icon)),
+    );
+    final box = tester.widget<Container>(
+      find.descendant(of: chipFinder, matching: find.byType(Container)).first,
+    );
+
+    final dark = loadoutColorScheme(Brightness.dark);
+    final pair = FolderPalette.derive(Brightness.dark).pair(hue);
+    expect(mark.color, pair.ink, reason: 'the mark is the DARK ink');
+    expect((box.decoration! as BoxDecoration).color, pair.tint);
+    // What "visible" means, measured on the colours that painted.
+    expect(
+      contrastRatio(mark.color!, pair.tint),
+      greaterThanOrEqualTo(4.5),
+      reason: 'the mark must read on its own chip',
+    );
+    expect(
+      contrastRatio(mark.color!, dark.surface),
+      greaterThanOrEqualTo(4.5),
+      reason: 'and on the near-black page the chip row sits on',
+    );
+    // And the colour the chip USED to paint would fail that on every one of
+    // the eight hues — which is what made the old dot invisible.
+    for (final seedHue in FolderHue.values) {
+      expect(
+        contrastRatio(folderHueSeeds[seedHue]!, dark.surface),
+        lessThan(4.5),
+        reason: '$seedHue: a raw seed is not a dark-mode mark colour',
+      );
+    }
+    // The name is folder-coloured too, so identity never rides the mark
+    // alone at either brightness.
+    final label = tester.widget<Text>(
+      find.descendant(
+        of: find.byKey(itemListJumpRowKey),
+        matching: find.text('Bakery'),
+      ),
+    );
+    expect(label.style?.color, pair.ink);
+  });
+
+  testWidgets('a row shows its price as a caption figure, and shows nothing '
+      'when the item was never priced', (tester) async {
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+    await tester.runAsync(() async {
+      final folders = await folderIdsByName(h);
+      await seedItem(
+        h,
+        name: 'Croissants',
+        folderId: folders['Bakery'],
+        unitPrice: Money.fromCents(350),
+      );
+      await seedItem(h, name: 'Rolls', folderId: folders['Bakery']);
+    });
+
+    await h.pumpScreen(tester, const ItemListScreen());
+
+    expect(inList(r'$3.50'), findsOneWidget);
+    // On the priced row itself, beside the amount and the name.
+    expect(
+      find.descendant(
+        of: find.widgetWithText(ListTile, 'Croissants'),
+        matching: find.text(r'$3.50'),
+      ),
+      findsOneWidget,
+    );
+    // Caption tier, not a second row quantity: the price never competes
+    // with the count the row exists to show.
+    final subtitle =
+        tester.widget<Text>(inList(r'$3.50')).textSpan! as TextSpan;
+    final priceStyle = (subtitle.children!.first as TextSpan).style!;
+    final text = loadoutTheme(Brightness.light).textTheme;
+    expect(priceStyle.fontSize, Numerals.caption(text)!.fontSize);
+    expect(priceStyle.fontWeight, Numerals.caption(text)!.fontWeight);
+    expect(priceStyle.fontFeatures, Numerals.tabular);
+
+    // The unpriced item says nothing at all — never "$0".
+    expect(
+      find.descendant(
+        of: find.widgetWithText(ListTile, 'Rolls'),
+        matching: find.textContaining(r'$'),
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('the Add item button never sits on top of a row — mid-scroll '
+      'or at the end of the list', (tester) async {
+    // Regression (design review): the FAB floats over the body, and the
+    // list only ended with an 88 dp spacer — so the spacer cleared the
+    // button at FULL scroll and nowhere else. Mid-scroll the pill sat on
+    // the last visible row's trailing area, over its overflow menu.
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+    await tester.runAsync(() async {
+      final folders = await folderIdsByName(h);
+      for (var i = 0; i < 30; i++) {
+        await seedItem(
+          h,
+          name: 'Item ${'${i + 1}'.padLeft(2, '0')}',
+          folderId: folders['Bakery'],
+        );
+      }
+    });
+
+    await h.pumpScreen(tester, const ItemListScreen());
+
+    final fab = tester.getRect(find.byType(FloatingActionButton));
+    void expectNothingUnderTheButton(String when) {
+      for (final element in find.byType(ListTile).evaluate()) {
+        final row = tester.getRect(
+          find.byElementPredicate((e) => e == element),
+        );
+        expect(
+          row.overlaps(fab),
+          isFalse,
+          reason: 'a row is under the Add item button $when',
+        );
+      }
+    }
+
+    expectNothingUnderTheButton('before scrolling');
+    for (final offset in [-160.0, -240.0, -300.0]) {
+      await tester.drag(find.byType(CustomScrollView), Offset(0, offset));
+      await tester.pumpAndSettle();
+      expectNothingUnderTheButton('after scrolling $offset');
+    }
+    await tester.dragUntilVisible(
+      inList('Item 30'),
+      find.byType(CustomScrollView),
+      const Offset(0, -400),
+    );
+    await tester.pumpAndSettle();
+    expectNothingUnderTheButton('at the end of the list');
+    expect(inList('Item 30'), findsOneWidget);
+  });
+
+  testWidgets('the sectioned list renders at 200% text scale on a 320 dp '
+      'viewport', (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1.0;
+    tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+    addTearDown(tester.view.reset);
+    addTearDown(tester.platformDispatcher.clearAllTestValues);
+
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+    await tester.runAsync(() async {
+      final folders = await folderIdsByName(h);
+      await seedItem(
+        h,
+        name: 'Croissants',
+        folderId: folders['Bakery'],
+        unitLabel: 'packages',
+        unitPrice: Money.fromCents(350),
+      );
+      await seedItem(h, name: 'Tortillas');
+    });
+
+    // An overflow at 200 % scale would throw and fail the test here.
+    await h.pumpScreen(tester, const ItemListScreen());
+    expect(find.byType(ItemListScreen), findsOneWidget);
+    expect(inList('Croissants'), findsOneWidget);
+
+    // Dark too: the jump row and the headers are rebuilt per brightness.
+    tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+    await tester.pumpAndSettle();
+    expect(inList('Croissants'), findsOneWidget);
   });
 }

@@ -444,12 +444,16 @@ void main() {
       find.byType(CustomScrollView),
       const Offset(0, -120),
     );
-    await tester.tap(
-      find.descendant(
-        of: find.widgetWithText(ListTile, 'Trail mix'),
-        matching: find.byIcon(Icons.expand_more),
-      ),
+    // `dragUntilVisible` stops as soon as the row EXISTS, which can leave
+    // it straddling the bottom of the viewport with its trailing controls
+    // below the fold; scroll it fully in before aiming at one.
+    final expandTrailMix = find.descendant(
+      of: find.widgetWithText(ListTile, 'Trail mix'),
+      matching: find.byIcon(Icons.expand_more),
     );
+    await tester.ensureVisible(expandTrailMix);
+    await _settle(tester);
+    await tester.tap(expandTrailMix);
     await _settle(tester);
     // The group really expanded (sliver laziness may leave the linked
     // items' own Unfiled rows unbuilt, so check the affordance flipped).

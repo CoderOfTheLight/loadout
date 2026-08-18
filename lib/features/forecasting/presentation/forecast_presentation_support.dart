@@ -14,7 +14,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
 import '../../../app/unit_display.dart';
-import '../../../core/quantity.dart';
 import '../../../core/quantity_codec.dart';
 import '../../../core/time.dart';
 import '../../../core/units.dart';
@@ -72,10 +71,22 @@ final overrideHistoryProvider = FutureProvider.autoDispose
 
 // ------------------------------------------------------------ formatting
 
-/// Signed micros → minimal decimal string (`-2.5`, `60`). Display only.
+/// Signed micros → the decimal string the owner reads (`-2.5`, `60`,
+/// `14.3`). Display only, and ROUNDED: every figure on these screens is a
+/// median times an attendance times a reserve, which lands on values like
+/// 14.272728 — six decimals of arithmetic residue on a card that counts
+/// trays. [QuantityCodec.formatDisplay] caps it at the tenth; the stored
+/// micros and every engine computation are untouched.
 String formatMicros(int micros) => micros < 0
-    ? '-${QuantityCodec.format(Quantity.fromMicros(-micros))}'
-    : QuantityCodec.format(Quantity.fromMicros(micros));
+    ? '-${QuantityCodec.formatDisplayMicros(-micros)}'
+    : QuantityCodec.formatDisplayMicros(micros);
+
+/// The same, for a RATE rather than a count — a per-person figure like
+/// `0.01 per person`, which the tenth-place cap would flatten to `0`.
+/// Two decimals: enough for the rates this app derives, still not micros.
+String formatRateMicros(int micros) => micros < 0
+    ? '-${QuantityCodec.formatDisplayMicros(-micros, maxFractionDigits: 2)}'
+    : QuantityCodec.formatDisplayMicros(micros, maxFractionDigits: 2);
 
 /// `45`, `1.5 kg`, or `—` for null.
 ///
@@ -145,7 +156,7 @@ String? basisExplanation(
         return '${formatMicros(expected)} per event, from $events';
       }
       if (upcomingExposure <= 0) return null;
-      return '${formatMicros(expected ~/ upcomingExposure)} per person, '
+      return '${formatRateMicros(expected ~/ upcomingExposure)} per person, '
           'from $events';
     case ForecastBasis.perEventBaseline:
       final usual = line.baselinePerEventMicros;
@@ -198,6 +209,36 @@ String? selloutHandlingNote(
   return sellouts == line.evidence.length
       ? '$of — busiest day used for all'
       : '$of — raised to your typical rate';
+}
+
+/// How many DISTINCT past events this snapshot's numbers actually rest on.
+///
+/// Evidence is stored per line (each line carries the closeouts it was
+/// medianed over), so the snapshot's own count is the union of the source
+/// events across every line — the honest answer to "what is this built
+/// from?", and 0 for a first estimate with nothing confirmed behind it.
+int snapshotEvidenceEventCount(ForecastSnapshotView snapshot) => {
+  for (final line in snapshot.lines)
+    for (final evidence in line.evidence) evidence.sourceEventId as String,
+}.length;
+
+/// The provenance line at the top of a forecast, in the owner's words.
+///
+/// It used to read `Method: direct_median v3 · computed just now`. The
+/// method identifier is an internal algorithm name: it tells a volunteer
+/// kitchen coordinator nothing she can act on, and reads as a leaked
+/// debugging string. What she needs is the same honesty in her own terms —
+/// how much real history this rests on, and how fresh it is. The identifier
+/// is still stored on the snapshot and still shown where it belongs (the
+/// per-line "Assumptions" detail and the About screen).
+String snapshotProvenanceLabel(ForecastSnapshotView snapshot, {DateTime? now}) {
+  final events = snapshotEvidenceEventCount(snapshot);
+  final updated = relativeTimeLabel(snapshot.createdAt, now: now);
+  if (events == 0) {
+    return 'First estimate — no past events yet · updated $updated';
+  }
+  final window = events == 1 ? 'your last event' : 'your last $events events';
+  return 'From $window · updated $updated';
 }
 
 /// `computed <relative time>` source (`just now`, `5 min ago`, `3 h ago`,

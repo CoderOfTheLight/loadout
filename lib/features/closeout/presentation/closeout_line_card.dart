@@ -352,8 +352,10 @@ class _CloseoutLineCardState extends State<CloseoutLineCard> {
                       Padding(
                         padding: const EdgeInsets.only(bottom: 8),
                         child: Text(
+                          // Straight off the forecast snapshot, so it carries
+                          // the engine's micros residue — display-rounded.
                           'Planned load was '
-                          '${QuantityCodec.format(Quantity.fromMicros(line.plannedLoadMicros!))}'
+                          '${QuantityCodec.formatDisplayMicros(line.plannedLoadMicros!)}'
                           '${line.unitSuffix}',
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: contentInk,

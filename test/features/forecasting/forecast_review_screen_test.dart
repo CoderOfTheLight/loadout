@@ -38,17 +38,24 @@ void main() {
     await tester.tap(find.text('Generate forecast'));
     await tester.pumpAndSettle();
 
-    // Header values come from the snapshot row, never hardcoded.
-    expect(find.textContaining('direct_median v3'), findsOneWidget);
-    expect(find.textContaining('computed just now'), findsOneWidget);
+    // Header values come from the snapshot row, never hardcoded — but in
+    // the owner's words: the internal method identifier ("direct_median v3")
+    // is not something a volunteer kitchen coordinator can act on, so the
+    // provenance line states the evidence instead. One closed event seeded.
+    expect(find.textContaining('From your last event'), findsOneWidget);
+    expect(find.textContaining('updated just now'), findsOneWidget);
+    expect(find.textContaining('direct_median'), findsNothing);
     expect(find.text('Balanced +10 %'), findsOneWidget);
     expect(find.text('for 150 attendance'), findsOneWidget);
 
-    // The per-line four figures, evidence badge, warning verbatim.
+    // ONE answer per card: the hero is what to BRING (the effective load),
+    // the acquisition is the secondary emphasis, and expected/planned drop
+    // to a single caption-tier line. Evidence badge and warning unchanged.
     expect(find.text('Tortillas'), findsOneWidget);
-    expect(find.text('45'), findsOneWidget); // expected
-    expect(find.text('49.5'), findsOneWidget); // planned (+10 %)
-    expect(find.text('60'), findsNWidgets(2)); // load + acquire
+    expect(find.text('Bring'), findsOneWidget);
+    expect(find.text('60'), findsOneWidget); // the hero: effective load
+    expect(find.text('Buy 60 more'), findsOneWidget); // acquire
+    expect(find.text('Expected 45 · Planned 49.5'), findsOneWidget);
     expect(find.text('1 event'), findsOneWidget);
     expect(
       find.text('Upcoming exposure is outside the observed range.'),
@@ -235,7 +242,7 @@ void main() {
     await h.pumpApp(tester);
     await h.go(tester, '/events/${scenario.upcomingEventId}/forecast');
     // Overflow errors at 200 % would fail the test; the header must render.
-    expect(find.textContaining('direct_median v3'), findsOneWidget);
+    expect(find.textContaining('From your last event'), findsOneWidget);
   });
 
   testWidgets('a sell-out in the history plans higher and says why in plain '
@@ -255,8 +262,7 @@ void main() {
     await h.go(tester, '/events/${scenario.upcomingEventId}/forecast');
 
     // 55, not the 50 the raw median of {60, 50, 40} would have given.
-    expect(find.text('55'), findsOneWidget); // expected
-    expect(find.text('60.5'), findsOneWidget); // planned (+10 %)
+    expect(find.text('Expected 55 · Planned 60.5'), findsOneWidget);
     expect(find.text('50'), findsNothing);
 
     expect(
@@ -292,9 +298,9 @@ void main() {
 
     // The owner's complaint 3 paying off: ceil(150 / 4) = 38, +10 % = 41.8,
     // rounded up to whole things = 42, minus nothing on hand = 42.
-    expect(find.text('38'), findsOneWidget); // expected
-    expect(find.text('41.8'), findsOneWidget); // planned (+10 %)
-    expect(find.text('42'), findsNWidgets(2)); // load + acquire
+    expect(find.text('42'), findsOneWidget); // the hero: bring 42
+    expect(find.text('Buy 42 more'), findsOneWidget);
+    expect(find.text('Expected 38 · Planned 41.8'), findsOneWidget);
     expect(find.text('—'), findsNothing);
 
     // Badged as what it is, and never as confirmed history.
@@ -401,5 +407,103 @@ void main() {
     // The stored warning, verbatim, in the same amber chip every other
     // warning gets — warning-only, never scaling math.
     expect(find.text(perEventSuppliesJumpWarning), findsOneWidget);
+  });
+
+  testWidgets('no figure on the screen prints raw micros precision', (
+    tester,
+  ) async {
+    // Regression (design review): the cards read "Expected 14.272728",
+    // "Planned 15.700001", "5.227273". Those are honest micros — expected
+    // use is a median rate times an attendance times a reserve — but six
+    // decimals of arithmetic residue is not a number anyone can pack to.
+    //
+    // A rate that does not divide evenly is exactly how the residue is
+    // made: 15 used at 110 attendance, replanned for 150, is 20.454545…
+    final h = (await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    ))!;
+    addTearDown(h.dispose);
+    final eventId = (await tester.runAsync(() async {
+      final itemId = await seedItem(h, name: 'Chicken soup');
+      final past = await seedEvent(
+        h,
+        name: 'Last Thursday',
+        date: '2026-07-01',
+        exposure: 110,
+        itemIds: [itemId],
+      );
+      await seedCloseout(
+        h,
+        eventId: past,
+        confirmedExposure: 110,
+        itemId: itemId,
+        depletionMicros: 15 * 1000000,
+      );
+      final upcoming = await seedEvent(
+        h,
+        name: 'Friday dinner',
+        date: '2026-09-01',
+        exposure: 150,
+        itemIds: [itemId],
+      );
+      unwrap(await h.read(forecastServiceProvider).generateSnapshot(upcoming));
+      return upcoming;
+    }))!;
+
+    await h.pumpApp(tester);
+    await h.go(tester, '/events/$eventId/forecast');
+
+    // The STORED value really is a repeating decimal — otherwise this test
+    // would pass without proving anything. Display rounds; storage does not.
+    final stored = (await tester.runAsync(
+      () => h.read(forecastServiceProvider).watchLatestSnapshot(eventId).first,
+    ))!;
+    expect(stored.lines.single.expectedUseMicros, 20454546);
+
+    // Money is allowed its cents; every other figure gets one decimal.
+    final tooPrecise = RegExp(r'\d+\.\d{2,}');
+    for (final text in tester.widgetList<Text>(find.byType(Text))) {
+      final data = text.data;
+      if (data == null || data.contains(r'$')) continue;
+      expect(
+        tooPrecise.hasMatch(data),
+        isFalse,
+        reason: 'forecast screen rendered raw precision: "$data"',
+      );
+    }
+    expect(
+      find.textContaining('Expected 20.5'),
+      findsOneWidget,
+    ); // rounded on the supporting caption
+  });
+
+  testWidgets('with nothing confirmed the header says so instead of naming '
+      'an algorithm', (tester) async {
+    final h = (await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    ))!;
+    addTearDown(h.dispose);
+    final eventId = (await tester.runAsync(() async {
+      final itemId = await seedServesItem(h);
+      final upcoming = await seedEvent(
+        h,
+        name: 'First ever dinner',
+        date: '2026-09-01',
+        exposure: 40,
+        itemIds: [itemId],
+      );
+      unwrap(await h.read(forecastServiceProvider).generateSnapshot(upcoming));
+      return upcoming;
+    }))!;
+
+    await h.pumpApp(tester);
+    await h.go(tester, '/events/$eventId/forecast');
+
+    expect(
+      find.textContaining('First estimate — no past events yet'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('direct_median'), findsNothing);
+    expect(find.textContaining('Method:'), findsNothing);
   });
 }

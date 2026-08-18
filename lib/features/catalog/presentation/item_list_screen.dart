@@ -25,17 +25,23 @@
 ///   render dimmed with an "Add to items" way into the recipe.
 /// * Headers pin while their section scrolls (SliverMainAxisGroup +
 ///   SliverPersistentHeader — framework only): 24 dp chip, name, count,
-///   chevron (`AnimatedRotation`), on opaque `surfaceContainerLow` with a
-///   hairline so the pin edge reads in sunlight. Tap to collapse; collapse
-///   is remembered for the session ([collapsedSectionsProvider]).
+///   chevron (`AnimatedRotation`), on the FOLDER'S OWN TINT (opaque, with a
+///   hairline so the pin edge reads in sunlight) and named in its ink — a
+///   section is the folder, so its header is not a grey band. Tap to
+///   collapse; collapse is remembered for the session
+///   ([collapsedSectionsProvider]).
 /// * Search and the jump-to-folder chips live in a floating header
 ///   (`SliverFloatingHeader`): gone scrolling down, back on the first
 ///   upward flick — mid-scroll pinned chrome is the 52 dp section header
 ///   alone (spec §4 pinned-chrome budget).
-/// * The jump row is the food-delivery-menu pattern: a color dot + name +
-///   count per chip, tap scrolls to the section (offsets are exact because
-///   every row is a fixed-extent sliver child), and the active chip tracks
-///   the scroll position.
+/// * The jump row is the food-delivery-menu pattern: the folder's small
+///   [FolderChip] + name + count per chip — the chip is the ONLY folder
+///   mark this app draws, never a hand-mixed dot — tap scrolls to the
+///   section (offsets are exact because every row is a fixed-extent sliver
+///   child), and the active chip tracks the scroll position.
+/// * Rows carry the item's price (v7) as a caption-tier figure on the
+///   second line; an unpriced item shows nothing there. The list's viewport
+///   stops above the floating "Add item" pill, so no row is ever under it.
 ///
 /// The commands this screen issues are `MoveItemToFolder` and the two
 /// deletes — `DeleteItem` from a row's overflow, `DeleteAllItems` from the
@@ -53,6 +59,7 @@ import '../../../app/providers.dart';
 import '../../../app/theme.dart';
 import '../../../app/widgets/empty_state.dart';
 import '../../../app/widgets/folder_chip.dart';
+import '../../../core/money_codec.dart';
 import '../../../core/result.dart';
 import '../../../core/units.dart';
 import '../../recipes/domain/recipe.dart';
@@ -83,6 +90,11 @@ const double _itemExtent = 72;
 /// so wide (a long label at a big text scale) that the name loses its line.
 const double _amountColumnMin = 40;
 const double _amountColumnMax = 168;
+
+/// The strip the floating "Add item" button owns: the Scaffold's 16 dp FAB
+/// margin, the 56 dp extended pill, and 16 dp of air. The list's viewport
+/// stops here, so no row can ever be underneath the button.
+const double _fabGutter = 88;
 
 /// Amount + optional display label, kept separate so the label can render
 /// quietly beside the big tabular numerals.
@@ -638,55 +650,64 @@ class _ItemListScreenState extends ConsumerState<ItemListScreen> {
       _chipKeys.putIfAbsent(section.id, GlobalKey.new);
     }
 
-    return CustomScrollView(
-      controller: _scroll,
-      slivers: [
-        // Search + jump chips float: gone scrolling down, back on the
-        // first upward flick (spec §4 pinned-chrome budget — mid-scroll
-        // pinned chrome is the section header alone).
-        SliverFloatingHeader(child: _floatingHeader(searching)),
-        if (visible.isEmpty)
-          const SliverFillRemaining(
-            hasScrollBody: false,
-            child: EmptyState(
-              message: 'No items match your search.',
-              icon: Icons.search_off_outlined,
-            ),
-          )
-        else ...[
-          for (final section in visible)
-            SliverMainAxisGroup(
-              slivers: [
-                SliverPersistentHeader(
-                  pinned: true,
-                  delegate: _SectionHeaderDelegate(
-                    title: section.title,
-                    folder: section.folder,
-                    count: section.items.length,
-                    collapsed: !searching && collapsed.contains(section.id),
-                    onTap: searching ? null : () => _toggleSection(section.id),
-                  ),
-                ),
-                if (searching || !collapsed.contains(section.id))
-                  SliverFixedExtentList(
-                    itemExtent: _itemExtent,
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) => Align(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(
-                            maxWidth: contentMaxWidth,
-                          ),
-                          child: _buildRow(section, section.rows[index]),
-                        ),
-                      ),
-                      childCount: section.rows.length,
+    // The FAB floats over the body, so the list's VIEWPORT stops above it
+    // rather than the list merely ending with a spacer: a trailing spacer
+    // only clears the button at full scroll, and mid-scroll the "Add item"
+    // pill sat on top of whichever row happened to be at the bottom edge —
+    // over its overflow menu, the one target on the row that is not the
+    // row. Nothing scrolls under the button now.
+    return Padding(
+      padding: const EdgeInsets.only(bottom: _fabGutter),
+      child: CustomScrollView(
+        controller: _scroll,
+        slivers: [
+          // Search + jump chips float: gone scrolling down, back on the
+          // first upward flick (spec §4 pinned-chrome budget — mid-scroll
+          // pinned chrome is the section header alone).
+          SliverFloatingHeader(child: _floatingHeader(searching)),
+          if (visible.isEmpty)
+            const SliverFillRemaining(
+              hasScrollBody: false,
+              child: EmptyState(
+                message: 'No items match your search.',
+                icon: Icons.search_off_outlined,
+              ),
+            )
+          else
+            for (final section in visible)
+              SliverMainAxisGroup(
+                slivers: [
+                  SliverPersistentHeader(
+                    pinned: true,
+                    delegate: _SectionHeaderDelegate(
+                      title: section.title,
+                      folder: section.folder,
+                      count: section.items.length,
+                      collapsed: !searching && collapsed.contains(section.id),
+                      onTap: searching
+                          ? null
+                          : () => _toggleSection(section.id),
                     ),
                   ),
-              ],
-            ),
-          const SliverToBoxAdapter(child: SizedBox(height: 88)),
+                  if (searching || !collapsed.contains(section.id))
+                    SliverFixedExtentList(
+                      itemExtent: _itemExtent,
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) => Align(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(
+                              maxWidth: contentMaxWidth,
+                            ),
+                            child: _buildRow(section, section.rows[index]),
+                          ),
+                        ),
+                        childCount: section.rows.length,
+                      ),
+                    ),
+                ],
+              ),
         ],
-      ],
+      ),
     );
   }
 
@@ -795,7 +816,11 @@ class _ItemListScreenState extends ConsumerState<ItemListScreen> {
           ),
           if (!searching)
             SizedBox(
-              height: 48,
+              // Grows with the system text size so the chips' names are
+              // never clipped by a hard 48 dp strip at 200 % scale.
+              height: MediaQuery.textScalerOf(
+                context,
+              ).scale(48).clamp(48.0, 96.0),
               child: SingleChildScrollView(
                 key: itemListJumpRowKey,
                 scrollDirection: Axis.horizontal,
@@ -865,9 +890,19 @@ TextSpan _amountTextSpan(
   ],
 );
 
-/// One jump-to-folder chip (spec §4): 8 dp color dot, name, count. The
-/// active chip fills with the folder tint and inks its text; identity is
-/// never the dot alone — the name is always beside it.
+/// One jump-to-folder chip (spec §4): the folder's own small [FolderChip],
+/// its name, its count. The active chip fills with the folder tint;
+/// identity is never the mark alone — the name is always beside it.
+///
+/// The mark used to be a hand-rolled 8 dp dot painted straight from
+/// [folderHueSeeds], and that was a real defect: the seeds are dark by
+/// construction (fern is #356859) because they are seeds for a light page,
+/// so on the dark ramp's #141613 surface the eight dots measured 2.8-3.7:1
+/// — under the 4.5:1 every folder ink is built to clear, and under the 3:1
+/// UI floor for four of them. [FolderPalette] exists precisely so that no
+/// widget derives a folder colour by hand: `pair(hue).ink` is the hue's
+/// solid-mark colour for the LIVE brightness, and the chip that draws it is
+/// the same one every other folder surface uses.
 class _JumpChip extends StatelessWidget {
   const _JumpChip({
     super.key,
@@ -891,13 +926,13 @@ class _JumpChip extends StatelessWidget {
     final colors = folder == null
         ? null
         : FolderPalette.of(context).pair(folder!.effectiveHue);
-    final dotColor = folder == null
-        ? scheme.outline
-        : folderHueSeeds[folder!.effectiveHue]!;
     final fill = active
         ? (colors?.tint ?? scheme.surfaceContainerHigh)
         : Colors.transparent;
-    final ink = active ? (colors?.ink ?? scheme.onSurface) : scheme.onSurface;
+    // The label carries the hue too, not just the mark: `ink` is built to
+    // clear 4.5:1 on the page in BOTH brightnesses, so a folder-coloured
+    // name is legible where a seed-coloured one would not be.
+    final ink = colors?.ink ?? scheme.onSurface;
     return Semantics(
       button: true,
       selected: active,
@@ -915,19 +950,22 @@ class _JumpChip extends StatelessWidget {
             onTap: onTap,
             borderRadius: BorderRadius.circular(Radii.small),
             child: Container(
-              height: 40,
-              padding: const EdgeInsets.symmetric(horizontal: Space.m),
+              // Constraints, not a fixed height: at 200 % text scale the
+              // name has to be allowed to grow the chip.
+              constraints: const BoxConstraints(minHeight: 40),
+              padding: const EdgeInsets.symmetric(
+                horizontal: Space.m,
+                vertical: Space.xs,
+              ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: dotColor,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
+                  folder == null
+                      ? const UnfiledChip(size: FolderChipSize.small)
+                      : FolderChip.forFolder(
+                          folder!,
+                          size: FolderChipSize.small,
+                        ),
                   const SizedBox(width: Space.s),
                   Text(
                     title,
@@ -951,9 +989,17 @@ class _JumpChip extends StatelessWidget {
   }
 }
 
-/// Pinned section header (spec §4): 24 dp chip, name, count, chevron, on
-/// opaque `surfaceContainerLow` with a bottom hairline. Whole row tappable
-/// to collapse/expand. Fixed 52 dp so jump offsets stay exact.
+/// Pinned section header (spec §4). Fixed 52 dp so jump offsets stay exact.
+///
+/// The delegate holds DATA ONLY and resolves no theme: a
+/// `SliverPersistentHeader` caches the widget its delegate built and only
+/// re-runs `build` when `shouldRebuild` says so, and `shouldRebuild` cannot
+/// see a `ColorScheme`. A delegate that read `Theme.of(context)` therefore
+/// froze the colours of whichever brightness happened to be live when the
+/// section first appeared — flipping the system to dark left cream headers
+/// stranded on a near-black list. The colours live in [_SectionHeaderBar],
+/// an ordinary widget whose own element depends on the theme and rebuilds
+/// with it.
 class _SectionHeaderDelegate extends SliverPersistentHeaderDelegate {
   const _SectionHeaderDelegate({
     required this.title,
@@ -980,11 +1026,56 @@ class _SectionHeaderDelegate extends SliverPersistentHeaderDelegate {
     BuildContext context,
     double shrinkOffset,
     bool overlapsContent,
-  ) {
+  ) => _SectionHeaderBar(
+    title: title,
+    folder: folder,
+    count: count,
+    collapsed: collapsed,
+    onTap: onTap,
+  );
+
+  @override
+  bool shouldRebuild(_SectionHeaderDelegate oldDelegate) =>
+      oldDelegate.title != title ||
+      oldDelegate.count != count ||
+      oldDelegate.collapsed != collapsed ||
+      oldDelegate.folder != folder ||
+      (oldDelegate.onTap == null) != (onTap == null);
+}
+
+/// The header's actual pixels: 24 dp chip, name, count, chevron, on the
+/// folder's own tint with a bottom hairline. Whole row tappable to
+/// collapse/expand.
+///
+/// The band is folder-coloured, not grey: a section is the folder, and the
+/// tint is the same barely-there wash the chip fills with (opaque, so it
+/// still pins cleanly over scrolling rows) with the name in the folder's
+/// ink. Unfiled and Archived have no hue and keep the neutral raised
+/// surface — which is what makes the coloured ones read as identity.
+class _SectionHeaderBar extends StatelessWidget {
+  const _SectionHeaderBar({
+    required this.title,
+    required this.folder,
+    required this.count,
+    required this.collapsed,
+    required this.onTap,
+  });
+
+  final String title;
+  final Folder? folder;
+  final int count;
+  final bool collapsed;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final colors = folder == null
+        ? null
+        : FolderPalette.of(context).pair(folder!.effectiveHue);
     return Material(
-      color: scheme.surfaceContainerLow,
+      color: colors?.tint ?? scheme.surfaceContainerLow,
       child: InkWell(
         onTap: onTap,
         child: Semantics(
@@ -1017,13 +1108,15 @@ class _SectionHeaderDelegate extends SliverPersistentHeaderDelegate {
                           title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleMedium,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: colors?.ink,
+                          ),
                         ),
                       ),
                       Text(
                         '$count',
                         style: theme.textTheme.labelLarge?.copyWith(
-                          color: scheme.onSurfaceVariant,
+                          color: colors?.ink ?? scheme.onSurfaceVariant,
                           fontFeatures: Numerals.tabular,
                         ),
                       ),
@@ -1038,7 +1131,7 @@ class _SectionHeaderDelegate extends SliverPersistentHeaderDelegate {
                           child: Icon(
                             Icons.expand_more,
                             size: 20,
-                            color: scheme.onSurfaceVariant,
+                            color: colors?.ink ?? scheme.onSurfaceVariant,
                           ),
                         ),
                       ],
@@ -1052,14 +1145,6 @@ class _SectionHeaderDelegate extends SliverPersistentHeaderDelegate {
       ),
     );
   }
-
-  @override
-  bool shouldRebuild(_SectionHeaderDelegate oldDelegate) =>
-      oldDelegate.title != title ||
-      oldDelegate.count != count ||
-      oldDelegate.collapsed != collapsed ||
-      oldDelegate.folder != folder ||
-      (oldDelegate.onTap == null) != (onTap == null);
 }
 
 /// The leading amount cell: big tabular numerals (+ quiet label), the §9
@@ -1162,7 +1247,7 @@ class _ItemTile extends StatelessWidget {
     final amountText = parts.label == null
         ? parts.amount
         : '${parts.amount} ${parts.label}';
-    final subtitle = [
+    final facts = [
       if (item.category != null) item.category!,
       if (item.servesPerUnit != null)
         'One serves ${formatMicros(item.servesPerUnit!.micros)}',
@@ -1172,6 +1257,11 @@ class _ItemTile extends StatelessWidget {
         'Usually bring ${formatMicros(item.perEventBaseline!.micros)}',
       if (item.isArchived) 'Archived',
     ].join(' · ');
+    // v7: what one costs, at the caption tier — a supporting figure beside
+    // the row's own quantity, never a second row-quantity. An item that was
+    // never priced shows NOTHING here: "$0" would be a price the owner
+    // never gave.
+    final price = item.unitPrice;
     final showExpand = expanded != null;
     return ListTile(
       minTileHeight: 56,
@@ -1196,9 +1286,26 @@ class _ItemTile extends StatelessWidget {
         ],
       ),
       title: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: subtitle.isEmpty
+      subtitle: (price == null && facts.isEmpty)
           ? null
-          : Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
+          : Text.rich(
+              TextSpan(
+                children: [
+                  if (price != null)
+                    TextSpan(
+                      text: MoneyCodec.format(price),
+                      style: Numerals.caption(
+                        theme.textTheme,
+                      )?.copyWith(color: theme.colorScheme.onSurface),
+                    ),
+                  if (price != null && facts.isNotEmpty)
+                    const TextSpan(text: ' · '),
+                  if (facts.isNotEmpty) TextSpan(text: facts),
+                ],
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
       trailing: (showExpand || onMove != null)
           ? Row(
               mainAxisSize: MainAxisSize.min,

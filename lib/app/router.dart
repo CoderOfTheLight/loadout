@@ -19,6 +19,7 @@ import '../features/catalog/presentation/item_detail_screen.dart';
 import '../features/catalog/presentation/item_edit_screen.dart';
 import '../features/catalog/presentation/item_list_screen.dart';
 import '../features/catalog/presentation/scan_items_in_screen.dart';
+import '../features/closeout/presentation/closeout_report_screen.dart';
 import '../features/closeout/presentation/closeout_screen.dart';
 import '../features/events/presentation/event_detail_screen.dart';
 import '../features/events/presentation/event_edit_screen.dart';
@@ -174,6 +175,18 @@ final routerProvider = Provider<GoRouter>((ref) {
                         builder: (_, state) => CloseoutScreen(
                           eventId: state.pathParameters['eventId']!,
                         ),
+                        routes: [
+                          // The artifact a confirmed count produces; the
+                          // closeout flow pushes it, and the event screen
+                          // can link to it for any closed event.
+                          GoRoute(
+                            path: 'report',
+                            parentNavigatorKey: rootKey,
+                            builder: (_, state) => CloseoutReportScreen(
+                              eventId: state.pathParameters['eventId']!,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

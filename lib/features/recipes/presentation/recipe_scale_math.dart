@@ -53,7 +53,10 @@ final class RecipeBatchPlan {
     final tenths = (needMicros * 10) ~/ yieldMicros;
     final exact = (needMicros * 10) % yieldMicros == 0;
     final decimal = '${tenths ~/ 10}.${tenths % 10}';
-    final spare = QuantityCodec.format(Quantity.fromMicros(spareMicros));
+    // Spare is `batches × yield − need`, and `need` came off a forecast —
+    // so it carries the engine's micros residue. Display-rounded (§ counted
+    // goods): "about 0.3 spare portions", never "about 0.299999".
+    final spare = QuantityCodec.formatDisplayMicros(spareMicros);
     return 'Needs ${exact ? decimal : 'about $decimal'} batches '
         '→ make $batches — about $spare spare portions';
   }

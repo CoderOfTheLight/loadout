@@ -189,6 +189,77 @@ void main() {
     });
   });
 
+  group('formatDisplay', () {
+    // Regression (design review): the forecast cards printed the engine's
+    // raw micros — "Expected 14.272728", "Planned 15.700001" — because the
+    // display path reused the exact round-trip [QuantityCodec.format].
+    // These are counted goods; one decimal is the last digit that means
+    // anything, and the rest is arithmetic residue.
+    test('caps a computed quantity at one decimal, half-up', () {
+      Quantity q(int micros) => Quantity.fromMicros(micros);
+      expect(QuantityCodec.formatDisplay(q(14272728)), '14.3');
+      expect(QuantityCodec.formatDisplay(q(15700001)), '15.7');
+      expect(QuantityCodec.formatDisplay(q(5227273)), '5.2');
+      expect(QuantityCodec.formatDisplay(q(41800000)), '41.8');
+      expect(QuantityCodec.formatDisplay(q(16000000)), '16');
+      expect(QuantityCodec.formatDisplay(q(500000)), '0.5');
+      expect(QuantityCodec.formatDisplay(Quantity.zero), '0');
+      // Half-up, on exact integers — never float rounding.
+      expect(QuantityCodec.formatDisplay(q(1050000)), '1.1');
+      expect(QuantityCodec.formatDisplay(q(1049999)), '1');
+      expect(QuantityCodec.formatDisplay(q(950000)), '1');
+      // A number too small to survive the cap rounds to zero, honestly.
+      expect(QuantityCodec.formatDisplay(q(1)), '0');
+    });
+
+    test('never leaves more than the requested fraction digits', () {
+      final rng = Random(20260817);
+      for (var i = 0; i < 2000; i++) {
+        final micros = rng.nextInt(1 << 32);
+        for (final digits in [0, 1, 2, 3]) {
+          final text = QuantityCodec.formatDisplay(
+            Quantity.fromMicros(micros),
+            maxFractionDigits: digits,
+          );
+          final point = text.indexOf('.');
+          if (point < 0) continue;
+          expect(
+            text.length - point - 1,
+            lessThanOrEqualTo(digits),
+            reason: '$micros micros at $digits digits rendered "$text"',
+          );
+          expect(text.endsWith('0'), isFalse, reason: 'trailing zero in $text');
+        }
+      }
+    });
+
+    test('a rate keeps the digits a count does not need', () {
+      // 0.01 per person is a real rate; the tenth-place cap would say "0".
+      expect(
+        QuantityCodec.formatDisplay(
+          Quantity.fromMicros(10000),
+          maxFractionDigits: 2,
+        ),
+        '0.01',
+      );
+      expect(QuantityCodec.formatDisplay(Quantity.fromMicros(10000)), '0');
+    });
+
+    test('six digits is the identity — display never adds precision', () {
+      for (final micros in [0, 1, 999999, 1000001, 1500000, 123456789]) {
+        final q = Quantity.fromMicros(micros);
+        expect(
+          QuantityCodec.formatDisplay(q, maxFractionDigits: 6),
+          QuantityCodec.format(q),
+        );
+      }
+      expect(
+        () => QuantityCodec.formatDisplay(Quantity.zero, maxFractionDigits: 7),
+        throwsArgumentError,
+      );
+    });
+  });
+
   group('round trips', () {
     test('pinned values round-trip exactly', () {
       const values = [0, 1, 9, 999999, 1000000, 1000001, 1500000, 123456789];

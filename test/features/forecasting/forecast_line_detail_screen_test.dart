@@ -228,9 +228,13 @@ void main() {
     await h.pumpApp(tester);
     await h.go(tester, '/events/${ids.eventId}/forecast');
 
-    // Insufficient data: badge, dashes, verbatim engine warning, CTA.
+    // Insufficient data: badge, no invented figure, verbatim engine
+    // warning, CTA. The card says the answer is missing in words rather
+    // than leading with an em-dash where the hero belongs.
     expect(find.text('No history'), findsOneWidget);
-    expect(find.text('—'), findsNWidgets(4));
+    expect(find.text('No number yet.'), findsOneWidget);
+    expect(find.text('Expected — · Planned —'), findsOneWidget);
+    expect(find.text('Buy — more'), findsNothing);
     expect(
       find.text('No comparable confirmed outcomes. Create a baseline plan.'),
       findsOneWidget,

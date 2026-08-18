@@ -9,7 +9,6 @@ import 'package:flutter/material.dart';
 
 import '../../../app/theme.dart';
 import '../../../app/unit_display.dart';
-import '../../../core/quantity.dart';
 import '../../../core/quantity_codec.dart';
 import '../../../core/time.dart';
 import '../../../core/units.dart';
@@ -37,7 +36,7 @@ IconData movementKindIcon(MovementKind kind) => switch (kind) {
 /// Signed micros -> `"12"` / `"−1.5 kg"` (legacy measured row). Negative
 /// values keep their sign (U+2212); positives carry no sign. Never clamps.
 String formatSignedMicros(int micros, ItemUnit unit) {
-  final magnitude = QuantityCodec.format(Quantity.fromMicros(micros.abs()));
+  final magnitude = QuantityCodec.formatDisplayMicros(micros.abs());
   final sign = micros < 0 ? '−' : '';
   return '$sign$magnitude${unitSuffix(unit)}';
 }
