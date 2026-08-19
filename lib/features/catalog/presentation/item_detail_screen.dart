@@ -4,11 +4,12 @@
 /// Header (name, the folder it lives in — chip + name, spec §3: identity is
 /// always chip AND name — and optional group / "one serves N people");
 /// **You have** stat from `stockPositionProvider` (signed, warning badge
-/// when negative, display unit label after the amount); quick actions
-/// "Record movement" → `/movements/new?itemId=…` and "Count" →
-/// `?kind=count`; day-grouped movement history preview with reversed rows
-/// struck-through and labeled "Corrected" (history never hidden); menu:
-/// Edit, the first-class "Move to folder…" (picker → `MoveItemToFolder`),
+/// when negative, display unit label after the amount); ONE primary action,
+/// "Count" → `/movements/new?kind=count&itemId=…`; day-grouped movement
+/// history preview with reversed rows struck-through and labeled
+/// "Corrected" (history never hidden); menu: Edit, "Something arrived"
+/// (`?kind=receive`), "Something was thrown out" (`?kind=waste`), the
+/// first-class "Move to folder…" (picker → `MoveItemToFolder`),
 /// Archive/Unarchive via `CatalogService.setArchived`, and "Delete item…"
 /// behind the shared confirmation (delete_dialogs.dart) — on success the
 /// screen pops back to the items list before the snackbar shows.
@@ -178,6 +179,14 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
               switch (action) {
                 case 'edit':
                   context.push('/items/${widget.itemId}/edit');
+                case 'receive':
+                  context.push(
+                    '/movements/new?kind=receive&itemId=${widget.itemId}',
+                  );
+                case 'waste':
+                  context.push(
+                    '/movements/new?kind=waste&itemId=${widget.itemId}',
+                  );
                 case 'move':
                   _moveToFolder(item);
                 case 'archive':
@@ -188,6 +197,18 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
             },
             itemBuilder: (_) => [
               const PopupMenuItem(value: 'edit', child: Text('Edit')),
+              // The other two ledger entries, each named for what happened
+              // rather than for the record it writes.
+              PopupMenuItem(
+                value: 'receive',
+                enabled: !item.isArchived,
+                child: const Text('Something arrived'),
+              ),
+              PopupMenuItem(
+                value: 'waste',
+                enabled: !item.isArchived,
+                child: const Text('Something was thrown out'),
+              ),
               PopupMenuItem(
                 value: 'move',
                 // The command refuses archived items; the menu says so by
@@ -247,37 +268,20 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                 ],
                 _OnHandCard(onHandMicros: onHandMicros, item: item),
                 const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: FilledButton.tonal(
-                        style: FilledButton.styleFrom(
-                          minimumSize: primaryButtonMinSize,
+                // ONE primary action. Counting is what the owner comes here
+                // to do; everything else that writes to the ledger sits in
+                // the overflow, each on its own plain-words screen.
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                    minimumSize: primaryButtonMinSize,
+                  ),
+                  onPressed: item.isArchived
+                      ? null
+                      : () => context.push(
+                          '/movements/new?kind=count'
+                          '&itemId=${widget.itemId}',
                         ),
-                        onPressed: item.isArchived
-                            ? null
-                            : () => context.push(
-                                '/movements/new?itemId=${widget.itemId}',
-                              ),
-                        child: const Text('Record movement'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: FilledButton.tonal(
-                        style: FilledButton.styleFrom(
-                          minimumSize: primaryButtonMinSize,
-                        ),
-                        onPressed: item.isArchived
-                            ? null
-                            : () => context.push(
-                                '/movements/new?kind=count'
-                                '&itemId=${widget.itemId}',
-                              ),
-                        child: const Text('Count'),
-                      ),
-                    ),
-                  ],
+                  child: const Text('Count'),
                 ),
                 const SizedBox(height: 24),
                 Text('History', style: theme.textTheme.titleMedium),

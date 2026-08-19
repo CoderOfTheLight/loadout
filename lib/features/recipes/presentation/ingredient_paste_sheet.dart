@@ -10,6 +10,16 @@
 /// producer-agnostic shape `ingredient_paste.dart` defines — so the OCR
 /// flow becomes a second producer feeding this same reviewer. No OCR is
 /// built here.
+///
+/// THE REVIEW HAS TWO STATES, not four. A line is either KEPT — a ticked
+/// checkbox you can untick — or SKIPPED, greyed out with a plain reason.
+/// The parser's four-way `PasteLineStatus` (matched / ambiguous / unmatched
+/// / excluded) is plumbing: "this line found exactly one item in your
+/// catalog" versus "it found two" changes nothing the owner does or
+/// decides, and it used to be signalled by three silent status glyphs in
+/// three different colours. Matching still happens — a matched line comes
+/// back LINKED — it is simply not narrated. Only `excluded` (a sales-table
+/// item, which no recipe may use) reaches the second state.
 library;
 
 import 'package:flutter/material.dart';
@@ -60,8 +70,9 @@ class _IngredientPasteSheetState extends ConsumerState<IngredientPasteSheet> {
   /// auto-reviewed (consumed on the first ready build).
   String? _pendingInitialText;
 
-  /// Per-candidate "keep this one" ticks (unmatched lines only — they
-  /// become FREE lines on the form, no item is created).
+  /// Per-candidate "keep this one" ticks. EVERY keepable line carries one,
+  /// ticked by default — the owner can drop any line she does not want,
+  /// including one the parser happened to match.
   final Map<int, bool> _keep = {};
 
   @override
@@ -84,14 +95,15 @@ class _IngredientPasteSheetState extends ConsumerState<IngredientPasteSheet> {
     final candidates = _candidates ?? const <PasteCandidateLine>[];
     var count = 0;
     for (var i = 0; i < candidates.length; i++) {
-      count += switch (candidates[i].status) {
-        PasteLineStatus.matched || PasteLineStatus.ambiguous => 1,
-        PasteLineStatus.unmatched => (_keep[i] ?? false) ? 1 : 0,
-        PasteLineStatus.excluded => 0,
-      };
+      if (_keep[i] ?? false) count++;
     }
     return count;
   }
+
+  /// The one line the review draws differently: a sales-table item, which
+  /// no recipe may use. Everything else is a ticked, untickable row.
+  static bool _isSkipped(PasteCandidateLine candidate) =>
+      candidate.status == PasteLineStatus.excluded;
 
   void _review(List<Item> catalog, Set<String> salesTableFolderIds) {
     setState(() => _applyReview(catalog, salesTableFolderIds));
@@ -109,52 +121,32 @@ class _IngredientPasteSheetState extends ConsumerState<IngredientPasteSheet> {
     _candidates = candidates;
     _keep.clear();
     for (var i = 0; i < candidates.length; i++) {
-      if (candidates[i].status == PasteLineStatus.unmatched) {
-        _keep[i] = true;
-      }
+      if (!_isSkipped(candidates[i])) _keep[i] = true;
     }
   }
 
-  /// v5: writes NOTHING — matched lines come back linked, ambiguous and
-  /// kept-unmatched lines come back as free lines with their own text. The
+  /// v5: writes NOTHING — a line the parser matched comes back LINKED, and
+  /// every other kept line comes back as a free line with its own text. The
   /// recipe itself still saves only via the form's Save button.
   void _confirm() {
     final candidates = _candidates;
     if (candidates == null) return;
     final results = <PastedIngredient>[];
     for (var i = 0; i < candidates.length; i++) {
+      if (!(_keep[i] ?? false)) continue;
       final candidate = candidates[i];
-      switch (candidate.status) {
-        case PasteLineStatus.matched:
-          results.add(
-            PastedIngredient(
-              itemId: candidate.match!.id.value,
-              name: candidate.name,
-              unitLabel: candidate.unitLabel,
-              quantityPerBatch: candidate.quantityPerBatch,
-            ),
-          );
-        case PasteLineStatus.ambiguous:
-          // A free line: the owner links it to the right item later.
-          results.add(
-            PastedIngredient(
-              name: candidate.name,
-              unitLabel: candidate.unitLabel,
-              quantityPerBatch: candidate.quantityPerBatch,
-            ),
-          );
-        case PasteLineStatus.unmatched:
-          if (!(_keep[i] ?? false)) break;
-          results.add(
-            PastedIngredient(
-              name: candidate.name,
-              unitLabel: candidate.unitLabel,
-              quantityPerBatch: candidate.quantityPerBatch,
-            ),
-          );
-        case PasteLineStatus.excluded:
-          break; // Skipped, with the reason shown in the review list.
-      }
+      results.add(
+        PastedIngredient(
+          // Only an exact single match carries a link; an ambiguous line
+          // arrives free and the owner links it from the row's overflow.
+          itemId: candidate.status == PasteLineStatus.matched
+              ? candidate.match!.id.value
+              : null,
+          name: candidate.name,
+          unitLabel: candidate.unitLabel,
+          quantityPerBatch: candidate.quantityPerBatch,
+        ),
+      );
     }
     Navigator.of(context).pop(results);
   }
@@ -286,7 +278,7 @@ class _IngredientPasteSheetState extends ConsumerState<IngredientPasteSheet> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       for (var i = 0; i < candidates.length; i++)
-                        _buildCandidateRow(theme, i, candidates[i]),
+                        _buildCandidateRow(i, candidates[i]),
                     ],
                   ),
                 ),
@@ -312,64 +304,36 @@ class _IngredientPasteSheetState extends ConsumerState<IngredientPasteSheet> {
     );
   }
 
-  Widget _buildCandidateRow(
-    ThemeData theme,
-    int index,
-    PasteCandidateLine candidate,
-  ) {
+  /// Two states, one shape. KEPT: a ticked checkbox, the pasted line, and
+  /// the amount that was read off it. SKIPPED: the same line greyed out
+  /// with the reason in words. No status glyphs, no colours carrying
+  /// meaning, nothing about how the parser felt about the line.
+  Widget _buildCandidateRow(int index, PasteCandidateLine candidate) {
     final amount = candidate.quantityPerBatch;
     final unit = candidate.unitLabel;
     final amountNote = amount == null
-        ? 'amount left for you'
+        ? 'Amount left for you'
         : '${QuantityCodec.format(amount)}'
               '${unit == null ? '' : ' $unit'} per batch';
-    switch (candidate.status) {
-      case PasteLineStatus.matched:
-        return ListTile(
-          contentPadding: EdgeInsets.zero,
-          leading: Icon(
-            Icons.check_circle_outline,
-            color: theme.colorScheme.primary,
-          ),
-          title: Text(candidate.rawText),
-          subtitle: Text('→ ${candidate.match!.name} · $amountNote'),
-        );
-      case PasteLineStatus.ambiguous:
-        final names = [for (final item in candidate.nearMatches) item.name];
-        return ListTile(
-          contentPadding: EdgeInsets.zero,
-          leading: Icon(Icons.help_outline, color: theme.colorScheme.tertiary),
-          title: Text(candidate.rawText),
-          subtitle: Text(
-            'Could be ${names.join(' or ')} — added as its own line; '
-            'link it later if you want',
-          ),
-        );
-      case PasteLineStatus.unmatched:
-        return CheckboxListTile(
-          contentPadding: EdgeInsets.zero,
-          controlAffinity: ListTileControlAffinity.leading,
-          value: _keep[index] ?? false,
-          onChanged: (checked) =>
-              setState(() => _keep[index] = checked ?? false),
-          title: Text('Add «${candidate.name}»'),
-          subtitle: Text(
-            candidate.rawText == candidate.name
-                ? 'Not in your items — added as its own line · $amountNote'
-                : '${candidate.rawText} · not in your items — added as its '
-                      'own line · $amountNote',
-          ),
-        );
-      case PasteLineStatus.excluded:
-        return ListTile(
-          contentPadding: EdgeInsets.zero,
-          leading: Icon(Icons.block_outlined, color: theme.colorScheme.error),
-          title: Text(candidate.rawText),
-          subtitle: Text(
-            '«${candidate.match!.name}» is on the sales table — '
-            'recipes never use it. Skipped.',
-          ),
-        );
+    if (_isSkipped(candidate)) {
+      return ListTile(
+        key: ValueKey('paste-skipped-$index'),
+        contentPadding: EdgeInsets.zero,
+        enabled: false,
+        title: Text(candidate.rawText),
+        subtitle: const Text(
+          'Skipped: this is something you sell, not something you cook with.',
+        ),
+      );
     }
+    return CheckboxListTile(
+      key: ValueKey('paste-keep-$index'),
+      contentPadding: EdgeInsets.zero,
+      controlAffinity: ListTileControlAffinity.leading,
+      value: _keep[index] ?? false,
+      onChanged: (checked) => setState(() => _keep[index] = checked ?? false),
+      title: Text(candidate.rawText),
+      subtitle: Text(amountNote),
+    );
   }
 }

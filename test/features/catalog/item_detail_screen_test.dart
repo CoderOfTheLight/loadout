@@ -227,7 +227,10 @@ void main() {
     expect(detail!.item.isArchived, isFalse);
   });
 
-  testWidgets('quick actions route to the movement entry form', (tester) async {
+  testWidgets('Count is the one primary action; the other two ledger '
+      'entries live in the overflow, each named for what happened', (
+    tester,
+  ) async {
     final h = (await tester.runAsync(
       () => AppHarness.start(state: AppHarnessState.workspace),
     ))!;
@@ -238,15 +241,33 @@ void main() {
     await h.go(tester, '/items/$id');
     expect(find.byType(ItemDetailScreen), findsOneWidget);
 
-    await tester.tap(find.text('Record movement'));
-    await tester.pumpAndSettle();
+    // Two same-weight buttons competed here; now one filled button does.
+    expect(find.widgetWithText(FilledButton, 'Count'), findsOneWidget);
+    expect(find.text('Record movement'), findsNothing);
 
+    await tester.tap(find.text('Count'));
+    await tester.pumpAndSettle();
+    var entry = tester.widget<MovementEntryScreen>(
+      find.byType(MovementEntryScreen),
+    );
     // The router passed the item through the ?itemId= query parameter.
-    final entry = tester.widget<MovementEntryScreen>(
+    expect(entry.itemId, id);
+    expect(entry.kind, 'count');
+    expect(find.text('Count what you have'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('More options'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Something arrived'));
+    await tester.pumpAndSettle();
+    entry = tester.widget<MovementEntryScreen>(
       find.byType(MovementEntryScreen),
     );
     expect(entry.itemId, id);
-    expect(entry.kind, isNull);
+    expect(entry.kind, 'receive');
+    expect(find.text('Something arrived'), findsOneWidget);
+    await h.flushTimers(tester);
   });
 
   testWidgets('the header names where the item lives — folder chip and '

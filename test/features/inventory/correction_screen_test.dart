@@ -1,7 +1,11 @@
 /// CorrectionScreen widget tests (design §9 `/movements/:id/correct`,
 /// §11.3 correction row): atomic reversal + optional replacement in one
-/// command, reverse-only toggle, required reason, and the refusal state
-/// for targets the applier rejects.
+/// command, required reason, and the refusal state for targets the applier
+/// rejects.
+///
+/// Pinned here: the two plain buttons write exactly the commands the
+/// "Reverse only (no replacement)" switch used to — "Change the number"
+/// reverses and replaces, "Delete this entry" only reverses.
 library;
 
 import 'package:flutter/material.dart';
@@ -65,9 +69,8 @@ Future<List<MovementView>> _movements(AppHarness h, WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('records reversal plus replacement in one command', (
-    tester,
-  ) async {
+  testWidgets('"Change the number" records reversal plus replacement in one '
+      'command', (tester) async {
     final h = await tester.runAsync(
       () => AppHarness.start(state: AppHarnessState.workspace),
     );
@@ -78,8 +81,12 @@ void main() {
     await h.pumpApp(tester);
     await h.go(tester, '/movements/$movementId/correct');
 
-    // Replacement prefilled from the target.
+    // Replacement prefilled from the target — and the switch that asked
+    // her to translate "reverse only (no replacement)" is gone.
     expect(find.text('10'), findsOneWidget);
+    expect(find.byType(SwitchListTile), findsNothing);
+    expect(find.text('Reverse only (no replacement)'), findsNothing);
+    expect(find.text('The original stays on record.'), findsOneWidget);
     await tester.enterText(
       find.widgetWithText(TextFormField, 'Reason'),
       'typo',
@@ -91,7 +98,7 @@ void main() {
       ),
       '8',
     );
-    await tester.tap(find.text('Record correction'));
+    await tester.tap(find.text('Change the number'));
     await tester.pumpAndSettle();
 
     expect(find.text('Correction recorded.'), findsOneWidget);
@@ -121,7 +128,7 @@ void main() {
     expect(original.reversedByMovementId, isNotNull);
   });
 
-  testWidgets('reverse only skips the replacement', (tester) async {
+  testWidgets('"Delete this entry" skips the replacement', (tester) async {
     final h = await tester.runAsync(
       () => AppHarness.start(state: AppHarnessState.workspace),
     );
@@ -136,11 +143,9 @@ void main() {
       find.widgetWithText(TextFormField, 'Reason'),
       'never happened',
     );
-    await tester.tap(find.text('Reverse only (no replacement)'));
-    await tester.pumpAndSettle();
-    expect(find.byType(QuantityFormField), findsNothing);
-
-    await tester.tap(find.text('Record correction'));
+    // No mode to set first: the button IS the choice. The quantity box on
+    // screen belongs to the other button and never blocks this one.
+    await tester.tap(find.text('Delete this entry'));
     await tester.pumpAndSettle();
 
     final views = await _movements(h, tester);
@@ -149,7 +154,7 @@ void main() {
     expect(views.first.movement.deltaMicros, -10000000);
   });
 
-  testWidgets('a reason is required', (tester) async {
+  testWidgets('a reason is required by BOTH buttons', (tester) async {
     final h = await tester.runAsync(
       () => AppHarness.start(state: AppHarnessState.workspace),
     );
@@ -160,9 +165,13 @@ void main() {
     await h.pumpApp(tester);
     await h.go(tester, '/movements/$movementId/correct');
 
-    await tester.tap(find.text('Record correction'));
+    await tester.tap(find.text('Change the number'));
     await tester.pumpAndSettle();
+    expect(find.text('Enter a reason for the correction'), findsOneWidget);
+    expect(await _movements(h, tester), hasLength(1));
 
+    await tester.tap(find.text('Delete this entry'));
+    await tester.pumpAndSettle();
     expect(find.text('Enter a reason for the correction'), findsOneWidget);
     expect(await _movements(h, tester), hasLength(1));
   });
@@ -186,6 +195,7 @@ void main() {
     await h.go(tester, '/movements/$movementId/correct');
 
     expect(find.textContaining('already been corrected'), findsOneWidget);
-    expect(find.text('Record correction'), findsNothing);
+    expect(find.text('Change the number'), findsNothing);
+    expect(find.text('Delete this entry'), findsNothing);
   });
 }

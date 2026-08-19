@@ -6,6 +6,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:loadout/app/providers.dart';
 import 'package:loadout/core/quantity.dart';
 import 'package:loadout/features/closeout/domain/closeout_form.dart';
 
@@ -71,16 +72,71 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Farmers market (moved)'), findsOneWidget);
 
-    // Activate: planned → active; the cancel entry disappears (§12.15:
-    // an activated event must be closed out, never cancelled).
+    // Start this event: planned → active; the cancel entry disappears
+    // (§12.15: an activated event must be closed out, never cancelled).
     expect(find.byType(PopupMenuButton<String>), findsOneWidget);
-    await tester.tap(find.text('Activate event'));
+    await tester.tap(find.text('Start this event'));
     await tester.pumpAndSettle();
     expect(find.text('Active'), findsOneWidget);
-    expect(find.text('Activate event'), findsNothing);
+    expect(find.text('Start this event'), findsNothing);
     expect(find.byType(PopupMenuButton<String>), findsNothing);
     // Close out becomes available.
     expect(find.text('Close out'), findsOneWidget);
+  });
+
+  testWidgets('the detail screen speaks plainly: a Packing list nobody has '
+      'to decode, a button that says what it does, and no dead ends', (
+    tester,
+  ) async {
+    final h = (await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    ))!;
+    addTearDown(h.dispose);
+    late String eventId;
+    late String forecastEventId;
+    await tester.runAsync(() async {
+      final item = await seedItem(h, name: 'Tortillas');
+      eventId = await seedEvent(
+        h,
+        name: 'Community dinner',
+        date: '2026-09-12',
+        exposure: 150,
+        itemIds: [item],
+      );
+      forecastEventId = await seedEvent(
+        h,
+        name: 'Harvest supper',
+        date: '2026-09-19',
+        exposure: 150,
+        itemIds: [item],
+      );
+      await h.read(forecastServiceProvider).generateSnapshot(forecastEventId);
+    });
+
+    await h.pumpApp(tester);
+    await h.go(tester, '/events/$eventId');
+
+    // The tile is named for the thing it produces, and its caption says
+    // whether it exists — never `direct_median v3 · for 150 attendance`.
+    expect(find.text('Packing list'), findsOneWidget);
+    expect(find.text('Not made yet'), findsOneWidget);
+    expect(find.text('Forecast & load list'), findsNothing);
+    expect(find.textContaining('direct_median'), findsNothing);
+
+    // The lifecycle action says what it does to THIS event.
+    expect(find.text('Start this event'), findsOneWidget);
+
+    // The Production tile is gone: a disabled "Coming soon" row that never
+    // navigated anywhere is a dead end, not a feature.
+    expect(find.text('Production plan'), findsNothing);
+    expect(find.text('Coming soon'), findsNothing);
+
+    // Once a forecast exists the caption says who it is for, in words.
+    await h.go(tester, '/events/$forecastEventId');
+    expect(find.text('Packing list'), findsOneWidget);
+    expect(find.text('For 150 attendance'), findsOneWidget);
+    expect(find.text('Not made yet'), findsNothing);
+    expect(find.textContaining('direct_median'), findsNothing);
   });
 
   testWidgets('cancel pre-activation requires a reason', (tester) async {
@@ -114,7 +170,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Cancelled'), findsOneWidget);
-    expect(find.text('Activate event'), findsNothing);
+    expect(find.text('Start this event'), findsNothing);
   });
 
   testWidgets('closed event: revisions summary, revise entry, edit lock', (
@@ -162,7 +218,7 @@ void main() {
     expect(find.textContaining('100 attendance confirmed'), findsOneWidget);
     expect(find.text('Accuracy review'), findsOneWidget);
     // No lifecycle actions remain.
-    expect(find.text('Activate event'), findsNothing);
+    expect(find.text('Start this event'), findsNothing);
     expect(find.byIcon(Icons.edit_outlined), findsNothing);
 
     // The edit route is locked for closed events (§12.14).

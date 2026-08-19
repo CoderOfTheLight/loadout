@@ -160,19 +160,19 @@ void main() {
     expect(find.byType(TidyFoldersScreen), findsOneWidget);
 
     // "Drinks" and "drinks" read as ONE group of two items; nothing is
-    // mapped yet, so everything stays in Unfiled and there is nothing to
-    // confirm.
+    // mapped yet, so everything stays in Unfiled.
     expect(find.text('Drinks'), findsOneWidget);
     expect(find.text('drinks'), findsNothing);
     expect(find.text('2 items · stays in Unfiled'), findsOneWidget);
     expect(find.text('Cleaning'), findsOneWidget);
+    // The screen opens WORKING: moving nothing is a legal answer, so the
+    // button is live and reads "Done" rather than arriving disabled under
+    // "Nothing to move yet".
     expect(
       tester
-          .widget<FilledButton>(
-            find.widgetWithText(FilledButton, 'Nothing to move yet'),
-          )
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Done'))
           .onPressed,
-      isNull,
+      isNotNull,
     );
 
     // Map Drinks → starter "Drinks", Bakery → starter "Bakery"; leave
@@ -249,7 +249,7 @@ void main() {
     await h.flushTimers(tester);
   });
 
-  testWidgets('a skipped-everything tidy has nothing to confirm', (
+  testWidgets('a skipped-everything tidy still opens with a working button', (
     tester,
   ) async {
     _usePhoneSurface(tester);
@@ -271,16 +271,14 @@ void main() {
       findsOneWidget,
     );
     expect(find.textContaining('with no group'), findsNothing);
-    expect(
-      tester
-          .widget<FilledButton>(
-            find.widgetWithText(FilledButton, 'Nothing to move yet'),
-          )
-          .onPressed,
-      isNull,
-    );
-    await tester.pageBack();
+
+    // "Done" is live and leaves without writing anything: a no-op tidy is
+    // a legal outcome, not a broken screen.
+    await tester.tap(find.widgetWithText(FilledButton, 'Done'));
     await tester.pumpAndSettle();
+    expect(find.byType(TidyFoldersScreen), findsNothing);
+    expect(await _liveFolderNames(h, tester), isEmpty);
+    expect((await _itemPlacements(h, tester)).values, everyElement(isNull));
     await h.flushTimers(tester);
   });
 

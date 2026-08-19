@@ -271,6 +271,9 @@ void main() {
       ),
       findsOneWidget,
     );
+    // With NOTHING forecast, the absence is said once at the top and not
+    // repeated on every row.
+    expect(find.text('No forecast for this item.'), findsNothing);
     // No prices anywhere: no total is shown, and no $0 is invented.
     expect(
       find.text('No prices were recorded, so there is no total to show.'),
@@ -308,17 +311,13 @@ void main() {
     await h.go(tester, '/events/$eventId/closeout');
 
     // Count it the leftover way: loaded 10, 2 left → used 8.
-    await tester.ensureVisible(find.textContaining('Worksheet'));
-    await tester.tap(find.textContaining('Worksheet'));
-    await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextFormField, 'Loaded'), '10');
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'How many are left?'),
-      '2',
-    );
+    await tester.enterText(find.widgetWithText(TextFormField, 'Left'), '2');
     await tester.pumpAndSettle();
     expect(find.text('Used: 8'), findsOneWidget);
 
+    await tester.ensureVisible(find.text('Finish closeout'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Finish closeout'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Confirm'));

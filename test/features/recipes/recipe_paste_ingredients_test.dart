@@ -64,23 +64,22 @@ void main() {
       );
       await tapVisible(tester, find.byKey(const Key('paste-review')));
 
-      // The review says what each line became: matches with their parsed
-      // per-batch amounts AND unit labels, the free-line offers, the
-      // ambiguity kept free.
-      expect(find.text('→ Carrots · 2 per batch'), findsOneWidget);
-      expect(find.text('→ Onions · 3 bags per batch'), findsOneWidget);
-      expect(find.text('→ Kidney beans · amount left for you'), findsOneWidget);
-      expect(
-        find.text('→ Chopped tomatoes · amount left for you'),
-        findsOneWidget,
-      );
-      expect(find.text('Add «rolls»'), findsOneWidget);
-      expect(find.text('Add «flour»'), findsOneWidget);
-      expect(find.textContaining('500 g per batch'), findsOneWidget);
-      expect(
-        find.textContaining('added as its own line; link it later'),
-        findsOneWidget,
-      );
+      // TWO states, and every line is in the first one: the line you
+      // pasted, ticked, with the amount that was read off it. No status
+      // glyphs, and no matched-vs-ambiguous distinction — that is parser
+      // state, not something the owner decides anything with.
+      expect(find.byType(CheckboxListTile), findsNWidgets(7));
+      expect(find.text('2x carrots'), findsOneWidget);
+      expect(find.text('2 per batch'), findsOneWidget);
+      expect(find.text('3 bags onions'), findsOneWidget);
+      expect(find.text('3 bags per batch'), findsOneWidget);
+      expect(find.text('Kidney beans'), findsOneWidget);
+      expect(find.text('Amount left for you'), findsNWidgets(4));
+      expect(find.text('rolls'), findsOneWidget);
+      expect(find.text('500g flour'), findsOneWidget);
+      expect(find.text('500 g per batch'), findsOneWidget);
+      expect(find.textContaining('Could be'), findsNothing);
+      expect(find.textContaining('link it later'), findsNothing);
       expect(find.text('Add 7 ingredients'), findsOneWidget);
 
       // There is no folder picker any more — nothing is created, so there
@@ -102,9 +101,11 @@ void main() {
 
       // Seven rows landed on the form (uids 1..7; the pristine starter row
       // was replaced): every row keeps its own pasted text, matched rows
-      // arrive linked, units land in the unit fields.
-      expect(find.text('Linked to “Carrots”'), findsOneWidget);
-      expect(find.text('Linked to “Onions”'), findsOneWidget);
+      // arrive linked, units land in the unit fields. A linked row says so
+      // with a mark, and the verb for it is in that row's overflow.
+      expect(await ingredientMenuOffers(tester, 1, 'unlink-line-1'), isTrue);
+      expect(await ingredientMenuOffers(tester, 2, 'unlink-line-2'), isTrue);
+      expect(await ingredientMenuOffers(tester, 5, 'unlink-line-5'), isFalse);
       expect(find.text('rolls'), findsOneWidget);
       expect(find.text('tomato'), findsOneWidget);
       await tester.enterText(
@@ -201,8 +202,8 @@ void main() {
       'rolls\nsourdough',
     );
     await tapVisible(tester, find.byKey(const Key('paste-review')));
-    expect(find.text('Add «rolls»'), findsOneWidget);
-    expect(find.text('Add «sourdough»'), findsOneWidget);
+    expect(find.text('rolls'), findsOneWidget);
+    expect(find.text('sourdough'), findsOneWidget);
 
     // Back out instead of confirming.
     await tapVisible(tester, find.text('Back'));

@@ -15,6 +15,14 @@ import 'package:loadout/features/inventory/domain/movement.dart';
 import '../../support/app_harness.dart';
 import '../events/feature_seeds.dart';
 
+/// Scrolls [finder] clear of the docked confirm bar, then taps it.
+Future<void> _tap(WidgetTester tester, Finder finder) async {
+  await tester.ensureVisible(finder);
+  await tester.pumpAndSettle();
+  await tester.tap(finder);
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('revise prefills the latest revision and appends N+1', (
     tester,
@@ -54,22 +62,23 @@ void main() {
     await h.pumpApp(tester);
     await h.go(tester, '/events/$eventId/closeout');
 
-    // Revise mode, prefilled from revision 1.
+    // Revise mode, prefilled from revision 1. The line comes back already
+    // confirmed, so its card opens folded to the one-row summary.
     expect(find.text('Revise closeout'), findsOneWidget);
     expect(find.text('Confirming appends revision 2.'), findsOneWidget);
     expect(find.text('120'), findsOneWidget); // confirmed exposure
-    expect(find.text('Used: 7'), findsOneWidget); // worksheet derived
+    expect(find.text('Used: 7'), findsOneWidget); // derived, on the summary
+    expect(find.widgetWithText(TextFormField, 'Left'), findsNothing);
 
-    // Correct the leftover count: 2 → 3, used re-derives live.
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'How many are left?'),
-      '3',
-    );
+    // Tap it open and correct the leftover count: 2 → 3, used re-derives
+    // live. The thrown-out box is back out because there is a 1 in it.
+    await _tap(tester, find.text('Tortillas'));
+    expect(find.widgetWithText(TextFormField, 'Thrown out'), findsOneWidget);
+    await tester.enterText(find.widgetWithText(TextFormField, 'Left'), '3');
     await tester.pumpAndSettle();
     expect(find.text('Used: 6'), findsOneWidget);
 
-    await tester.tap(find.text('Confirm revision'));
-    await tester.pumpAndSettle();
+    await _tap(tester, find.text('Confirm revision'));
     expect(find.text('Confirm revision 2?'), findsOneWidget);
     expect(
       find.text('This becomes the history your forecasts learn from.'),
@@ -158,15 +167,20 @@ void main() {
     await h.go(tester, '/events/$eventId/closeout');
 
     // The item without a revision-1 line reopens as skipped; the confirmed
-    // one carries its depletion — a direct entry, so the worksheet reopens
-    // with the "Used" field showing it rather than hiding the number.
+    // one carries its depletion. Both are done, so both open folded.
     expect(find.text('55'), findsOneWidget);
-    expect(find.text('4'), findsOneWidget);
+    expect(find.text('Used: 4'), findsOneWidget);
+    expect(find.text('Skipped'), findsOneWidget);
+    // A skip is not part of the population that still needs counting, so
+    // the header and the confirm bar agree there is nothing left to do.
+    expect(find.text('1 of 1 confirmed'), findsOneWidget);
+    expect(find.textContaining('not confirmed yet'), findsNothing);
+
+    // Tapping the confirmed line open shows the number in the box that
+    // recorded it: a plain "used" figure, entered directly.
+    await _tap(tester, find.text('Al pastor'));
     expect(find.widgetWithText(TextFormField, 'Used'), findsOneWidget);
-    expect(
-      find.textContaining('nothing will be recorded for this item'),
-      findsOneWidget,
-    );
-    expect(find.text('1 of 2 confirmed'), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, 'Left'), findsNothing);
+    expect(find.text('4'), findsOneWidget);
   });
 }

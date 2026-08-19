@@ -634,42 +634,43 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    // Chicken soup: worksheet, loaded 40, 6 left -> Confirmed (Used: 34).
-    await tapIn('Chicken soup', find.textContaining('Worksheet ('));
-    await tester.enterText(
-      inCard('Chicken soup', find.widgetWithText(TextFormField, 'Loaded')),
-      '40',
-    );
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      inCard(
-        'Chicken soup',
-        find.widgetWithText(TextFormField, 'How many are left?'),
-      ),
-      '6',
-    );
-    await tester.pumpAndSettle();
-    // Fold the completed worksheet away so the confirmed card is compact
-    // and all three line states fit in the captured frame.
-    await tapIn('Chicken soup', find.text('Hide worksheet'));
+    // The card list builds lazily now, so a card has to be scrolled into
+    // range before it can be found at all.
+    Future<void> reveal(String itemName) async {
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, 4000));
+      await tester.pumpAndSettle();
+      final target = find.text(itemName);
+      if (target.evaluate().isEmpty) {
+        await tester.scrollUntilVisible(
+          target,
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+      }
+      await tester.ensureVisible(target.first);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> typeIn(String itemName, String label, String value) async {
+      await reveal(itemName);
+      final field = inCard(itemName, find.widgetWithText(TextFormField, label));
+      await tester.ensureVisible(field.first);
+      await tester.pumpAndSettle();
+      await tester.enterText(field.first, value);
+      await tester.pumpAndSettle();
+    }
+
+    // Chicken soup: loaded 40, 6 left -> Confirmed (Used: 34), and the
+    // confirmed card folds itself to one row.
+    await typeIn('Chicken soup', 'Loaded', '40');
+    await typeIn('Chicken soup', 'Left', '6');
 
     // Tortilla chips: a loaded count only -> In progress.
-    await tapIn(
-      'Tortilla chips (party bag)',
-      find.textContaining('Worksheet ('),
-    );
-    await tester.enterText(
-      inCard(
-        'Tortilla chips (party bag)',
-        find.widgetWithText(TextFormField, 'Loaded'),
-      ),
-      '30',
-    );
-    await tester.pumpAndSettle();
-    await tapIn('Tortilla chips (party bag)', find.text('Hide worksheet'));
+    await typeIn('Tortilla chips (party bag)', 'Loaded', '30');
 
     // Bottled water: deliberately skipped.
-    await tapIn('Bottled water', find.text('Skip item'));
+    await reveal('Bottled water');
+    await tapIn('Bottled water', find.text('Skip'));
 
     // Flush the 500 ms draft autosave, then scroll back to the top.
     await tester.pump(const Duration(seconds: 1));

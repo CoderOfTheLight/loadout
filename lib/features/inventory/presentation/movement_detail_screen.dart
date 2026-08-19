@@ -1,5 +1,7 @@
-/// Append-only record view (design §9 MovementDetailScreen): occurred vs
-/// recorded, event link, source command id, correction links. Single
+/// Append-only record view (design §9 MovementDetailScreen): when it
+/// happened, the event link, the note, and correction links. The internal
+/// source-command id is model leakage and is not shown; "Recorded" only
+/// appears when it differs from "Occurred". Single
 /// action "Correct this entry" — no delete, no edit. Consume-kind and
 /// closeout-linked rows are refused by the applier, so this screen
 /// surfaces that state instead of offering the action; the same goes for
@@ -113,19 +115,25 @@ class _MovementDetailBody extends ConsumerWidget {
     String? eventId,
   ) {
     final movement = view.movement;
+    final occurred = dateTimeLabel(instantToLocal(movement.occurredAt));
+    final recorded = dateTimeLabel(instantToLocal(movement.recordedAt));
     return Card(
       child: Column(
         children: [
           ListTile(
             leading: const Icon(Icons.today_outlined),
             title: const Text('Occurred'),
-            subtitle: Text(dateTimeLabel(instantToLocal(movement.occurredAt))),
+            subtitle: Text(occurred),
           ),
-          ListTile(
-            leading: const Icon(Icons.history),
-            title: const Text('Recorded'),
-            subtitle: Text(dateTimeLabel(instantToLocal(movement.recordedAt))),
-          ),
+          // Only worth a row when it says something new: nearly every entry
+          // is recorded when it happened, and a second identical timestamp
+          // is a row she has to read to learn nothing.
+          if (recorded != occurred)
+            ListTile(
+              leading: const Icon(Icons.history),
+              title: const Text('Recorded'),
+              subtitle: Text(recorded),
+            ),
           if (eventId != null)
             ListTile(
               leading: const Icon(Icons.event_outlined),
@@ -140,14 +148,6 @@ class _MovementDetailBody extends ConsumerWidget {
               title: const Text('Note'),
               subtitle: Text(movement.note),
             ),
-          ListTile(
-            leading: const Icon(Icons.tag),
-            title: const Text('Source command'),
-            subtitle: Text(
-              movement.sourceCommandId as String,
-              style: const TextStyle(fontFamily: 'monospace'),
-            ),
-          ),
         ],
       ),
     );

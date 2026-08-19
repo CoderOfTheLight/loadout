@@ -20,6 +20,7 @@ import '../../../core/units.dart';
 import '../../catalog/application/catalog_service.dart';
 import '../../catalog/domain/demand_basis.dart';
 import '../../catalog/domain/item.dart';
+import '../../events/presentation/event_ui.dart';
 import '../application/baseline_estimator.dart';
 import '../domain/forecast_engine.dart';
 import '../domain/snapshot.dart';
@@ -81,13 +82,6 @@ String formatMicros(int micros) => micros < 0
     ? '-${QuantityCodec.formatDisplayMicros(-micros)}'
     : QuantityCodec.formatDisplayMicros(micros);
 
-/// The same, for a RATE rather than a count — a per-person figure like
-/// `0.01 per person`, which the tenth-place cap would flatten to `0`.
-/// Two decimals: enough for the rates this app derives, still not micros.
-String formatRateMicros(int micros) => micros < 0
-    ? '-${QuantityCodec.formatDisplayMicros(-micros, maxFractionDigits: 2)}'
-    : QuantityCodec.formatDisplayMicros(micros, maxFractionDigits: 2);
-
 /// `45`, `1.5 kg`, or `—` for null.
 ///
 /// A counted item reads as a bare number — units left the product surface in
@@ -125,90 +119,214 @@ String exposureLabelOf(ForecastSnapshotView snapshot) {
 /// Switches on [ForecastLineView.basis], never on `evidenceGrade`: a line
 /// with no closeouts but a "1 serves N" estimate carries a real number, and
 /// badging it `No history` beside that number reads as a bug.
+///
+/// The blank state splits on the evidence for the same reason: a line whose
+/// confirmed history was too large to scale is stored as `insufficient_data`
+/// WITH its closeouts, and badging those "No history" would deny records the
+/// owner can see listed one tap away.
 String evidenceBadgeLabel(ForecastLineView line) => switch (line.basis) {
-  ForecastBasis.insufficientData => 'No history',
+  ForecastBasis.insufficientData =>
+    line.evidence.isEmpty
+        ? 'No history'
+        : '${line.evidence.length} '
+              'event${line.evidence.length == 1 ? '' : 's'}',
   ForecastBasis.servesBaseline => 'Estimate',
   ForecastBasis.perEventBaseline => 'Estimate',
   ForecastBasis.singleEvent => '1 event',
   ForecastBasis.observedRange => '${line.evidence.length} events',
 };
 
-/// The one-line plain-words statement of what a line's number rests on and
-/// which question it answered — "2 per event, from 5 events" vs
-/// "0.4 per person, from 5 events" — or the cold-start equivalent. Null only
-/// when there is nothing to explain (no number at all).
+// ------------------------------------------------- one line, in one sentence
+
+/// The one short line that stands in for the stacked cold-start warnings.
 ///
-/// The per-person rate is derived from the STORED snapshot numbers
-/// (`expectedUse ÷ upcomingExposure`), so it always agrees with the number
-/// beside it — including after the sell-out adjustment, which a re-median of
-/// the raw evidence would not.
-String? basisExplanation(
+/// A line with no confirmed history used to carry TWO amber banners saying
+/// the same thing twice in the engine's vocabulary — "No comparable confirmed
+/// outcomes. Create a baseline plan." and "Estimate only: worked out from
+/// '1 serves 4', not from confirmed outcomes…". Both mean "this is a guess",
+/// and a volunteer reading a packing list needs that once, in her own words.
+const String coldStartNote = 'A guess — no past events to learn from yet.';
+
+/// The same note for a line that has NO number at all.
+///
+/// [coldStartNote] replaces two banners on a line that produced a starting
+/// figure from "1 serves N" (or the ratio, or the usual amount) — that figure
+/// really is a guess. A line with nothing to guess from produced no figure,
+/// carried only the engine's own banner, and calling it "a guess" would name
+/// something that does not exist. One short line either way.
+String coldStartNoteFor(ForecastLineView line) =>
+    line.effectiveLoadMicros == null
+    ? 'No past events to learn from yet.'
+    : coldStartNote;
+
+/// True for the stored warnings [coldStartNote] speaks for. Every other
+/// warning — the exposure range, the sell-out lift, the supplies jump, the
+/// out-of-envelope refusal — still renders verbatim, because each says
+/// something [coldStartNote] does not.
+bool isColdStartWarning(String warning) =>
+    warning == 'No comparable confirmed outcomes. Create a baseline plan.' ||
+    warning.startsWith('Estimate only:');
+
+/// True when this line rests on NO confirmed outcome at all — a cold-start
+/// estimate, or nothing whatever.
+///
+/// The evidence check is not redundant: a line whose confirmed history is too
+/// large to scale is stored as `insufficient_data` WITH its evidence, and
+/// calling that "no past events to learn from" would be a lie.
+bool isColdStartLine(ForecastLineView line) =>
+    line.evidence.isEmpty &&
+    line.basis != ForecastBasis.singleEvent &&
+    line.basis != ForecastBasis.observedRange;
+
+/// The whole of one forecast line as one sentence a human can check:
+/// what to bring, what that rests on, and what is already on the shelf.
+///
+/// Every clause is read off the SAME stored fields the old assumptions table
+/// printed — nothing is recomputed, and nothing here can be true of one case
+/// and false of another: no history, one event, a cold-start guess, an
+/// override in force and an empty shelf each get their own words.
+String forecastLineSentence(
   ForecastLineView line, {
   required int upcomingExposure,
+  required String exposureLabel,
+  ItemUnit? unit,
 }) {
-  final n = line.evidence.length;
-  final events = n == 1 ? '1 event' : '$n events';
+  final explanation = forecastLineExplanation(
+    line,
+    upcomingExposure: upcomingExposure,
+    exposureLabel: exposureLabel,
+    unit: unit,
+  );
+  return '${forecastLineInstruction(line, unit: unit)} $explanation';
+}
+
+/// The instruction half — the only thing on the screen that is an action.
+String forecastLineInstruction(ForecastLineView line, {ItemUnit? unit}) =>
+    line.effectiveLoadMicros == null
+    ? 'No number yet.'
+    : 'Bring ${formatQuantity(line.effectiveLoadMicros, unit)}.';
+
+/// The evidence half: who set the number, what it came from, what you have.
+String forecastLineExplanation(
+  ForecastLineView line, {
+  required int upcomingExposure,
+  required String exposureLabel,
+  ItemUnit? unit,
+}) {
+  final clauses = <String>[];
+  if (line.isOverridden) clauses.add(_overrideClause(line, unit));
+  final why = _basisClause(
+    line,
+    upcomingExposure: upcomingExposure,
+    exposureLabel: exposureLabel,
+    unit: unit,
+  );
+  if (why != null) clauses.add(why);
+  clauses.add(_onHandClause(line, unit));
+  return clauses.join(' ');
+}
+
+/// An override is the owner's own number, so the sentence says whose it is
+/// and what the app would have said instead — never silently.
+String _overrideClause(ForecastLineView line, ItemUnit? unit) {
+  final reason = line.override!.reason.trim().replaceAll(
+    RegExp(r'[.\s]+$'),
+    '',
+  );
+  final suggested = line.suggestedLoadMicros;
+  if (suggested == null) {
+    return 'You set that yourself: $reason. Loadout had no number of its own.';
+  }
+  return 'You set that yourself: $reason. '
+      'Loadout worked out ${formatQuantity(suggested, unit)}.';
+}
+
+/// What the number rests on, in the two most recent confirmed outcomes —
+/// the rows below list every one of them. Null when there is nothing to say.
+String? _basisClause(
+  ForecastLineView line, {
+  required int upcomingExposure,
+  required String exposureLabel,
+  ItemUnit? unit,
+}) {
   switch (line.basis) {
     case ForecastBasis.singleEvent || ForecastBasis.observedRange:
-      final expected = line.expectedUseMicros;
-      if (expected == null) return null;
-      if (line.demandBasis == DemandBasis.perEvent) {
-        return '${formatMicros(expected)} per event, from $events';
-      }
-      if (upcomingExposure <= 0) return null;
-      return '${formatRateMicros(expected ~/ upcomingExposure)} per person, '
-          'from $events';
-    case ForecastBasis.perEventBaseline:
-      final usual = line.baselinePerEventMicros;
-      if (usual == null) return null;
-      return '${formatMicros(usual)} per event — your usual amount, '
-          'nothing confirmed yet';
+      final history = line.evidence;
+      if (history.isEmpty) return null;
+      // Attendance is deliberately absent on a per-event item: ignoring
+      // headcount is exactly what that basis means, so quoting one would
+      // suggest the number moves with it.
+      final perEvent = line.demandBasis == DemandBasis.perEvent;
+      final first = formatQuantity(history.first.depletionMicros, unit);
+      final firstFor = perEvent
+          ? first
+          : '$first for ${history.first.exposure} $exposureLabel';
+      if (history.length == 1) return 'Last time you used $firstFor.';
+      final second = formatQuantity(history[1].depletionMicros, unit);
+      final secondFor = perEvent
+          ? second
+          : '$second for ${history[1].exposure}';
+      return 'Last time you used $firstFor; before that, $secondFor.';
     case ForecastBasis.servesBaseline:
       if (line.baselineServesPerUnitMicros case final serves?) {
-        return '1 serves ${formatServesPerUnit(serves)} — estimate, '
-            'nothing confirmed yet';
+        return '$coldStartNote One serves ${formatServesPerUnit(serves)}, '
+            'and you are expecting $upcomingExposure $exposureLabel.';
       }
       if ((line.baselinePerPersonNumerator, line.baselinePerPersonDenominator)
           case (final numerator?, final denominator?)) {
-        return '${formatPerPersonRatio(numerator, denominator)} — estimate, '
-            'nothing confirmed yet';
+        return '$coldStartNote You said '
+            '${formatPerPersonRatio(numerator, denominator)}, and you are '
+            'expecting $upcomingExposure $exposureLabel.';
       }
-      return null;
+      return coldStartNote;
+    case ForecastBasis.perEventBaseline:
+      if (line.baselinePerEventMicros case final usual?) {
+        return '$coldStartNote You said you usually bring '
+            '${formatQuantity(usual, unit)}.';
+      }
+      return coldStartNote;
     case ForecastBasis.insufficientData:
-      return null;
+      // Two very different silences. One has no history; the other has
+      // history the arithmetic could not carry — and saying "no past
+      // events" over real closeouts would be a lie.
+      return line.evidence.isEmpty
+          ? 'No past events to learn from yet, and nothing saved for this '
+                'item to guess from.'
+          : 'Loadout could not work out a number from your past events.';
   }
 }
 
-/// How this line's sell-out days were treated, or null when none sold out.
-///
-/// Derived from the STORED evidence — the real confirmed flags — so it says
-/// the same thing whether it is read now or in a year. Only lines the engine
-/// actually forecast carry an adjustment; a blank line had no arithmetic to
-/// adjust.
-///
-/// [methodVersion] is the SNAPSHOT's stored version, not the app's. A
-/// snapshot older than [selloutAwareMethodVersion] was computed before the
-/// correction existed, so it says the days ran out and that this forecast did
-/// not allow for them. Claiming otherwise over frozen history would be a lie
-/// the owner has no way to check — and a closed event shows no "older method"
-/// banner to correct it, because there is nothing left to regenerate.
-String? selloutHandlingNote(
-  ForecastLineView line, {
-  required int methodVersion,
-}) {
-  if (line.basis != ForecastBasis.singleEvent &&
-      line.basis != ForecastBasis.observedRange) {
-    return null;
-  }
-  final sellouts = line.evidence.where((e) => e.stockout).length;
-  if (sellouts == 0) return null;
-  final of = '$sellouts of ${line.evidence.length}';
-  if (methodVersion < selloutAwareMethodVersion) {
-    return '$of — this forecast did not allow for them';
-  }
-  return sellouts == line.evidence.length
-      ? '$of — busiest day used for all'
-      : '$of — raised to your typical rate';
+/// What was on the shelf when this was worked out — the figure the acquire
+/// number was subtracted with. "None" is said in words, never as a 0.
+String _onHandClause(ForecastLineView line, ItemUnit? unit) {
+  final usable = line.onHandMicros < 0 ? 0 : line.onHandMicros;
+  final available = usable + line.confirmedInboundMicros;
+  return available > 0
+      ? 'You have ${formatQuantity(available, unit)}.'
+      : 'You have none.';
+}
+
+/// `2026-08-07` → `Aug 7`, and `Aug 7 2025` when the year is not
+/// [contextYear] — a bare "Aug 7" three years on would be ambiguous.
+String shortEventDate(String ymd, {required int contextYear}) {
+  final day = parseYmd(ymd);
+  if (day == null) return ymd;
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  final label = '${months[day.month - 1]} ${day.day}';
+  return day.year == contextYear ? label : '$label ${day.year}';
 }
 
 /// How many DISTINCT past events this snapshot's numbers actually rest on.
@@ -229,8 +347,7 @@ int snapshotEvidenceEventCount(ForecastSnapshotView snapshot) => {
 /// kitchen coordinator nothing she can act on, and reads as a leaked
 /// debugging string. What she needs is the same honesty in her own terms —
 /// how much real history this rests on, and how fresh it is. The identifier
-/// is still stored on the snapshot and still shown where it belongs (the
-/// per-line "Assumptions" detail and the About screen).
+/// is still stored on every snapshot row; no screen prints it any more.
 String snapshotProvenanceLabel(ForecastSnapshotView snapshot, {DateTime? now}) {
   final events = snapshotEvidenceEventCount(snapshot);
   final updated = relativeTimeLabel(snapshot.createdAt, now: now);
@@ -256,7 +373,14 @@ String relativeTimeLabel(Instant instant, {DateTime? now}) {
   return '${local.year}-${_pad(local.month)}-${_pad(local.day)}';
 }
 
-/// Absolute local timestamp (`2026-08-11 14:32`) for assumption rows.
+/// The local calendar year an [Instant] fell in — what a bare `Aug 7` on an
+/// evidence row is read against (see [shortEventDate]).
+int instantYear(Instant instant) => DateTime.fromMicrosecondsSinceEpoch(
+  instant.epochMicrosUtc,
+  isUtc: true,
+).toLocal().year;
+
+/// Absolute local timestamp (`2026-08-11 14:32`) for the override log.
 String absoluteTimeLabel(Instant instant) {
   final local = DateTime.fromMicrosecondsSinceEpoch(
     instant.epochMicrosUtc,

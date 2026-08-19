@@ -306,14 +306,20 @@ class _TidyFoldersScreenState extends ConsumerState<TidyFoldersScreen> {
   /// items in one batch command per destination folder. Skipped groups get
   /// no command at all — their items are already Unfiled.
   Future<void> _commit(List<_LegacyGroup> groups) async {
-    setState(() => _submitting = true);
-    final service = ref.read(catalogServiceProvider);
     final itemIdsByChoice = <_FolderChoice, List<String>>{};
     for (final group in groups) {
       final choice = _assignments[group.key];
       if (choice == null) continue;
       itemIdsByChoice.putIfAbsent(choice, () => []).addAll(group.itemIds);
     }
+    // A no-op tidy: everything stays in Unfiled, which is a legal outcome.
+    // Leave without writing anything and without a snackbar about zeroes.
+    if (itemIdsByChoice.isEmpty) {
+      Navigator.of(context).pop();
+      return;
+    }
+    setState(() => _submitting = true);
+    final service = ref.read(catalogServiceProvider);
     final toCreate = [
       for (final choice in _starterChoices)
         if (itemIdsByChoice.containsKey(choice) && choice.folderId == null)
@@ -430,9 +436,8 @@ class _TidyFoldersScreenState extends ConsumerState<TidyFoldersScreen> {
         child: ListView(
           children: [
             Text(
-              'These are the groups you\'ve typed so far. Point each one at '
-              'a folder, or skip it — skipped items stay in Unfiled, in '
-              'plain sight. Nothing moves until you confirm.',
+              'Point each group at a folder — anything you skip stays in '
+              'Unfiled.',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -489,11 +494,13 @@ class _TidyFoldersScreenState extends ConsumerState<TidyFoldersScreen> {
           ],
         ),
       );
+      // The button is LIVE from the moment the screen opens. Moving nothing
+      // is a legal answer to "where should these go?" — arriving at a
+      // disabled button reading "Nothing to move yet" made a working screen
+      // look broken before the owner had done anything at all.
       actionBar = FormActionBar(
         child: FilledButton(
-          onPressed: _submitting || mappedItemCount == 0
-              ? null
-              : () => _commit(groups),
+          onPressed: _submitting ? null : () => _commit(groups),
           style: FilledButton.styleFrom(minimumSize: primaryButtonMinSize),
           child: _submitting
               ? const SizedBox(
@@ -503,7 +510,7 @@ class _TidyFoldersScreenState extends ConsumerState<TidyFoldersScreen> {
                 )
               : Text(
                   mappedItemCount == 0
-                      ? 'Nothing to move yet'
+                      ? 'Done'
                       : 'Move ${_countLabel(mappedItemCount)} into '
                             '${_folderCountLabel(mappedFolderCount)}',
                   textAlign: TextAlign.center,

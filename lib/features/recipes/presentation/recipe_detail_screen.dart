@@ -1,9 +1,18 @@
 /// §9 `/recipes/:recipeId` — RecipeDetailScreen.
 ///
-/// Renders the current revision read-only (yield, lines, note) with a
-/// revision picker ("Revision 3 · 2026-08-02") that renders any prior
-/// revision verbatim, a revision history list (immutable, each entry with
-/// its form/OCR source badge), and app-bar Revise / Archive actions.
+/// Renders the current revision read-only: the recipe's name, what a batch
+/// makes, what it costs, the ingredients, the note. ONE app-bar verb —
+/// Revise — and one "More" menu holding everything rarer: Archive, and
+/// "Earlier versions", which opens a sheet from which any prior revision
+/// can be read verbatim.
+///
+/// What used to be here and is deliberately gone: a "Viewing / Revision 2 ·
+/// date" dropdown pinned above the ingredients (an every-visit control for
+/// a once-a-year need, and the widest thing on the screen — it overflowed a
+/// 320 dp phone at large text scale), the per-revision "Entered by hand" /
+/// "Scanned" source badges (provenance nobody acts on), the standing
+/// revision-history list at the foot of the screen, and the "Output" label
+/// over the recipe's own name.
 ///
 /// v5 (recipe decoupling): a recipe normally lives OUTSIDE the item list.
 /// A live, unbound recipe offers the labeled "Add to my items" action —
@@ -30,6 +39,8 @@
 /// batches against an upcoming event's stored packing list. A view — the
 /// saved recipe never changes; hidden until the recipe has an output item.
 library;
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -133,24 +144,62 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
                 },
               ),
           ]);
+    // ONE verb in the bar, then a menu of words. Two competing TextButtons
+    // used to overflow a 320 dp viewport at 200 % text scale; so can a verb
+    // plus the word "More", so "Revise" steps into the menu when the two
+    // words no longer fit beside the recipe's name at the reader's own text
+    // size. Nothing is ever an icon on its own here.
+    final reviseInBar =
+        MediaQuery.sizeOf(context).width - 152 >=
+        MediaQuery.textScalerOf(context).scale(95);
     return Scaffold(
       appBar: AppBar(
         title: Text(recipe.name),
         actions: [
-          TextButton(
-            onPressed: recipe.isArchived
-                ? null
-                : () => context.push('/recipes/${widget.recipeId}/revise'),
-            child: const Text('Revise'),
-          ),
-          // A word, not a glyph: no icon-only actions (design-spec §2 —
-          // only search's magnifier is universal).
-          TextButton(
-            key: const Key('archive-action'),
-            onPressed: _archiveBusy
-                ? null
-                : () => _setArchived(!recipe.isArchived),
-            child: Text(recipe.isArchived ? 'Unarchive' : 'Archive'),
+          if (reviseInBar)
+            TextButton(
+              onPressed: recipe.isArchived
+                  ? null
+                  : () => _applyDetailAction(_DetailAction.revise, recipe),
+              child: const Text('Revise'),
+            ),
+          PopupMenuButton<_DetailAction>(
+            key: const Key('recipe-menu'),
+            tooltip: 'More recipe actions',
+            position: PopupMenuPosition.under,
+            onSelected: (action) => _applyDetailAction(action, recipe),
+            itemBuilder: (_) => [
+              if (!reviseInBar)
+                PopupMenuItem(
+                  key: const Key('revise-action'),
+                  value: _DetailAction.revise,
+                  enabled: !recipe.isArchived,
+                  child: const Text('Revise'),
+                ),
+              if (revisions.length > 1)
+                const PopupMenuItem(
+                  key: Key('earlier-versions'),
+                  value: _DetailAction.earlierVersions,
+                  child: Text('Earlier versions'),
+                ),
+              PopupMenuItem(
+                key: const Key('archive-action'),
+                value: _DetailAction.archive,
+                enabled: !_archiveBusy,
+                child: Text(recipe.isArchived ? 'Unarchive' : 'Archive'),
+              ),
+            ],
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 48, minWidth: 48),
+              alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Text(
+                'More',
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -170,8 +219,8 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
                   ),
                   const SizedBox(height: 16),
                 ],
-                Text('Output', style: theme.textTheme.labelLarge),
-                const SizedBox(height: 4),
+                // Just the name. The "Output" label above it was jargon for
+                // a line that is simply what this recipe makes.
                 Text(
                   // v5: a recipe without an output item is the normal
                   // decoupled state — it makes itself, not a catalog item.
@@ -241,48 +290,16 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
                         label: const Text('Scale to event'),
                       ),
                     ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: DropdownButtonFormField<int>(
-                          // initialValue-only API: remount when the viewed
-                          // revision changes from the history list below.
-                          key: ValueKey('revision-picker-${viewed.revision}'),
-                          initialValue: viewed.revision,
-                          // Revision labels carry a date; without this they
-                          // overflow the field on narrow screens.
-                          isExpanded: true,
-                          decoration: const InputDecoration(
-                            labelText: 'Viewing',
-                            border: OutlineInputBorder(),
-                          ),
-                          items: [
-                            for (final revision in revisions)
-                              DropdownMenuItem(
-                                value: revision.revision,
-                                child: Text(
-                                  _revisionLabel(revision),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                          ],
-                          onChanged: (revision) =>
-                              setState(() => _viewedRevision = revision),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      _SourceBadge(sourceKind: viewed.sourceKind),
-                    ],
-                  ),
+                  // Reading an old revision is a state you are IN, and the
+                  // way back out travels with it. No standing picker.
                   if (latest != null && viewed.revision != latest.revision) ...[
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 16),
                     WarningBanner(
                       message:
-                          'Viewing revision ${viewed.revision}. The current '
-                          'revision is ${latest.revision}. Revisions are '
-                          'permanent and never change.',
-                      actionLabel: 'View current',
+                          'Reading version ${viewed.revision} from '
+                          '${_formatDate(viewed.createdAt)}. The one you '
+                          'cook is version ${latest.revision}.',
+                      actionLabel: 'Back to current',
                       onAction: () => setState(() => _viewedRevision = null),
                     ),
                   ],
@@ -302,42 +319,70 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
                   ],
                 ],
                 const SizedBox(height: 24),
-                const Divider(),
-                const SizedBox(height: 8),
-                Text('Revision history', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 4),
-                Text(
-                  'Revisions are permanent records — revising always adds a '
-                  'new one on top.',
-                  style: theme.textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 8),
-                for (final revision in revisions)
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    selected:
-                        viewed != null && revision.revision == viewed.revision,
-                    title: Text('Revision ${revision.revision}'),
-                    // The badge wraps under the date rather than sitting in
-                    // `trailing`, where its label overflows narrow screens.
-                    subtitle: Wrap(
-                      spacing: 12,
-                      runSpacing: 4,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        Text(_formatDate(revision.createdAt)),
-                        _SourceBadge(sourceKind: revision.sourceKind),
-                      ],
-                    ),
-                    onTap: () =>
-                        setState(() => _viewedRevision = revision.revision),
-                  ),
               ],
             ),
           ),
         ],
       ),
     );
+  }
+
+  void _applyDetailAction(_DetailAction action, Recipe recipe) {
+    switch (action) {
+      case _DetailAction.revise:
+        context.push('/recipes/${widget.recipeId}/revise');
+      case _DetailAction.archive:
+        unawaited(_setArchived(!recipe.isArchived));
+      case _DetailAction.earlierVersions:
+        unawaited(_pickEarlierVersion());
+    }
+  }
+
+  /// Every revision, on demand. Reading an old one is rare enough that it
+  /// does not deserve a control on the screen you visit to cook.
+  Future<void> _pickEarlierVersion() async {
+    final revisions =
+        ref
+            .read(recipeDetailProvider(widget.recipeId))
+            .valueOrNull
+            ?.revisions ??
+        const <RecipeRevisionView>[];
+    if (revisions.isEmpty) return;
+    final current = revisions.first.revision;
+    final picked = await showModalBottomSheet<int>(
+      context: context,
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        return SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Text(
+                  'Earlier versions',
+                  style: theme.textTheme.titleMedium,
+                ),
+              ),
+              for (final revision in revisions)
+                ListTile(
+                  key: ValueKey('version-${revision.revision}'),
+                  title: Text(
+                    revision.revision == current
+                        ? 'Version ${revision.revision} (the one you cook)'
+                        : 'Version ${revision.revision}',
+                  ),
+                  subtitle: Text(_formatDate(revision.createdAt)),
+                  onTap: () =>
+                      Navigator.of(sheetContext).pop(revision.revision),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _viewedRevision = picked == current ? null : picked);
   }
 
   Future<void> _addToItems(
@@ -385,10 +430,13 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
     final suffix = label == null || label.isEmpty ? '' : ' — “$label”';
     return 'Makes $amount$unit per batch$suffix';
   }
-
-  String _revisionLabel(RecipeRevisionView revision) =>
-      'Revision ${revision.revision} · ${_formatDate(revision.createdAt)}';
 }
+
+/// Everything the app bar can do. [revise] is normally the bar's own button
+/// and only joins the menu on a viewport too narrow to spell both words;
+/// the other two are rare by nature — archiving happens once in a recipe's
+/// life, and reading an old version less often than that.
+enum _DetailAction { revise, archive, earlierVersions }
 
 /// "In your items · Prep" — where an added recipe's output item lives. The
 /// folder identity chip travels with the name (spec §3: an item outside its
@@ -539,29 +587,6 @@ class _IngredientTile extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// Source badge (§9: each revision carries its form/OCR source). Icon +
-/// text — meaning never color-only.
-class _SourceBadge extends StatelessWidget {
-  const _SourceBadge({required this.sourceKind});
-
-  final RecipeSourceKind sourceKind;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final (icon, label) = switch (sourceKind) {
-      RecipeSourceKind.form => (Icons.edit_outlined, 'Entered by hand'),
-      RecipeSourceKind.ocr => (Icons.document_scanner_outlined, 'Scanned'),
-    };
-    return Chip(
-      avatar: Icon(icon, size: 18, color: theme.colorScheme.onSurfaceVariant),
-      label: Text(label),
-      labelStyle: theme.textTheme.labelMedium,
-      visualDensity: VisualDensity.compact,
     );
   }
 }

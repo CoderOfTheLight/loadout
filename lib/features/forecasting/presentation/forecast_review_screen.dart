@@ -519,7 +519,7 @@ class _SnapshotHeader extends StatelessWidget {
 /// captions, and let the detail live one tap deeper (the line-detail screen,
 /// which this card already opens).
 ///
-/// So the hierarchy is:
+/// So the card carries exactly two figures, and both are actions:
 ///
 ///  * **Hero** — "Bring N", the EFFECTIVE load ([ForecastLineView
 ///    .effectiveLoadMicros], the override-winning figure the cost caption
@@ -527,9 +527,12 @@ class _SnapshotHeader extends StatelessWidget {
 ///  * **Secondary emphasis** — "Buy N more", and only when an acquisition is
 ///    actually needed: it is the other action, and it is silent when there
 ///    is nothing to buy rather than printing a 0.
-///  * **Caption tier** — Expected / Planned, still visible, clearly
-///    subordinate, in [Numerals.caption]. The evidence badge and every
-///    warning keep the weight they had.
+///
+/// Expected and Planned are gone. They are engine intermediates — the median
+/// before the reserve, and the reserve before the pack rounding — and the
+/// owner cannot act on either; they were the last of the four-up grid still
+/// standing. The line-detail screen states what the number rests on in a
+/// sentence instead.
 ///
 /// No forecast math, no stored value and no engine behaviour changes here:
 /// every figure is the same field the four-up layout read.
@@ -554,6 +557,13 @@ class _ForecastLineCard extends StatelessWidget {
     // computed) and 0 (you already have enough) are both "nothing to buy".
     final acquire = line.suggestedAcquireMicros;
     final acquiring = acquire != null && acquire > 0;
+    final coldStart = isColdStartLine(line);
+    final warnings = coldStart
+        ? [
+            for (final warning in line.warnings)
+              if (!isColdStartWarning(warning)) warning,
+          ]
+        : line.warnings;
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
       clipBehavior: Clip.antiAlias,
@@ -634,17 +644,6 @@ class _ForecastLineCard extends StatelessWidget {
                   style: Numerals.glance(theme.textTheme),
                 ),
               ],
-              const SizedBox(height: Space.s),
-              // The supporting figures: `suggested*` / `plannedExpectedUse*`,
-              // not the raw engine fields, which are null on a "1 serves N"
-              // line and would print em-dashes beside a usable estimate.
-              Text(
-                'Expected ${formatQuantity(line.plannedExpectedUseMicros, unit)}'
-                ' · Planned ${formatQuantity(line.suggestedPlannedMicros, unit)}',
-                style: Numerals.caption(
-                  theme.textTheme,
-                )?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-              ),
               // v7: what this load would cost at the item's CURRENT price
               // (a live estimate — see the library doc). Only when both a
               // price and a load exist; nothing is ever invented.
@@ -652,7 +651,7 @@ class _ForecastLineCard extends StatelessWidget {
                 final price?,
                 final amount?,
               )) ...[
-                const SizedBox(height: Space.xs),
+                const SizedBox(height: Space.s),
                 Text(
                   'Cost: '
                   '${MoneyCodec.format(price.timesQuantityMicros(amount))}'
@@ -671,10 +670,23 @@ class _ForecastLineCard extends StatelessWidget {
                   foreground: theme.colorScheme.onSecondaryContainer,
                 ),
               ],
-              // Every stored warning — the engine's own and the
+              // A cold-start line used to stack TWO amber banners saying the
+              // same thing in the engine's words ("No comparable confirmed
+              // outcomes…" and "Estimate only: worked out from '1 serves
+              // 4'…"). One short line in the owner's words says it once.
+              if (coldStart) ...[
+                const SizedBox(height: 8),
+                _IndicatorChip(
+                  icon: Icons.lightbulb_outline,
+                  label: coldStartNoteFor(line),
+                  background: StatusColors.of(context).pending.container,
+                  foreground: StatusColors.of(context).pending.foreground,
+                ),
+              ],
+              // Every other stored warning — the engine's own and the
               // application-layer notes like the supplies jump — renders
               // with the same semantic amber weight (spec §5).
-              for (final warning in line.warnings) ...[
+              for (final warning in warnings) ...[
                 const SizedBox(height: 8),
                 _IndicatorChip(
                   icon: Icons.warning_amber_outlined,

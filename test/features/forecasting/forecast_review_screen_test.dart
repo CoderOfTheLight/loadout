@@ -4,6 +4,11 @@
 /// events become the accuracy review; empty states; 200 % text scale.
 /// Plus the visual pass: folder sections led by the shared [FolderChip],
 /// and the per-event supplies-jump warning at full warning weight.
+///
+/// Each line card gives ONE figure plus, when there is something to buy, the
+/// acquisition. `Expected` and `Planned` are gone from the card: they are the
+/// engine's intermediates (the median before the reserve, the reserve before
+/// the pack rounding), and the owner cannot act on either.
 library;
 
 import 'package:flutter/material.dart';
@@ -55,7 +60,8 @@ void main() {
     expect(find.text('Bring'), findsOneWidget);
     expect(find.text('60'), findsOneWidget); // the hero: effective load
     expect(find.text('Buy 60 more'), findsOneWidget); // acquire
-    expect(find.text('Expected 45 · Planned 49.5'), findsOneWidget);
+    expect(find.textContaining('Expected'), findsNothing);
+    expect(find.textContaining('Planned'), findsNothing);
     expect(find.text('1 event'), findsOneWidget);
     expect(
       find.text('Upcoming exposure is outside the observed range.'),
@@ -261,9 +267,10 @@ void main() {
     await h.pumpApp(tester);
     await h.go(tester, '/events/${scenario.upcomingEventId}/forecast');
 
-    // 55, not the 50 the raw median of {60, 50, 40} would have given.
-    expect(find.text('Expected 55 · Planned 60.5'), findsOneWidget);
-    expect(find.text('50'), findsNothing);
+    // 72, not the 60 the raw median of {60, 50, 40} would have rounded to:
+    // the sell-out day is credited with the typical rate of 55 first.
+    expect(find.text('72'), findsOneWidget);
+    expect(find.text('60'), findsNothing);
 
     expect(
       find.textContaining('You ran out on 1 of these days'),
@@ -300,16 +307,24 @@ void main() {
     // rounded up to whole things = 42, minus nothing on hand = 42.
     expect(find.text('42'), findsOneWidget); // the hero: bring 42
     expect(find.text('Buy 42 more'), findsOneWidget);
-    expect(find.text('Expected 38 · Planned 41.8'), findsOneWidget);
     expect(find.text('—'), findsNothing);
 
     // Badged as what it is, and never as confirmed history.
     expect(find.text('Estimate'), findsOneWidget);
     expect(find.text('No history'), findsNothing);
     expect(find.text('1 event'), findsNothing);
+    // ONE short line in the owner's words, where two amber banners used to
+    // stack: the engine's "No comparable confirmed outcomes…" and the
+    // baseline's "Estimate only: worked out from '1 serves 4'…" said the
+    // same thing twice, in the engine's vocabulary.
     expect(
-      find.textContaining('Estimate only: worked out from "1 serves 4"'),
+      find.text('A guess — no past events to learn from yet.'),
       findsOneWidget,
+    );
+    expect(find.textContaining('Estimate only:'), findsNothing);
+    expect(
+      find.textContaining('No comparable confirmed outcomes'),
+      findsNothing,
     );
 
     // It already has a number, so it is not asking for a baseline.
@@ -471,10 +486,9 @@ void main() {
         reason: 'forecast screen rendered raw precision: "$data"',
       );
     }
-    expect(
-      find.textContaining('Expected 20.5'),
-      findsOneWidget,
-    ); // rounded on the supporting caption
+    // The hero is the pack-rounded load — a whole number, from a median
+    // that is anything but.
+    expect(find.text('24'), findsOneWidget);
   });
 
   testWidgets('with nothing confirmed the header says so instead of naming '

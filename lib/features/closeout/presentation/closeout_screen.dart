@@ -12,8 +12,18 @@
 /// as non-blocking snackbars; closeout is never blocked by ledger drift.
 ///
 /// The line cards read in the same folder sections as every other list
-/// (proposal §3), and per-event lines start as "didn't count it" — see
+/// (proposal §3), and per-event lines start skipped — see
 /// closeout_line_card.dart.
+///
+/// ## Built for a sixty-item list on an old phone
+///
+/// The card list is a [CustomScrollView] of [SliverList.builder]s, so only
+/// the cards on screen are ever built — a `SingleChildScrollView > Column`
+/// built all sixty on the way in. And a keystroke no longer rebuilds the
+/// list at all: [_touched] bumps [_tick] instead of calling `setState`, and
+/// only the three things that actually depend on every line — the progress
+/// header, the section fractions, the confirm bar — listen to it. Each card
+/// owns listeners on its own text controllers and rebuilds itself.
 ///
 /// Scan to count ("a faster way to check what was used"): an app-bar text
 /// action, probe-gated like the recipe screen's scanner — availability is
@@ -22,7 +32,7 @@
 /// are left?" sheet → scan again. Saves go through the SAME edit path
 /// typing uses (controllers, then [_touched]) so state recompute, section
 /// Done flips, and the debounced autosave all fire normally, and commit
-/// through THE one leftover rule the card's lead field uses
+/// through THE one leftover rule the card's Left box uses
 /// ([CloseoutLineController.applyLeftoverDefaults]): a blank loaded fills
 /// from the planned load and a blank waste counts as 0 once loaded is
 /// known, so a scan-count alone can complete a line. Cancel stops
@@ -37,6 +47,11 @@
 /// enablement rule, never a gesture; and THE one per-session celebration on
 /// commit success — a check disc scaling in, one medium haptic, one line of
 /// copy. Once. Never per row.
+///
+/// The header and the button count the SAME population: the lines that
+/// still need counting, which is every line that has not been skipped. The
+/// two used to disagree out loud — "0 of 15 confirmed" over "13 items not
+/// confirmed yet" — because one counted skips and the other did not.
 ///
 /// After the celebration the worksheet is REPLACED by its report
 /// (`/events/:eventId/closeout/report`, [CloseoutReportScreen]): a count
@@ -55,7 +70,6 @@ import 'package:go_router/go_router.dart';
 import '../../../app/providers.dart';
 import '../../../app/theme.dart';
 import '../../../app/unit_display.dart';
-import '../../../app/widgets/content_column.dart';
 import '../../../app/widgets/empty_state.dart';
 import '../../../app/widgets/folder_chip.dart';
 import '../../../core/money.dart';
@@ -94,6 +108,11 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
   final _exposure = TextEditingController();
   final _note = TextEditingController();
   List<CloseoutLineController> _lines = const [];
+
+  /// Bumped by [_touched] on every edit. The progress header, the section
+  /// fractions and the confirm bar listen to it; the card list does not, so
+  /// a keystroke costs three small rebuilds instead of sixty.
+  final _tick = ValueNotifier<int>(0);
 
   /// Live folders — the closeout inherits the same sections every list
   /// reads in. Empty (migrated, tidy-up not run) = flat list. Filled by
@@ -166,6 +185,7 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
     }
     _exposure.dispose();
     _note.dispose();
+    _tick.dispose();
     for (final line in _lines) {
       line.dispose();
     }
@@ -230,8 +250,8 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
   /// line's STORED basis wins — screens read the resolved value off stored
   /// lines; a line with no snapshot resolves item override → folder default
   /// → per-person via the one resolver. Then, on a fresh closeout only,
-  /// per-event lines default to "didn't count it" (recommended: a made-up
-  /// count would become permanent history the forecast trusts).
+  /// per-event lines start skipped (recommended: a made-up count would
+  /// become permanent history the forecast trusts).
   void _applyBasis(
     List<Folder> folders,
     List<ItemSummary> catalogItems,
@@ -331,28 +351,27 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
     if (loaded != null) line.loaded.text = QuantityCodec.format(loaded);
     if (returned != null) line.returned.text = QuantityCodec.format(returned);
     if (waste != null) line.waste.text = QuantityCodec.format(waste);
-    final worksheetComplete =
-        loaded != null && returned != null && waste != null;
-    if (!worksheetComplete && depletion != null) {
+    // The thrown-out box only comes out when there is something in it to
+    // see; a defaulted 0 stays out of the way, as it does on a fresh card.
+    line.wasteOpen = waste != null && waste.micros != 0;
+    // Nothing to derive from = the line was entered as a plain "used"
+    // figure, so it reopens in that mode rather than hiding its number.
+    if (!(loaded != null && returned != null) && depletion != null) {
+      line.useDirectEntry();
       line.depletion.text = QuantityCodec.format(depletion);
     }
     line.stockout = stockout;
     line.approximate = approximate;
     line.skipped = skipped;
-    // Loaded/waste live in the worksheet, as does the direct used field —
-    // open it whenever a restored value would otherwise be invisible. A
-    // leftover-only restore shows on the card's lead field already.
-    line.worksheetOpen =
-        loaded != null ||
-        waste != null ||
-        (!worksheetComplete && depletion != null);
   }
 
-  /// Every edit: rebuild derived displays and (re)schedule the debounced
+  /// Every edit: refresh the counters and (re)schedule the debounced
   /// autosave (§9.1: the closeout controller debounces saveDraft 500 ms).
+  /// Deliberately NOT a `setState`: the cards rebuild themselves, and only
+  /// the header/sections/confirm bar depend on the aggregate.
   void _touched() {
     if (_loading || _confirmed) return;
-    setState(() {});
+    _tick.value++;
     _autosave?.cancel();
     _autosave = Timer(_autosaveDebounce, _saveDraftNow);
   }
@@ -459,10 +478,12 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
   /// skipped line means somebody counted it after all, so the skip lifts —
   /// a skipped line would silently record nothing.
   void _applyScanCount(CloseoutLineController line, Quantity returned) {
+    line.useLeftoverEntry();
     line.returned.text = QuantityCodec.format(returned);
     line.applyLeftoverDefaults();
     line.skipped = false;
-    line.worksheetOpen = true;
+    // The card is listening to its own controllers, not to this screen.
+    line.markExternallyChanged();
     _touched();
   }
 
@@ -477,9 +498,7 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
           loaded: line.loadedQuantity,
           returned: line.returnedQuantity,
           waste: line.wasteQuantity,
-          depletion: line.worksheetComplete
-              ? line.effectiveDepletion
-              : line.directDepletion,
+          depletion: line.effectiveDepletion,
           stockout: line.stockout,
           approximate: line.approximate,
           skipped: line.skipped,
@@ -500,11 +519,15 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
 
   int get _confirmedCount => _lines.where((line) => line.confirmed).length;
 
-  int get _doneCount => _lines.where((line) => line.done).length;
+  /// The lines that still need counting: everything not skipped. This is
+  /// THE population — the progress header's denominator and the confirm
+  /// bar's remainder both come from it, so the floor and the button can
+  /// never contradict each other again.
+  int get _countableCount => _lines.where((line) => !line.skipped).length;
 
-  /// Lines still neither confirmed nor deliberately skipped — the bottom
-  /// bar's "2 items not confirmed yet" summary.
-  int get _remainingCount => _lines.length - _doneCount;
+  /// Countable lines with no count on them yet — the bottom bar's "2 items
+  /// not confirmed yet" summary.
+  int get _remainingCount => _countableCount - _confirmedCount;
 
   /// v7: "Counted so far" for the confirm sheet — the not-skipped lines'
   /// depletions at the items' CURRENT prices (the applier snapshots these
@@ -556,7 +579,7 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
               const SizedBox(height: 8),
               Text(
                 '${_exposureValue ?? '—'} $exposureLabel · '
-                '$_confirmedCount of ${_lines.length} items confirmed',
+                '$_confirmedCount of $_countableCount items confirmed',
               ),
               if (countedSoFar case final counted?) ...[
                 const SizedBox(height: 4),
@@ -637,7 +660,7 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
       context: context,
       builder: (_) => _CloseoutCelebration(
         confirmedCount: _confirmedCount,
-        totalCount: _lines.length,
+        totalCount: _countableCount,
       ),
     );
   }
@@ -740,103 +763,173 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
         color: scheme.surfaceContainerLow,
         border: Border(bottom: BorderSide(color: scheme.outlineVariant)),
       ),
-      child: Column(
-        children: [
-          LinearProgressIndicator(
-            value: _lines.isEmpty ? 0 : _doneCount / _lines.length,
-            minHeight: 4,
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Space.l,
-              vertical: Space.s + 2,
+      child: ListenableBuilder(
+        listenable: _tick,
+        builder: (context, _) => Column(
+          children: [
+            LinearProgressIndicator(
+              value: _countableCount == 0
+                  ? 1
+                  : _confirmedCount / _countableCount,
+              minHeight: 4,
             ),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                '$_confirmedCount of ${_lines.length} confirmed',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontFeatures: Numerals.tabular,
-                ),
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Space.l,
+                vertical: Space.s + 2,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '$_confirmedCount of $_countableCount confirmed',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontFeatures: Numerals.tabular,
+                    ),
+                  ),
+                  // Said once here rather than on every card: the sentence
+                  // was true of all of them at once, so a thirteen-item
+                  // count repeated it thirteen times.
+                  if (_lines.any(
+                    (line) => !line.confirmed && line.loadedIsPlanPrefill,
+                  ))
+                    Text(
+                      'Loaded comes from your plan — change any that were '
+                      'different.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                ],
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
+  /// The worksheet itself. A [CustomScrollView] of [SliverList.builder]s so
+  /// a sixty-item event builds the handful of cards on screen instead of
+  /// all sixty; the 640 dp content cap and the horizontal gutters that
+  /// [ContentColumn] would give a single child are applied here, once,
+  /// around the whole viewport.
   Widget _formBody(ThemeData theme, String exposureLabel) {
-    return SingleChildScrollView(
-      child: ContentColumn(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (_revising) ...[
-              Card(
-                child: ListTile(
-                  leading: const Icon(Icons.history_outlined),
-                  title: Text('Confirming appends revision $_nextRevision.'),
-                  subtitle: const Text(
-                    'Earlier revisions stay on record; inventory is '
-                    'corrected with mirroring reversals.',
-                  ),
+    const gutters = EdgeInsets.symmetric(horizontal: Space.l);
+    final sections = sectionEntriesByFolder(
+      entries: _lines,
+      folders: _folders,
+      folderIdOf: (line) => line.folderId,
+    );
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: contentMaxWidth),
+        child: CustomScrollView(
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(Space.l, Space.l, Space.l, 0),
+              sliver: SliverToBoxAdapter(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_revising) ...[
+                      Card(
+                        child: ListTile(
+                          leading: const Icon(Icons.history_outlined),
+                          title: Text(
+                            'Confirming appends revision $_nextRevision.',
+                          ),
+                          subtitle: const Text(
+                            'Earlier revisions stay on record; inventory is '
+                            'corrected with mirroring reversals.',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: Space.l),
+                    ],
+                    TextFormField(
+                      controller: _exposure,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: InputDecoration(
+                        labelText: 'Confirmed $exposureLabel',
+                        helperText: _plannedExposure == null
+                            ? 'How many people actually came?'
+                            : 'How many people actually came? '
+                                  'Estimate was $_plannedExposure.',
+                        border: const OutlineInputBorder(),
+                      ),
+                      onChanged: (_) => _touched(),
+                    ),
+                    const SizedBox(height: Space.l),
+                    if (_lines.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: Space.s),
+                        child: Text(
+                          'This event has no planned items — only the '
+                          'confirmed $exposureLabel will be recorded.',
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 16),
+            ),
+            for (final section in sections) ...[
+              if (_folders.isNotEmpty)
+                SliverPadding(
+                  padding: gutters,
+                  sliver: SliverToBoxAdapter(
+                    child: ListenableBuilder(
+                      listenable: _tick,
+                      builder: (context, _) => _SectionHeader(
+                        folder: section.folder,
+                        doneCount: section.entries
+                            .where((line) => line.done)
+                            .length,
+                        totalCount: section.entries.length,
+                      ),
+                    ),
+                  ),
+                ),
+              SliverPadding(
+                padding: gutters,
+                sliver: SliverList.builder(
+                  itemCount: section.entries.length,
+                  itemBuilder: (context, index) {
+                    final line = section.entries[index];
+                    return CloseoutLineCard(
+                      key: ValueKey(line.itemId),
+                      line: line,
+                      onChanged: _touched,
+                    );
+                  },
+                ),
+              ),
             ],
-            TextFormField(
-              controller: _exposure,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: InputDecoration(
-                labelText: 'Confirmed $exposureLabel',
-                helperText: _plannedExposure == null
-                    ? 'How many people actually came?'
-                    : 'How many people actually came? '
-                          'Estimate was $_plannedExposure.',
-                border: const OutlineInputBorder(),
-              ),
-              onChanged: (_) => _touched(),
-            ),
-            const SizedBox(height: 16),
-            if (_lines.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Text(
-                  'This event has no planned items — only the confirmed '
-                  '$exposureLabel will be recorded.',
-                  style: theme.textTheme.bodyMedium,
-                ),
-              )
-            else
-              for (final section in sectionEntriesByFolder(
-                entries: _lines,
-                folders: _folders,
-                folderIdOf: (line) => line.folderId,
-              )) ...[
-                if (_folders.isNotEmpty)
-                  _SectionHeader(
-                    folder: section.folder,
-                    doneCount: section.entries
-                        .where((line) => line.done)
-                        .length,
-                    totalCount: section.entries.length,
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(Space.l, Space.s, Space.l, 0),
+              sliver: SliverToBoxAdapter(
+                child: TextField(
+                  controller: _note,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Note (optional)',
+                    border: OutlineInputBorder(),
                   ),
-                for (final line in section.entries)
-                  CloseoutLineCard(line: line, onChanged: _touched),
-              ],
-            const SizedBox(height: 8),
-            TextField(
-              controller: _note,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'Note (optional)',
-                border: OutlineInputBorder(),
+                  onChanged: (_) => _touched(),
+                ),
               ),
-              onChanged: (_) => _touched(),
             ),
-            const SizedBox(height: 24),
+            // The keyboard's height, so the last field can still be
+            // scrolled clear of it — what ContentColumn used to add.
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: Space.xl + MediaQuery.viewInsetsOf(context).bottom,
+              ),
+            ),
           ],
         ),
       ),
@@ -848,35 +941,38 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
   /// confirmation sheet, never a hold or a gesture.
   Widget _actionBar(ThemeData theme, String exposureLabel) {
     return FormActionBar(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (_remainingCount > 0) ...[
-            Text(
-              '$_remainingCount item${_remainingCount == 1 ? '' : 's'} '
-              'not confirmed yet',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontFeatures: Numerals.tabular,
+      child: ListenableBuilder(
+        listenable: _tick,
+        builder: (context, _) => Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (_remainingCount > 0) ...[
+              Text(
+                '$_remainingCount item${_remainingCount == 1 ? '' : 's'} '
+                'not confirmed yet',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontFeatures: Numerals.tabular,
+                ),
               ),
+              const SizedBox(height: Space.s),
+            ],
+            FilledButton(
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(64),
+              ),
+              onPressed: _canConfirm ? () => _confirmFlow(exposureLabel) : null,
+              child: _submitting
+                  ? const SizedBox(
+                      height: 24,
+                      width: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                    )
+                  : Text(_revising ? 'Confirm revision' : 'Finish closeout'),
             ),
-            const SizedBox(height: 8),
           ],
-          FilledButton(
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(64),
-            ),
-            onPressed: _canConfirm ? () => _confirmFlow(exposureLabel) : null,
-            child: _submitting
-                ? const SizedBox(
-                    height: 24,
-                    width: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2.5),
-                  )
-                : Text(_revising ? 'Confirm revision' : 'Finish closeout'),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -977,11 +1073,11 @@ class _SectionHeader extends StatelessWidget {
 
 /// The compact scan-to-count sheet: the item's name, one fraction-capable
 /// "How many are left?" count — the same leftover question, the same
-/// `returned` field, and the same commit rule as the card's lead field —
-/// and two words: 'Save & scan next' keeps the loop going, 'Done' saves
+/// `returned` field, and the same commit rule as the card's Left box — and
+/// two words: 'Save & scan next' keeps the loop going, 'Done' saves
 /// whatever is typed and ends it. When the save can complete the line
 /// (loaded set, or a planned load about to fill it) the caption says
-/// plainly that waste will count as 0 unless set on the card.
+/// plainly that nothing is being counted as thrown out.
 class _ScanCountSheet extends StatefulWidget {
   const _ScanCountSheet({required this.line, required this.onSave});
 
@@ -1043,7 +1139,7 @@ class _ScanCountSheetState extends State<_ScanCountSheet> {
             if (_completesLine) ...[
               const SizedBox(height: 8),
               Text(
-                'Waste counts as 0 unless you set it on the card.',
+                'Nothing counts as thrown out unless you say so on the card.',
                 style: theme.textTheme.bodySmall,
               ),
             ],

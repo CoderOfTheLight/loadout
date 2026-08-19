@@ -1,9 +1,12 @@
-/// Correction form (design §9 CorrectionScreen): prefilled replacement +
-/// required reason + "Reverse only (no replacement)" toggle, submitted as
-/// ONE `InventoryService.correct` command (atomic reversal + optional
-/// replacement, §5). Targets the applier refuses — reversals, consume-kind
-/// and closeout-linked rows, already-corrected rows — get a clear state
-/// message instead of the form.
+/// Correction form (design §9 CorrectionScreen): a required reason, the
+/// prefilled quantity, and TWO plain buttons that say what they do —
+/// **Change the number** (reversal + replacement) and **Delete this entry**
+/// (reversal only). Either way it is ONE `InventoryService.correct` command
+/// (atomic reversal + optional replacement, §5); the buttons replaced a
+/// switch labelled "Reverse only (no replacement)", which asked the owner to
+/// translate before she could act. Targets the applier refuses — reversals,
+/// consume-kind and closeout-linked rows, already-corrected rows — get a
+/// clear state message instead of the form.
 library;
 
 import 'package:flutter/material.dart';
@@ -33,11 +36,14 @@ class CorrectionScreen extends ConsumerStatefulWidget {
 }
 
 class _CorrectionScreenState extends ConsumerState<CorrectionScreen> {
-  final _formKey = GlobalKey<FormState>();
+  /// Two forms, because the two buttons ask different questions: deleting
+  /// an entry needs a reason and nothing else, so the quantity box must not
+  /// be able to block it.
+  final _reasonKey = GlobalKey<FormState>();
+  final _quantityKey = GlobalKey<FormState>();
   final _reasonCtrl = TextEditingController();
   final _quantityCtrl = TextEditingController();
 
-  bool _reverseOnly = false;
   bool _negativeAdjust = false;
   bool _prefilled = false;
   bool _submitting = false;
@@ -127,32 +133,31 @@ class _CorrectionScreenState extends ConsumerState<CorrectionScreen> {
     final theme = Theme.of(context);
     final movement = view.movement;
     return ContentColumn(
-      child: Form(
-        key: _formKey,
-        child: ListView(
-          children: [
-            Card(
-              child: ListTile(
-                leading: Icon(movementKindIcon(movement.kind)),
-                title: Text(view.itemName),
-                subtitle: Text(
-                  '${movementKindLabel(movement.kind)} · '
-                  '${dateTimeLabel(instantToLocal(movement.occurredAt))}',
-                ),
-                trailing: Text(
-                  formatDeltaMicros(movement.deltaMicros, view.itemUnit),
-                  style: theme.textTheme.bodyLarge,
-                ),
+      child: ListView(
+        children: [
+          Card(
+            child: ListTile(
+              leading: Icon(movementKindIcon(movement.kind)),
+              title: Text(view.itemName),
+              subtitle: Text(
+                '${movementKindLabel(movement.kind)} · '
+                '${dateTimeLabel(instantToLocal(movement.occurredAt))}',
+              ),
+              trailing: Text(
+                formatDeltaMicros(movement.deltaMicros, view.itemUnit),
+                style: theme.textTheme.bodyLarge,
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Corrections keep the original entry visible and add a '
-              'reversing entry.',
-              style: theme.textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'The original stays on record.',
+            style: theme.textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 16),
+          Form(
+            key: _reasonKey,
+            child: TextFormField(
               controller: _reasonCtrl,
               decoration: const InputDecoration(
                 labelText: 'Reason',
@@ -164,64 +169,72 @@ class _CorrectionScreenState extends ConsumerState<CorrectionScreen> {
                   ? 'Enter a reason for the correction'
                   : null,
             ),
-            const SizedBox(height: 8),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Reverse only (no replacement)'),
-              subtitle: const Text(
-                'Undo the entry without recording a corrected one',
-              ),
-              value: _reverseOnly,
-              onChanged: (value) => setState(() => _reverseOnly = value),
-            ),
-            if (!_reverseOnly) ...[
-              const SizedBox(height: 8),
-              QuantityFormField(
-                controller: _quantityCtrl,
-                labelText: 'Corrected quantity',
-                helperText:
-                    'Replaces the original '
-                    '${movementKindLabel(movement.kind).toLowerCase()} entry',
-                unitLabel: unitFieldLabel(view.itemUnit),
-                onChanged: (_) => setState(() {}),
-              ),
-              if (movement.kind == MovementKind.adjust) ...[
-                const SizedBox(height: 12),
-                SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment(
-                      value: false,
-                      icon: Icon(Icons.add),
-                      label: Text('Add to stock'),
-                    ),
-                    ButtonSegment(
-                      value: true,
-                      icon: Icon(Icons.remove),
-                      label: Text('Remove from stock'),
-                    ),
-                  ],
-                  selected: {_negativeAdjust},
-                  onSelectionChanged: (selection) =>
-                      setState(() => _negativeAdjust = selection.first),
+          ),
+          const SizedBox(height: 16),
+          Form(
+            key: _quantityKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                QuantityFormField(
+                  controller: _quantityCtrl,
+                  labelText: 'Corrected quantity',
+                  unitLabel: unitFieldLabel(view.itemUnit),
+                  onChanged: (_) => setState(() {}),
                 ),
+                if (movement.kind == MovementKind.adjust) ...[
+                  const SizedBox(height: 12),
+                  SegmentedButton<bool>(
+                    segments: const [
+                      ButtonSegment(
+                        value: false,
+                        icon: Icon(Icons.add),
+                        label: Text('Add to stock'),
+                      ),
+                      ButtonSegment(
+                        value: true,
+                        icon: Icon(Icons.remove),
+                        label: Text('Remove from stock'),
+                      ),
+                    ],
+                    selected: {_negativeAdjust},
+                    onSelectionChanged: (selection) =>
+                        setState(() => _negativeAdjust = selection.first),
+                  ),
+                ],
               ],
-            ],
-            const SizedBox(height: 24),
-            FilledButton(
-              style: FilledButton.styleFrom(minimumSize: primaryButtonMinSize),
-              onPressed: _submitting ? null : () => _submit(view),
-              child: const Text('Record correction'),
             ),
-            const SizedBox(height: 24),
-          ],
-        ),
+          ),
+          const SizedBox(height: 24),
+          // The two things she can actually mean, each on its own button.
+          FilledButton(
+            style: FilledButton.styleFrom(minimumSize: primaryButtonMinSize),
+            onPressed: _submitting ? null : () => _submit(view, replace: true),
+            child: const Text('Change the number'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            style: OutlinedButton.styleFrom(minimumSize: primaryButtonMinSize),
+            onPressed: _submitting ? null : () => _submit(view, replace: false),
+            child: const Text('Delete this entry'),
+          ),
+          const SizedBox(height: 24),
+        ],
       ),
     );
   }
 
-  Future<void> _submit(MovementProvenance view) async {
+  /// [replace] true = "Change the number" (reversal + replacement); false =
+  /// "Delete this entry" (reversal only). Both are the same one command —
+  /// the buttons only decide whether it carries a replacement.
+  Future<void> _submit(MovementProvenance view, {required bool replace}) async {
     if (_submitting) return;
-    if (!(_formKey.currentState?.validate() ?? false)) return;
+    final reasonOk = _reasonKey.currentState?.validate() ?? false;
+    // Deleting needs a reason and nothing else: the quantity box is not
+    // part of that answer, so it never gets to block it.
+    final quantityOk =
+        !replace || (_quantityKey.currentState?.validate() ?? false);
+    if (!reasonOk || !quantityOk) return;
     setState(() => _submitting = true);
 
     final movement = view.movement;
@@ -235,7 +248,7 @@ class _CorrectionScreenState extends ConsumerState<CorrectionScreen> {
     final eventStillOpen =
         linkedEventId == null || await _eventAcceptsMovements(linkedEventId);
     if (!mounted) return;
-    final replacement = _reverseOnly
+    final replacement = !replace
         ? null
         : MovementFormDraft(
             itemId: movement.itemId as String,

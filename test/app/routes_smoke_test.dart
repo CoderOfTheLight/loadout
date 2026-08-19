@@ -28,7 +28,6 @@ import 'package:loadout/features/inventory/presentation/activity_screen.dart';
 import 'package:loadout/features/inventory/presentation/correction_screen.dart';
 import 'package:loadout/features/inventory/presentation/movement_detail_screen.dart';
 import 'package:loadout/features/inventory/presentation/movement_entry_screen.dart';
-import 'package:loadout/features/production/presentation/production_planning_screen.dart';
 import 'package:loadout/features/recipes/presentation/recipe_detail_screen.dart';
 import 'package:loadout/features/recipes/presentation/recipe_edit_screen.dart';
 import 'package:loadout/features/recipes/presentation/recipe_list_screen.dart';
@@ -58,7 +57,6 @@ final Map<String, Type> staticRoutes = {
   '/items/new': ItemEditScreen,
   '/movements/new': MovementEntryScreen,
   '/activity': ActivityScreen,
-  '/production': ProductionPlanningScreen,
   '/recipes/new': RecipeEditScreen,
   '/settings/backup': BackupScreen,
   '/settings/restore': RestoreScreen,

@@ -1,15 +1,19 @@
 /// `/events/:eventId` (design §9 EventDetailScreen): the lifecycle hub.
-/// Header (name, date, status chip, planned exposure); tiles for Forecast &
-/// load list (method/version caption from the latest snapshot row — never
-/// hardcoded), Close out (primary-styled once the date passes; closed events
-/// show `Closed on <date>` + Revise), the disabled Production tile, and
-/// Accuracy review (closed only). Then the money, and it is TWO sections
-/// that never overlap: "Estimated cost" while the event is still planned or
-/// active (what she is about to spend, plus what events like it usually
-/// cost), and "Spent" once it is closed (what it actually used, at the
-/// prices snapshotted at closeout). Planned items, and for closed events the
-/// closeout revisions summary. App-bar: Edit; Activate (planned → active);
-/// Cancel (planned ONLY — an activated event must be closed out, §12.15).
+/// Header (name, date, status chip, planned exposure); tiles for the Packing
+/// list (who it is for, from the latest snapshot row — never hardcoded),
+/// Close out (primary-styled once the date passes; closed events show
+/// `Closed on <date>` + Revise), and Accuracy review (closed only). Then the
+/// money, and it is TWO sections that never overlap: "Estimated cost" while
+/// the event is still planned or active (what she is about to spend, with
+/// what events like it usually cost as one sentence under it), and "Spent"
+/// once it is closed (what it actually used, at the prices snapshotted at
+/// closeout). Planned items, and for closed events the closeout revisions
+/// summary. App-bar: Edit; Start this event (planned → active); Cancel
+/// (planned ONLY — an activated event must be closed out, §12.15).
+///
+/// There is no Production tile. It was a disabled "Coming soon" row that
+/// never navigated anywhere — a dead end a volunteer taps twice and gets
+/// nothing from — and the `/production` stub behind it went with it.
 library;
 
 import 'package:flutter/material.dart';
@@ -129,7 +133,7 @@ class _EventDetailBody extends ConsumerWidget {
                         ? null
                         : () => _activate(context, ref),
                     icon: const Icon(Icons.play_arrow),
-                    label: const Text('Activate event'),
+                    label: const Text('Start this event'),
                   ),
                   const SizedBox(height: 16),
                 ],
@@ -138,12 +142,15 @@ class _EventDetailBody extends ConsumerWidget {
                     child: ListTile(
                       minVerticalPadding: 12,
                       leading: const Icon(Icons.insights_outlined),
-                      title: const Text('Forecast & load list'),
+                      title: const Text('Packing list'),
+                      // Never `direct_median v3`: the method identifier is an
+                      // internal algorithm name, and it was the loudest thing
+                      // on the tile. What she needs to know before tapping is
+                      // whether the list exists and who it is for.
                       subtitle: Text(
                         snapshot == null
-                            ? 'No forecast yet'
-                            : '${snapshot.method} v${snapshot.methodVersion} · '
-                                  'for ${snapshot.upcomingExposure} '
+                            ? 'Not made yet'
+                            : 'For ${snapshot.upcomingExposure} '
                                   '$exposureLabel',
                       ),
                       trailing: const Icon(Icons.chevron_right),
@@ -151,19 +158,6 @@ class _EventDetailBody extends ConsumerWidget {
                     ),
                   ),
                   _closeoutTile(context, theme, event, datePassed),
-                  Card(
-                    child: Semantics(
-                      label:
-                          'Production planning, available in a future update',
-                      child: const ListTile(
-                        minVerticalPadding: 12,
-                        enabled: false,
-                        leading: Icon(Icons.factory_outlined),
-                        title: Text('Production plan'),
-                        subtitle: Text('Coming soon'),
-                      ),
-                    ),
-                  ),
                   if (event.status == EventStatus.closed)
                     Card(
                       child: ListTile(
@@ -219,17 +213,34 @@ class _EventDetailBody extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          // A Wrap, not a Row with a Spacer: at 200 % text scale on a 320 dp
+          // phone the chip and the date together are wider than the card,
+          // and a Spacer has no way to give. Wrapped, the date simply drops
+          // to its own line; at every normal size it still sits hard right.
+          Wrap(
+            spacing: Space.s,
+            runSpacing: Space.s,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               EventStatusChip(status: event.status),
-              const Spacer(),
-              Icon(
-                Icons.calendar_today_outlined,
-                size: 18,
-                color: theme.colorScheme.onSurfaceVariant,
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.calendar_today_outlined,
+                    size: 18,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      event.scheduledDate,
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 6),
-              Text(event.scheduledDate, style: theme.textTheme.bodyMedium),
             ],
           ),
           if (event.venue != null && event.venue!.isNotEmpty) ...[
@@ -475,21 +486,27 @@ class _CancelEventDialogState extends State<_CancelEventDialog> {
 /// question is answered by [_SpentSummary] and an estimate beside a fact
 /// would only invite arithmetic nobody asked for.
 ///
-/// Two answers, kept apart because they are different kinds of number
-/// (`forecasting/domain/event_cost.dart`):
+/// ONE figure, and it is the planned one.
 ///
-///  * the HERO — the packing list she has built, priced at today's prices.
-///    Arithmetic, not prediction. Items with no price (or no forecast
-///    quantity yet) contribute nothing and are said out loud, and with
-///    nothing priced at all there is no figure — never a $0 standing in for
-///    "unknown".
-///  * the HISTORY LINE — what events like this one usually cost, from
-///    confirmed closeouts. Absent entirely when nothing confirmed backs it:
-///    no empty state, no placeholder, no zero.
+/// The card used to stack two: "$787.61" (the list at today's prices) over
+/// "Events like this usually cost about $295.50" with three lines of
+/// qualifier under it. The two are different kinds of number and can
+/// legitimately differ by 2.7×, but nothing on the card said so, so it read
+/// as a contradiction — and the qualifiers made the loudest thing on a
+/// TOTAL a list of reasons not to believe it.
 ///
-/// The two are shown side by side and never compared. A plan that costs
-/// twice what history says is information the owner reads herself; the app
-/// editorialising it would be guessing which of the two is wrong.
+/// So the card's figure is the PLANNED cost: it is the one tied to the list
+/// she is looking at, and it is arithmetic rather than prediction. Items
+/// with no price (or no forecast quantity yet) contribute nothing and are
+/// still said out loud, and with nothing priced at all there is no figure —
+/// never a $0 standing in for "unknown".
+///
+/// The history goes below it as ONE plain sentence with no qualifiers on its
+/// face. Every qualifier still exists, word for word, one tap away behind
+/// "How is this worked out?" ([_CostExplainerDialog]) — the honesty rules are
+/// unchanged, they have just stopped shouting at someone reading a total.
+/// Absent entirely when nothing confirmed backs it: no empty state, no
+/// placeholder, no zero.
 ///
 /// Loading and error render as NOTHING on purpose. The cost is a supporting
 /// answer on a screen whose job is the lifecycle, so a spinner or an error
@@ -549,7 +566,27 @@ class _EstimatedCostSection extends ConsumerWidget {
                 ],
                 if (prediction != null) ...[
                   if (showPlanned) const Divider(height: 24),
-                  _CostHistoryLine(prediction: prediction),
+                  Text(
+                    'Past events like this averaged about '
+                    '${MoneyCodec.format(prediction.total)}.',
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      fontFeatures: Numerals.tabular,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      onPressed: () => showDialog<void>(
+                        context: context,
+                        builder: (_) => _CostExplainerDialog(
+                          prediction: prediction,
+                          planned: showPlanned ? planned : null,
+                        ),
+                      ),
+                      child: const Text('How is this worked out?'),
+                    ),
+                  ),
                 ],
               ],
             ),
@@ -560,10 +597,8 @@ class _EstimatedCostSection extends ConsumerWidget {
   }
 }
 
-/// The history half of [_EstimatedCostSection]: the median per-person spend
-/// of the confirmed closeouts, scaled to this event's planned attendance.
-///
-/// Three qualifiers, each of which the figure is worthless without:
+/// Everything the history sentence does not say on its face, kept word for
+/// word:
 ///
 ///  * the RATE it was scaled at, so "$315" is traceable to "$2.10 a person
 ///    × 150" rather than arriving from nowhere;
@@ -572,59 +607,97 @@ class _EstimatedCostSection extends ConsumerWidget {
 ///    event is a data point; calling it a pattern would be the app lying
 ///    about its own confidence;
 ///  * whether those events had unpriced lines, in which case the rate — and
-///    so this figure — is a FLOOR, not an estimate.
-class _CostHistoryLine extends StatelessWidget {
-  const _CostHistoryLine({required this.prediction});
+///    so this figure — is a FLOOR, not an estimate;
+///  * and, when both figures are on the card, what makes them different
+///    kinds of number — which the old layout never said at all.
+class _CostExplainerDialog extends StatelessWidget {
+  const _CostExplainerDialog({required this.prediction, this.planned});
 
   final EventCostPrediction prediction;
+
+  /// Null when the card shows no planned figure to explain.
+  final PlannedCost? planned;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final muted = theme.textTheme.bodySmall?.copyWith(
-      color: theme.colorScheme.onSurfaceVariant,
-    );
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Events like this usually cost about '
-          '${MoneyCodec.format(prediction.total)}',
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontFeatures: Numerals.tabular,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          '${MoneyCodec.format(prediction.perPerson)} a person × '
-          '${prediction.exposure}',
-          style: Numerals.caption(
-            theme.textTheme,
-          )?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-        ),
-        const SizedBox(height: 4),
-        Text(_evidenceLine(prediction), style: muted),
-        if (prediction.understates) ...[
-          const SizedBox(height: 4),
+    final body = theme.textTheme.bodyMedium;
+    return AlertDialog(
+      title: const Text('How is this worked out?'),
+      scrollable: true,
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (planned != null) ...[
+            Text(
+              'The big figure is your own packing list, priced at the prices '
+              'on your items today. It is arithmetic, not a guess.',
+              style: body,
+            ),
+            if (planned!.isPartial) ...[
+              const SizedBox(height: 8),
+              Text(
+                planned!.unpricedItemCount == 1
+                    ? '1 item has no price yet — not counted.'
+                    : '${planned!.unpricedItemCount} items have no price yet '
+                          '— not counted.',
+                style: body,
+              ),
+            ],
+            const Divider(height: 24),
+          ],
           Text(
-            'Some of those events had items with no price, so this is a '
-            'floor.',
-            style: muted,
+            'The past-events figure comes from events you have closed out. '
+            'Loadout takes what each one actually cost, divides by the people '
+            'it served, and takes the middle figure.',
+            style: body,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${MoneyCodec.format(prediction.perPerson)} a person × '
+            '${prediction.exposure}',
+            style: Numerals.caption(
+              theme.textTheme,
+            )?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 4),
+          Text(costHistoryEvidenceLine(prediction), style: body),
+          if (prediction.understates) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Some of those events had items with no price, so this is a '
+              'floor.',
+              style: body,
+            ),
+          ],
+          const SizedBox(height: 8),
+          Text(
+            'The two answer different questions, so they can differ. Neither '
+            'is a correction of the other.',
+            style: body,
           ),
         ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
       ],
     );
   }
+}
 
-  /// "from N past events", and at one or two the sentence goes on to admit
-  /// what N that small is worth.
-  static String _evidenceLine(EventCostPrediction prediction) {
-    final count = prediction.evidence.length;
-    if (!prediction.isThin) return 'from $count past events';
-    return count == 1
-        ? 'from 1 past event — one event is a data point, not a pattern.'
-        : 'from $count past events — two is thin evidence, not a pattern.';
-  }
+/// "from N past events", and at one or two the sentence goes on to admit
+/// what N that small is worth.
+@visibleForTesting
+String costHistoryEvidenceLine(EventCostPrediction prediction) {
+  final count = prediction.evidence.length;
+  if (!prediction.isThin) return 'from $count past events';
+  return count == 1
+      ? 'from 1 past event — one event is a data point, not a pattern.'
+      : 'from $count past events — two is thin evidence, not a pattern.';
 }
 
 /// "What it all was" for a closed event (v7): Σ (confirmed depletion ×

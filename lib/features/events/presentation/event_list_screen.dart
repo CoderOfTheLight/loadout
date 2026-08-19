@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/providers.dart';
+import '../../../app/theme.dart';
 import '../../../app/widgets/content_column.dart';
 import '../../../app/widgets/empty_state.dart';
 import '../application/event_service.dart';
@@ -163,12 +164,23 @@ class _EventCard extends StatelessWidget {
       if (summary.venue != null && summary.venue!.isNotEmpty) summary.venue!,
       if (exposure != null) '$exposure $exposureLabel planned',
     ].join(' · ');
+    // The status chip sits UNDER the subtitle, not in `trailing`: a trailing
+    // chip and the title fight over one row's width, and at 200 % text scale
+    // the chip wins the whole tile and the row asserts. Stacked, it simply
+    // takes the next line at any scale — and this audience uses big text.
     return Card(
       child: ListTile(
         minVerticalPadding: 12,
         title: Text(summary.name),
-        subtitle: Text(subtitle),
-        trailing: EventStatusChip(status: summary.status),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(subtitle),
+            const SizedBox(height: Space.s),
+            EventStatusChip(status: summary.status),
+          ],
+        ),
         onTap: () => context.push('/events/${summary.id}'),
       ),
     );

@@ -1,37 +1,40 @@
 /// `/items/new` and `/items/:itemId/edit` — ItemEditScreen.
 ///
-/// The owner's model of an item, in her words (folders proposal §3):
+/// CREATE asks FOUR questions and nothing else — the same four the scan-in
+/// "New item" sheet asks, which is the shape this form was rebuilt to match:
 ///
 ///   * **Item name** — required, live unique-among-live check.
-///   * **How many do you have?** — create only; rides inside `CreateItem`
-///     as the opening `adjust` movement. Accepts decimals and simple/mixed
-///     fractions ("1.5", "1/2", "1 1/2") exactly like every other amount
-///     field. Edit mode shows the ledger-derived count read-only with a
-///     button to record a movement.
+///   * **How many do you have?** — rides inside `CreateItem` as the opening
+///     `adjust` movement. Accepts decimals and simple/mixed fractions
+///     ("1.5", "1/2", "1 1/2") exactly like every other amount field.
 ///   * **Price each** — optional money entry ([MoneyFormField], exact
-///     integer cents, v7). Prefilled on edit and resubmitted with the whole
-///     draft: an empty field clears a stored price, and the prefill is what
-///     keeps an unrelated rename from silently wiping one (updateItem is
-///     whole-state).
-///   * **Unit** — an optional DISPLAY label for the amount ("tsp", "cup",
-///     "lbs"; 1–24 chars), free text with suggestion chips. Shown after
-///     the amount everywhere; the app never converts between labels and
-///     never does unit arithmetic.
+///     integer cents, v7).
 ///   * **Folder** — a pick-list over the owner's folders ("New folder…" at
 ///     the bottom, created through the command path), never free text.
 ///     Free-text groups are how "Drinks", "drinks" and "Beverages" become
 ///     three folders.
-///   * **The one question** — "Does how much you bring depend on how many
-///     people come?" as two plain choices, pre-answered by the folder and
-///     called out as the exception only when this item differs. The stored
-///     override is null whenever the answer matches the folder's, so a
-///     folder-level change carries its items with it.
-///   * **Cold start** — per-person items take "How many people does one
-///     serve?" OR the flipped "How many per person?" (one value, two
-///     phrasings; the second stores an exact `UnitRatio` so 200 people ×
-///     3/person is exactly 600). Per-event items take "How many do you
-///     usually bring?". The phrasing not on screen is resubmitted verbatim,
-///     so flipping the answer twice loses nothing.
+///
+/// Everything else lives on the SAVED item behind ONE plain row, **More
+/// options**, so the front door stays one screen long:
+///
+///   * **Unit** — an optional DISPLAY label for the amount ("tsp", "cup",
+///     "lbs"; 1–24 chars), free text. Shown after the amount everywhere; the
+///     app never converts between labels and never does unit arithmetic.
+///   * **The one question**, as ONE checkbox: "Bring the same amount however
+///     many people come" (the forecast engine's `DemandBasis`). On create it
+///     is never asked — the folder answers it and the stored override is
+///     null whenever the answer matches the folder's, so a new item simply
+///     inherits and a folder-level change carries its items with it.
+///   * **Cold start** — headcount items take ONE number plus a two-option
+///     phrasing pick ("4 people per one" / "3 per person"; the second stores
+///     an exact `UnitRatio` so 200 people × 3/person is exactly 600). Items
+///     that ignore headcount take "How many do you usually bring?". The
+///     phrasing not on screen is resubmitted verbatim, so flipping the
+///     answer twice loses nothing.
+///   * **Notes**.
+///
+/// Edit mode also shows the ledger-derived count read-only with a button to
+/// record a count, and the barcode row (v6).
 ///
 /// Changing the answer on an item that already has history is allowed,
 /// never silent: a plain-words confirm explains that past events will be
@@ -54,7 +57,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/providers.dart';
 import '../../../app/theme.dart';
-import '../../../app/unit_label_suggestions.dart';
+import '../../../app/unit_label_suggestions.dart' show unitLabelMaxLength;
 import '../../../app/widgets/content_column.dart';
 import '../../../app/widgets/count_form_field.dart';
 import '../../../app/widgets/empty_state.dart';
@@ -72,17 +75,30 @@ import '../domain/folder.dart';
 import '../domain/item.dart';
 import 'catalog_format.dart';
 import 'catalog_providers.dart';
-import 'demand_basis_choice.dart';
 import 'folder_picker_sheet.dart';
 
-/// Cap on "how many people does one serve?" and "how many per person?",
-/// mirroring the command validator (`maxServesPerUnitMicros` and the ratio
-/// halves cap: 10 000 each).
+/// Cap on the cold-start number, mirroring the command validator
+/// (`maxServesPerUnitMicros` and the ratio halves cap: 10 000 each).
 const int maxServesPerUnit = 10000;
 
 /// The opening count keeps [CountFormField]'s envelope (one million whole
 /// things) even though it now accepts fractions.
 const int _maxOpeningCountMicros = maxCountValue * Quantity.scale;
+
+/// One value, two ways of saying it: "4 people per one" and "3 per person".
+/// One number and this pick replace the pair of fields that used to clear
+/// each other.
+enum _PerPersonPhrasing {
+  /// One of these serves N people → `servesPerUnit`.
+  peoplePerOne('people per one'),
+
+  /// N of these per person → `perPersonRatio` (N/1).
+  perPerson('per person');
+
+  const _PerPersonPhrasing(this.label);
+
+  final String label;
+}
 
 class ItemEditScreen extends ConsumerStatefulWidget {
   const ItemEditScreen({super.key, this.itemId});
@@ -100,8 +116,7 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
   final _count = TextEditingController();
   final _price = TextEditingController();
   final _unitLabel = TextEditingController();
-  final _serves = TextEditingController();
-  final _perPerson = TextEditingController();
+  final _perPersonAmount = TextEditingController();
   final _usualBring = TextEditingController();
   final _notes = TextEditingController();
   bool _hydrated = false;
@@ -117,8 +132,11 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
   bool _basisTouched = false;
   DemandBasis? _explicitBasis;
 
-  /// True once the owner touched either per-person phrasing field (or the
-  /// per-event field). Until then, edit mode resubmits the stored values
+  /// Which way the cold-start number is phrased on screen.
+  _PerPersonPhrasing _phrasing = _PerPersonPhrasing.peoplePerOne;
+
+  /// True once the owner touched the cold-start number or its phrasing (or
+  /// the per-event field). Until then, edit mode resubmits the stored values
   /// verbatim — which keeps a ratio this form's whole-number field cannot
   /// express (denominator > 1) intact through an unrelated rename.
   bool _phrasingEdited = false;
@@ -169,8 +187,7 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
     _count.dispose();
     _price.dispose();
     _unitLabel.dispose();
-    _serves.dispose();
-    _perPerson.dispose();
+    _perPersonAmount.dispose();
     _usualBring.dispose();
     _notes.dispose();
     super.dispose();
@@ -201,7 +218,7 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
   DemandBasis _folderDefault(List<Folder> folders) =>
       effectiveDemandBasis(folderBasis: _folderBasis(folders, _folderId));
 
-  /// The selection on screen: the owner's explicit tap wins, else the
+  /// The selection on screen: the owner's explicit tick wins, else the
   /// stored override, else the folder's answer.
   DemandBasis _displayedBasis(List<Folder> folders) => _basisTouched
       ? _explicitBasis!
@@ -277,7 +294,8 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
     }
 
     // The override is stored only when this item differs from what its
-    // folder would answer; matching items follow the folder.
+    // folder would answer; matching items follow the folder. On create
+    // nothing is asked, so this is always null — the item inherits.
     final folderDefault = _folderDefault(folders);
     final override = selectedBasis == folderDefault ? null : selectedBasis;
 
@@ -289,11 +307,15 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
     Quantity? baseline;
     if (selectedBasis == DemandBasis.perPerson) {
       if (_phrasingEdited || !_isEdit) {
-        serves = CountFormField.tryParseQuantity(_serves.text);
-        final perPerson = CountFormField.tryParseCount(_perPerson.text);
-        ratio = serves == null && perPerson != null
-            ? UnitRatio(perPerson, 1)
-            : null;
+        final amount = CountFormField.tryParseCount(_perPersonAmount.text);
+        if (amount != null) {
+          switch (_phrasing) {
+            case _PerPersonPhrasing.peoplePerOne:
+              serves = Quantity.whole(amount);
+            case _PerPersonPhrasing.perPerson:
+              ratio = UnitRatio(amount, 1);
+          }
+        }
       } else {
         serves = item!.servesPerUnit;
         ratio = item.perPersonRatio;
@@ -452,18 +474,21 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
       _hydrated = true;
       final item = detail!.item;
       _name.text = item.name;
-      // This form is the only writer of serves-per-unit and only ever
-      // writes whole people, so the truncation here is exact.
-      _serves.text = switch (item.servesPerUnit) {
-        final serves? => CountFormField.format(serves.micros ~/ Quantity.scale),
-        null => '',
-      };
-      // Same for the flipped phrasing (a denominator > 1 cannot come from
-      // this form; it stays blank here and rides along verbatim).
-      _perPerson.text = switch (item.perPersonRatio) {
-        final ratio? when ratio.denominator == 1 => '${ratio.numerator}',
-        _ => '',
-      };
+      // One number, one phrasing. This form is the only writer of
+      // serves-per-unit and only ever writes whole people, so the
+      // truncation here is exact; a stored ratio with a denominator > 1
+      // cannot come from this form, so it stays blank and rides along
+      // verbatim.
+      if (item.servesPerUnit case final serves?) {
+        _perPersonAmount.text = CountFormField.format(
+          serves.micros ~/ Quantity.scale,
+        );
+        _phrasing = _PerPersonPhrasing.peoplePerOne;
+      } else if (item.perPersonRatio case final ratio?
+          when ratio.denominator == 1) {
+        _perPersonAmount.text = '${ratio.numerator}';
+        _phrasing = _PerPersonPhrasing.perPerson;
+      }
       _usualBring.text = switch (item.perEventBaseline) {
         final usual? => CountFormField.format(usual.micros ~/ Quantity.scale),
         null => '',
@@ -485,8 +510,6 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
     }
     final nameIndex = ref.watch(liveItemNameIndexProvider);
     final folders = ref.watch(folderListProvider).valueOrNull ?? const [];
-    final displayedBasis = _displayedBasis(folders);
-    final folderDefault = _folderDefault(folders);
     final theme = Theme.of(context);
 
     String folderName() {
@@ -523,10 +546,6 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
                       decoration: const InputDecoration(
                         labelText: 'Item name',
                         hintText: 'Beef burgers',
-                        helperText:
-                            'Sold by weight? Put it in the name — '
-                            '"Mince (500 g packs)" — and count the packs.',
-                        helperMaxLines: 3,
                         border: OutlineInputBorder(),
                       ),
                       onChanged: (_) => _markDirty(),
@@ -548,9 +567,7 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
                         isRequired: false,
                         allowZero: true,
                         allowFractions: true,
-                        helperText:
-                            'Leave blank if you have none yet. Fractions '
-                            'work: "1.5", "1/2", "1 1/2".',
+                        helperText: 'Leave blank if you have none yet.',
                         textInputAction: TextInputAction.next,
                         validator: (value) =>
                             value.micros > _maxOpeningCountMicros
@@ -563,56 +580,10 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
                       controller: _price,
                       labelText: 'Price each (optional)',
                       hintText: '12.50',
-                      helperText:
-                          'What one costs you. Loadout uses it to estimate '
-                          'event costs. Leave blank for no price.',
+                      helperText: 'What one costs you.',
                       textInputAction: TextInputAction.next,
                       onChanged: (_) => _markDirty(),
                     ),
-                    const SizedBox(height: 24),
-                    TextFormField(
-                      controller: _unitLabel,
-                      autovalidateMode: AutovalidateMode.onUserInteraction,
-                      textInputAction: TextInputAction.next,
-                      maxLength: unitLabelMaxLength,
-                      decoration: const InputDecoration(
-                        labelText: 'Unit (optional)',
-                        hintText: 'packages',
-                        helperText:
-                            'Just a label shown after the amount — '
-                            '"12 packages". Loadout never converts units.',
-                        helperMaxLines: 3,
-                        counterText: '',
-                        border: OutlineInputBorder(),
-                      ),
-                      onChanged: (_) => _markDirty(),
-                    ),
-                    const SizedBox(height: 8),
-                    // The shared suggestion chips (never forked from the
-                    // recipe form's). A scroll-row like the hue swatches —
-                    // not a second ListView on the form.
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          for (final suggestion in unitLabelSuggestions)
-                            Padding(
-                              padding: const EdgeInsets.only(right: Space.s),
-                              child: ActionChip(
-                                label: Text(suggestion),
-                                onPressed: () {
-                                  _unitLabel.text = suggestion;
-                                  _markDirty();
-                                },
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    if (_isEdit && (_barcode != null || _scanAvailable)) ...[
-                      const SizedBox(height: 24),
-                      _buildBarcodeRow(theme),
-                    ],
                     const SizedBox(height: 24),
                     InkWell(
                       borderRadius: BorderRadius.circular(Radii.small),
@@ -620,98 +591,20 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
                       child: InputDecorator(
                         decoration: const InputDecoration(
                           labelText: 'Folder',
-                          helperText:
-                              'Every list sections by folder, in your order.',
-                          helperMaxLines: 2,
                           border: OutlineInputBorder(),
                           suffixIcon: Icon(Icons.arrow_drop_down),
                         ),
                         child: Text(folderName()),
                       ),
                     ),
-                    const SizedBox(height: 24),
-                    Text(
-                      'Does how much you bring depend on how many people '
-                      'come?',
-                      style: theme.textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 12),
-                    DemandBasisChoice(
-                      value: displayedBasis,
-                      onChanged: (basis) {
-                        setState(() {
-                          _basisTouched = true;
-                          _explicitBasis = basis;
-                        });
-                        _markDirty();
-                      },
-                    ),
-                    if (displayedBasis != folderDefault) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        "Usually '${demandBasisLabel(folderDefault)}' "
-                        '${_folderId == null ? 'for unfiled items' : 'in this folder'} '
-                        '— this item is the exception.',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
+                    if (_isEdit) ...[
+                      if (_barcode != null || _scanAvailable) ...[
+                        const SizedBox(height: 24),
+                        _buildBarcodeRow(theme),
+                      ],
+                      const SizedBox(height: 16),
+                      _moreOptions(folders),
                     ],
-                    const SizedBox(height: 24),
-                    if (displayedBasis == DemandBasis.perPerson) ...[
-                      CountFormField(
-                        controller: _serves,
-                        labelText: 'How many people does one serve?',
-                        hintText: '4',
-                        minValue: 1,
-                        maxValue: maxServesPerUnit,
-                        helperText: 'One shared by several — "1 pot serves 8".',
-                        textInputAction: TextInputAction.next,
-                        onChanged: (_) => _servesChanged(),
-                      ),
-                      const SizedBox(height: 24),
-                      CountFormField(
-                        controller: _perPerson,
-                        labelText: 'How many per person?',
-                        hintText: '3',
-                        minValue: 1,
-                        maxValue: maxServesPerUnit,
-                        helperText:
-                            'Several each — "3 napkins per person". Answer '
-                            'whichever way you would say it; leave both '
-                            'blank if it varies.',
-                        textInputAction: TextInputAction.next,
-                        onChanged: (_) => _perPersonChanged(),
-                      ),
-                    ] else
-                      CountFormField(
-                        controller: _usualBring,
-                        labelText: 'How many do you usually bring?',
-                        hintText: '2',
-                        minValue: 1,
-                        helperText:
-                            'Optional. Your first packing lists start '
-                            'here; real events take over as you close '
-                            'them out.',
-                        textInputAction: TextInputAction.next,
-                        onChanged: (_) {
-                          _baselineEdited = true;
-                          _markDirty();
-                        },
-                      ),
-                    const SizedBox(height: 32),
-                    Text('Optional details', style: theme.textTheme.titleSmall),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _notes,
-                      maxLines: 3,
-                      textCapitalization: TextCapitalization.sentences,
-                      decoration: const InputDecoration(
-                        labelText: 'Notes',
-                        border: OutlineInputBorder(),
-                      ),
-                      onChanged: (_) => _markDirty(),
-                    ),
                     const SizedBox(height: 16),
                   ],
                 ),
@@ -735,6 +628,125 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
       ),
     );
   }
+
+  // -------------------------------------------------------- more options
+  // Edit only: one plain row that opens the rest. Nothing here is needed to
+  // put an item on the list, so nothing here is on the way in.
+
+  Widget _moreOptions(List<Folder> folders) {
+    final perEvent = _displayedBasis(folders) == DemandBasis.perEvent;
+    return ExpansionTile(
+      key: const Key('more-options'),
+      title: const Text('More options'),
+      tilePadding: EdgeInsets.zero,
+      childrenPadding: const EdgeInsets.only(top: 8, bottom: 8),
+      expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextFormField(
+          controller: _unitLabel,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
+          textInputAction: TextInputAction.next,
+          maxLength: unitLabelMaxLength,
+          decoration: const InputDecoration(
+            labelText: 'Unit (optional)',
+            hintText: 'packages',
+            counterText: '',
+            border: OutlineInputBorder(),
+          ),
+          onChanged: (_) => _markDirty(),
+        ),
+        const SizedBox(height: 16),
+        CheckboxListTile(
+          key: const Key('same-every-event'),
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          title: const Text('Bring the same amount however many people come'),
+          value: perEvent,
+          onChanged: (checked) {
+            setState(() {
+              _basisTouched = true;
+              _explicitBasis = (checked ?? false)
+                  ? DemandBasis.perEvent
+                  : DemandBasis.perPerson;
+            });
+            _markDirty();
+          },
+        ),
+        const SizedBox(height: 16),
+        if (perEvent)
+          CountFormField(
+            controller: _usualBring,
+            labelText: 'How many do you usually bring?',
+            hintText: '2',
+            minValue: 1,
+            textInputAction: TextInputAction.next,
+            onChanged: (_) {
+              _baselineEdited = true;
+              _markDirty();
+            },
+          )
+        else
+          _perPersonRow(),
+        const SizedBox(height: 16),
+        TextFormField(
+          controller: _notes,
+          maxLines: 3,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            labelText: 'Notes',
+            border: OutlineInputBorder(),
+          ),
+          onChanged: (_) => _markDirty(),
+        ),
+      ],
+    );
+  }
+
+  /// The cold-start question as ONE row: a number and how to read it.
+  /// "4 people per one" and "3 per person" are the same question said two
+  /// ways, so they are one control — never two fields that clear each other.
+  Widget _perPersonRow() => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Expanded(
+        flex: 2,
+        child: CountFormField(
+          controller: _perPersonAmount,
+          labelText: 'How many',
+          hintText: '4',
+          minValue: 1,
+          maxValue: maxServesPerUnit,
+          textInputAction: TextInputAction.next,
+          onChanged: (_) {
+            _phrasingEdited = true;
+            _markDirty();
+          },
+        ),
+      ),
+      const SizedBox(width: Space.m),
+      Expanded(
+        flex: 3,
+        child: DropdownButtonFormField<_PerPersonPhrasing>(
+          key: const Key('per-person-phrasing'),
+          isExpanded: true,
+          initialValue: _phrasing,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+          items: [
+            for (final phrasing in _PerPersonPhrasing.values)
+              DropdownMenuItem(value: phrasing, child: Text(phrasing.label)),
+          ],
+          onChanged: (phrasing) {
+            if (phrasing == null) {
+              return;
+            }
+            setState(() => _phrasing = phrasing);
+            _phrasingEdited = true;
+            _markDirty();
+          },
+        ),
+      ),
+    ],
+  );
 
   // ------------------------------------------------------------- barcode
   // v6, edit mode only. Content privacy: the payload appears ONLY as the
@@ -879,24 +891,6 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
     }
   }
 
-  /// One value, two phrasings: typing into one side clears the other, so
-  /// serves and per-person can never both be submitted.
-  void _servesChanged() {
-    _phrasingEdited = true;
-    if (_serves.text.trim().isNotEmpty && _perPerson.text.isNotEmpty) {
-      _perPerson.clear();
-    }
-    _markDirty();
-  }
-
-  void _perPersonChanged() {
-    _phrasingEdited = true;
-    if (_perPerson.text.trim().isNotEmpty && _serves.text.isNotEmpty) {
-      _serves.clear();
-    }
-    _markDirty();
-  }
-
   String? _validateName(String? text, Map<String, String> nameIndex) {
     final name = (text ?? '').trim();
     if (name.isEmpty) {
@@ -943,10 +937,6 @@ class _CurrentCount extends StatelessWidget {
         InputDecorator(
           decoration: const InputDecoration(
             labelText: 'How many you have now',
-            helperText:
-                'Counted from everything you have recorded. To change it, '
-                'record what happened.',
-            helperMaxLines: 3,
             border: OutlineInputBorder(),
             enabled: false,
           ),

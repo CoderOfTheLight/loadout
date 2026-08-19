@@ -4,7 +4,8 @@
 /// left?" sheet — the same leftover question as the card's lead field —
 /// and saves through the SAME edit path typing uses, committing through
 /// the one leftover rule: the planned load fills a blank loaded, a blank
-/// waste counts as 0 once loaded is known, and the draft carries it all; a
+/// thrown-out counts as 0 once loaded is known, and the draft carries it
+/// all; a
 /// barcode nobody linked and an item not on this event's list each say so
 /// and re-open the scanner; scanner failures speak content-free, with
 /// 'camera_denied' pointing at Settings.
@@ -140,15 +141,15 @@ void main() {
     await tester.pumpAndSettle();
 
     // The compact sheet: name, one leftover count — the same question the
-    // card's lead field asks — and the waste caption, shown because this
-    // save can complete the line.
+    // card's Left box asks — and the thrown-out caption, shown because
+    // this save can complete the line.
     final sheetCount = find.descendant(
       of: find.byType(BottomSheet),
       matching: find.widgetWithText(TextFormField, 'How many are left?'),
     );
     expect(sheetCount, findsOneWidget);
     expect(
-      find.text('Waste counts as 0 unless you set it on the card.'),
+      find.text('Nothing counts as thrown out unless you say so on the card.'),
       findsOneWidget,
     );
 
@@ -160,8 +161,8 @@ void main() {
     // The loop re-opened the scanner; the (fake) cancel ended it.
     expect(fake.scanCalls, 2);
 
-    // Loaded filled from the planned load, waste defaulted to 0, so the
-    // worksheet derives 12 − 2 − 0 and the line confirms — and the section
+    // Loaded carried the planned load, thrown out defaulted to 0, so the
+    // card derives 12 − 2 − 0 and the line confirms — and the section
     // header flipped to Done through the normal mechanics.
     expect(find.text('Used: 10'), findsOneWidget);
     expect(find.text('Confirmed'), findsOneWidget);
@@ -194,8 +195,8 @@ void main() {
     await tester.tap(find.byKey(const Key('scan-to-count')));
     await tester.pumpAndSettle();
 
-    // No loaded value exists and none will fill: no waste caption.
-    expect(find.textContaining('Waste counts as 0'), findsNothing);
+    // No loaded value exists and none will fill: no thrown-out caption.
+    expect(find.textContaining('counts as thrown out'), findsNothing);
 
     // The count field takes fractions.
     await tester.enterText(
@@ -247,7 +248,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('"Salsa" isn\'t on this event\'s list.'), findsOneWidget);
-    // No count sheet opened — the card's own lead field is the only place
+    // No count sheet opened — the card's own Left box is the only place
     // asking the leftover question.
     expect(find.byType(BottomSheet), findsNothing);
     // The loop went back to the scanner; the cancel ended it.

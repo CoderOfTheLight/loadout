@@ -1,8 +1,13 @@
 /// "Scale to event" (proposal §3): pure arithmetic pins for
-/// `RecipeBatchPlan` (ceil batches, spare, the said-out-loud rounding) and
+/// `RecipeBatchPlan` (ceil batches, spare, and the one-sentence answer) and
 /// the end-to-end widget flow — the sheet reads the event's PERSISTED
-/// packing-list number and shows whole batches plus each ingredient in two
-/// exact columns. The saved recipe never changes.
+/// packing-list number and shows whole batches plus each ingredient. The
+/// saved recipe never changes.
+///
+/// The sentence is the product ruling: "Make 3 batches. That's 30 — you
+/// need 22." The old "Needs 2.2 batches (arrow) make 3 — about 8 spare
+/// portions" is gone, and with it the multiplier pill and the "Makes 30"
+/// glance figure that said the same thing twice more.
 library;
 
 import 'package:flutter/material.dart';
@@ -28,10 +33,7 @@ void main() {
       );
       expect(plan.batches, 4);
       expect(plan.spareMicros, Quantity.whole(6).micros);
-      expect(
-        plan.verdict,
-        'Needs 3.4 batches → make 4 — about 6 spare portions',
-      );
+      expect(plan.verdict, "Make 4 batches. That's 40 — you need 34.");
     });
 
     test('exact multiple: 30 needed, yield 10', () {
@@ -41,7 +43,7 @@ void main() {
       );
       expect(plan.batches, 3);
       expect(plan.spareMicros, 0);
-      expect(plan.verdict, 'Needs 3 batches → make 3 — nothing spare');
+      expect(plan.verdict, "Make 3 batches. That's 30 — you need 30.");
     });
 
     test('single batch reads in the singular', () {
@@ -49,7 +51,7 @@ void main() {
         needMicros: Quantity.whole(10).micros,
         yieldMicros: Quantity.whole(10).micros,
       );
-      expect(plan.verdict, 'Needs 1 batch → make 1 — nothing spare');
+      expect(plan.verdict, "Make 1 batch. That's 10 — you need 10.");
     });
 
     test('nothing needed means no batches', () {
@@ -60,22 +62,29 @@ void main() {
       expect(plan.batches, 0);
       expect(
         plan.verdict,
-        'The packing list says none are needed — no batches.',
+        'The packing list says none are needed. Make no batches.',
       );
     });
 
-    test('a batch count beyond one decimal is honestly "about"', () {
-      // 1 needed, yield 3: exactly 1/3 batch — floored to 0.3, flagged.
+    test('a part-batch need still reads as a whole-batch instruction', () {
+      // 1 needed, yield 3: a third of a batch, which nobody can cook.
       final plan = RecipeBatchPlan(
         needMicros: Quantity.whole(1).micros,
         yieldMicros: Quantity.whole(3).micros,
       );
       expect(plan.batches, 1);
       expect(plan.spareMicros, Quantity.whole(2).micros);
-      expect(
-        plan.verdict,
-        'Needs about 0.3 batches → make 1 — about 2 spare portions',
+      expect(plan.verdict, "Make 1 batch. That's 3 — you need 1.");
+    });
+
+    test('a forecast residue is display-rounded, never spelled out', () {
+      // 21.999999 needed off the engine, yield 10: the sentence says 22.
+      final plan = RecipeBatchPlan(
+        needMicros: 21999999,
+        yieldMicros: Quantity.whole(10).micros,
       );
+      expect(plan.batches, 3);
+      expect(plan.verdict, "Make 3 batches. That's 30 — you need 22.");
     });
 
     test('scaledIngredientTotal multiplies exactly', () {
@@ -159,9 +168,12 @@ void main() {
     // load (22) and says the rounding out loud with exact numbers:
     // ceil(22 / 10) = 3 batches, 30 − 22 = 8 spare.
     expect(find.textContaining('Village fair · 2026-09-01'), findsWidgets);
-    expect(find.textContaining('bring 22 for 200 attendance'), findsOneWidget);
+    expect(
+      find.textContaining("From this event's packing list for 200 attendance"),
+      findsOneWidget,
+    );
     final verdict = tester.widget<Text>(find.byKey(const Key('scale-verdict')));
-    expect(verdict.data, 'Needs 2.2 batches → make 3 — about 8 spare portions');
+    expect(verdict.data, "Make 3 batches. That's 30 — you need 22.");
 
     // Cold-start honesty travels with the number.
     expect(
@@ -169,12 +181,12 @@ void main() {
       findsOneWidget,
     );
 
-    // The scale header (spec §6): the multiplier as one prominent chip and
-    // the resulting amount as the glance figure — 3 × 10 = 30, exact.
+    // The multiplier pill and the "Makes 30" glance figure are gone: the
+    // sentence above already carries both numbers.
     Finder inSheet(Finder finder) =>
         find.descendant(of: find.byType(RecipeScaleSheet), matching: finder);
-    expect(inSheet(find.text('×3 batches')), findsOneWidget);
-    expect(inSheet(find.text('Makes 30')), findsOneWidget);
+    expect(inSheet(find.textContaining('×3')), findsNothing);
+    expect(inSheet(find.text('Makes 30')), findsNothing);
 
     // Each ingredient row: the scaled total is the big figure, the
     // per-batch amount reads as its caption — both exact.
@@ -243,6 +255,133 @@ void main() {
     );
 
     await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+    await h.flushTimers(tester);
+  });
+
+  testWidgets('one batch drops the "per batch" column: the two figures are '
+      'the same number', (tester) async {
+    final h = (await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    ))!;
+    addTearDown(h.dispose);
+    final recipeId = (await tester.runAsync(() async {
+      // 200 attendance × 1/10 = 20, +10 % balanced reserve = 22 to bring;
+      // one 30-portion batch covers it.
+      final chilli = unwrap(
+        await h
+            .read(catalogServiceProvider)
+            .createItem(
+              ItemDraft(name: 'Chilli', perPersonRatio: UnitRatio(1, 10)),
+            ),
+      );
+      final beans = await seedItem(h, 'Beans');
+      final id = unwrap(
+        await h
+            .read(recipeServiceProvider)
+            .createRecipe(
+              RecipeFormDraft(
+                name: 'Big chilli',
+                outputItemId: chilli,
+                yieldQuantity: Quantity.whole(30),
+                lines: [
+                  RecipeFormLine(
+                    itemId: beans,
+                    quantityPerBatch: Quantity.whole(3),
+                  ),
+                ],
+              ),
+            ),
+      );
+      final eventId = unwrap(
+        await h
+            .read(eventServiceProvider)
+            .createEvent(
+              EventDraft(
+                name: 'Village fair',
+                scheduledDate: '2026-09-01',
+                plannedExposure: 200,
+                plannedItemIds: [chilli],
+              ),
+            ),
+      );
+      unwrap(await h.read(forecastServiceProvider).generateSnapshot(eventId));
+      return id;
+    }))!;
+
+    await h.pumpApp(tester);
+    await h.go(tester, '/recipes/$recipeId');
+    await tapVisible(tester, find.byKey(const Key('scale-to-event')));
+
+    final verdict = tester.widget<Text>(find.byKey(const Key('scale-verdict')));
+    expect(verdict.data, "Make 1 batch. That's 30 — you need 22.");
+
+    Finder inSheet(Finder finder) =>
+        find.descendant(of: find.byType(RecipeScaleSheet), matching: finder);
+    expect(inSheet(find.text('3')), findsOneWidget); // the amount to buy
+    expect(
+      inSheet(find.textContaining('per batch')),
+      findsNothing,
+      reason: 'at one batch the second column repeats the first',
+    );
+
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+    await h.flushTimers(tester);
+  });
+
+  testWidgets('the scale sheet survives 200 % text scale on a 320 dp '
+      'viewport', (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1.0;
+    tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+    addTearDown(tester.view.reset);
+    addTearDown(tester.platformDispatcher.clearAllTestValues);
+
+    final h = (await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    ))!;
+    addTearDown(h.dispose);
+    final recipeId = (await tester.runAsync(() async {
+      final chilli = unwrap(
+        await h
+            .read(catalogServiceProvider)
+            .createItem(
+              ItemDraft(name: 'Chilli', perPersonRatio: UnitRatio(1, 10)),
+            ),
+      );
+      final beans = await seedItem(h, 'Beans');
+      final id = await seedRecipe(
+        h,
+        name: 'Chilli batch',
+        outputItemId: chilli,
+        yieldWhole: 10,
+        lines: {beans: 3},
+      );
+      final eventId = unwrap(
+        await h
+            .read(eventServiceProvider)
+            .createEvent(
+              EventDraft(
+                name: 'Village fair',
+                scheduledDate: '2026-09-01',
+                plannedExposure: 200,
+                plannedItemIds: [chilli],
+              ),
+            ),
+      );
+      unwrap(await h.read(forecastServiceProvider).generateSnapshot(eventId));
+      return id;
+    }))!;
+
+    await h.pumpApp(tester);
+    await h.go(tester, '/recipes/$recipeId');
+    // An overflow at 200 % scale would throw and fail the test here.
+    await tapVisible(tester, find.byKey(const Key('scale-to-event')));
+    final verdict = tester.widget<Text>(find.byKey(const Key('scale-verdict')));
+    expect(verdict.data, "Make 3 batches. That's 30 — you need 22.");
+
+    await tester.tapAt(const Offset(5, 5));
     await tester.pumpAndSettle();
     await h.flushTimers(tester);
   });

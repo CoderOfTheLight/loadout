@@ -47,7 +47,6 @@ import 'package:loadout/features/inventory/presentation/movement_entry_screen.da
 import 'package:loadout/features/onboarding/presentation/create_workspace_screen.dart';
 import 'package:loadout/features/onboarding/presentation/recovery_screen.dart';
 import 'package:loadout/features/onboarding/presentation/welcome_screen.dart';
-import 'package:loadout/features/production/presentation/production_planning_screen.dart';
 import 'package:loadout/features/recipes/domain/recipe_drafts.dart';
 import 'package:loadout/features/recipes/presentation/recipe_detail_screen.dart';
 import 'package:loadout/features/recipes/presentation/recipe_edit_screen.dart';
@@ -90,7 +89,6 @@ const Map<String, Type> recordlessGoRoutes = {
 const Map<String, Type> recordlessPushRoutes = {
   '/movements/new': MovementEntryScreen,
   '/activity': ActivityScreen,
-  '/production': ProductionPlanningScreen,
 };
 
 void main() {

@@ -12,6 +12,17 @@ import 'package:loadout/features/closeout/presentation/closeout_screen.dart';
 import '../../support/app_harness.dart';
 import '../events/feature_seeds.dart';
 
+/// The text currently in the box labelled [label].
+String _boxText(WidgetTester tester, String label) => tester
+    .widget<EditableText>(
+      find.descendant(
+        of: find.widgetWithText(TextFormField, label),
+        matching: find.byType(EditableText),
+      ),
+    )
+    .controller
+    .text;
+
 void main() {
   testWidgets('autosave debounces 500 ms and survives a restart', (
     tester,
@@ -42,10 +53,7 @@ void main() {
     );
     expect(draft, isNull);
 
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'How many are left?'),
-      '5',
-    );
+    await tester.enterText(find.widgetWithText(TextFormField, 'Left'), '5');
     // 200 ms in: still inside the debounce window — nothing saved yet.
     await tester.pump(const Duration(milliseconds: 200));
     draft = await tester.runAsync<CloseoutFormDraft?>(
@@ -53,7 +61,7 @@ void main() {
     );
     expect(draft, isNull);
 
-    // 600 ms in: the debounced save has fired. A leftover count alone (no
+    // 600 ms in: the debounced save has fired. A Left count alone (no
     // loaded value, no planned load) stays exactly that — no depletion is
     // invented.
     await tester.pump(const Duration(milliseconds: 400));
@@ -66,13 +74,17 @@ void main() {
     expect(draft.lines.single.depletion, isNull);
     expect(draft.confirmedExposure, 150);
 
-    // More edits: flags and exposure ride the same debounced save.
-    await tester.ensureVisible(find.text('Ran out'));
-    await tester.tap(find.text('Ran out'));
+    // More edits: flags and exposure ride the same debounced save. The
+    // exposure field goes first — scrolling down to the card's chips takes
+    // it out of the lazily built list.
     await tester.enterText(
       find.widgetWithText(TextFormField, 'Confirmed attendance'),
       '140',
     );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Ran out'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Ran out'));
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pump();
     draft = await tester.runAsync<CloseoutFormDraft?>(
@@ -87,7 +99,7 @@ void main() {
     await tester.pump();
     await h.pumpScreen(tester, CloseoutScreen(eventId: eventId));
     expect(find.text('140'), findsOneWidget);
-    expect(find.text('5'), findsOneWidget);
+    expect(_boxText(tester, 'Left'), '5');
     expect(
       tester
           .widget<FilterChip>(find.widgetWithText(FilterChip, 'Ran out'))

@@ -163,18 +163,18 @@ void main() {
       expect(find.textContaining('Simmer gently'), findsNothing);
 
       // '2 lbs beef' parsed: amount 2, display label lbs; '½ cup flour'
-      // normalized to '1/2 cup flour': amount 0.5, label cup. Nothing in
-      // the (empty) catalog matches, so all three arrive as keep-ticked
-      // free-line offers.
-      expect(find.text('Add «Beef stew»'), findsOneWidget);
-      expect(find.text('Add «beef»'), findsOneWidget);
-      expect(find.text('Add «flour»'), findsOneWidget);
+      // normalized to '1/2 cup flour': amount 0.5, label cup. All three
+      // arrive keep-ticked, each under the line that was scanned.
+      expect(find.byType(CheckboxListTile), findsNWidgets(3));
+      expect(find.text('Beef stew'), findsOneWidget);
+      expect(find.text('2 lbs beef'), findsOneWidget);
+      expect(find.text('1/2 cup flour'), findsOneWidget);
       expect(find.textContaining('2 lbs per batch'), findsOneWidget);
       expect(find.textContaining('0.5 cup per batch'), findsOneWidget);
 
       // The review is a real review: untick the title line — it is the
       // dish, not an ingredient.
-      await tapVisible(tester, find.text('Add «Beef stew»'));
+      await tapVisible(tester, find.text('Beef stew'));
       expect(find.text('Add 2 ingredients'), findsOneWidget);
       await tapVisible(tester, find.byKey(const Key('paste-confirm')));
       await h.flushTimers(tester);

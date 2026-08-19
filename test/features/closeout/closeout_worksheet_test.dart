@@ -1,14 +1,11 @@
-/// CloseoutScreen worksheet arithmetic display + confirm (§11.3),
-/// leftover-first: the card leads with "How many are left?" (the
-/// `returned` count), and used is derived live as loaded − left over −
-/// waste (excludes waste) once the worksheet determines it. A leftover
-/// count with a loaded value completes the line — a blank waste counts as
-/// 0 through the one leftover rule. A negative worksheet blocks confirm
-/// with a warning; confirm closes the event and writes the consume/waste
-/// movements atomically, deletes the draft, and surfaces NEGATIVE_ON_HAND
-/// as a non-blocking snackbar. Also the direct "Used" alternative in the
-/// worksheet, zero used (no consume row), skip (records no line), and the
-/// stockout flag.
+/// CloseoutScreen arithmetic display + confirm (§11.3). The card shows two
+/// plain boxes — Loaded and Left — and derives used as `loaded − left −
+/// thrown out` live, with a blank thrown-out counting as 0. Nothing is
+/// behind a disclosure. A negative line blocks confirm with a warning;
+/// confirm closes the event and writes the consume/waste movements
+/// atomically, deletes the draft, and surfaces NEGATIVE_ON_HAND as a
+/// non-blocking snackbar. Also the overflow's "used instead" mode, zero
+/// used (no consume row), Skip (records no line), and the stockout flag.
 library;
 
 import 'package:flutter/material.dart';
@@ -22,8 +19,9 @@ import '../../support/app_harness.dart';
 import '../events/feature_seeds.dart';
 
 void main() {
-  testWidgets('a leftover count with loaded derives used live; confirm '
-      'writes movements', (tester) async {
+  testWidgets('two boxes derive used live; confirm writes movements', (
+    tester,
+  ) async {
     final h = (await tester.runAsync(
       () => AppHarness.start(state: AppHarnessState.workspace),
     ))!;
@@ -50,45 +48,43 @@ void main() {
     expect(find.textContaining('Estimate was 150'), findsOneWidget);
     expect(find.text('0 of 1 confirmed'), findsOneWidget);
 
-    // The card leads with the leftover question.
-    expect(
-      find.widgetWithText(TextFormField, 'How many are left?'),
-      findsOneWidget,
-    );
+    // EXACTLY two number boxes on the card, both always visible: the
+    // "Worksheet (loaded − left over − waste)" disclosure is gone, and so
+    // is the third Used field behind it.
+    expect(find.widgetWithText(TextFormField, 'Loaded'), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, 'Left'), findsOneWidget);
+    expect(find.textContaining('Worksheet'), findsNothing);
+    expect(find.widgetWithText(TextFormField, 'Used'), findsNothing);
+    expect(find.widgetWithText(TextFormField, 'Thrown out'), findsNothing);
+    expect(find.text('Estimate'), findsNothing);
 
-    // Open the worksheet and record the load.
-    await tester.ensureVisible(find.textContaining('Worksheet'));
-    await tester.tap(find.textContaining('Worksheet'));
-    await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextFormField, 'Loaded'), '10');
     await tester.pumpAndSettle();
 
-    // The leftover count completes the line: blank waste counts as 0 (the
-    // one leftover rule), and used derives read-only — the direct field
-    // disappears behind the completed worksheet.
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'How many are left?'),
-      '2',
-    );
+    // The Left count completes the line on its own: a blank thrown-out
+    // counts as 0, used derives read-only, and the card confirms.
+    await tester.enterText(find.widgetWithText(TextFormField, 'Left'), '2');
     await tester.pumpAndSettle();
     expect(find.text('Used: 8'), findsOneWidget);
-    expect(find.textContaining('Used excludes waste'), findsOneWidget);
-    expect(find.widgetWithText(TextFormField, 'Used'), findsNothing);
     expect(find.text('1 of 1 confirmed'), findsOneWidget);
+    // No prose about precedence: the arithmetic is the read-out.
+    expect(find.textContaining('excludes waste'), findsNothing);
 
-    // Setting waste explicitly overrides the defaulted 0, live.
-    await tester.enterText(find.widgetWithText(TextFormField, 'Waste'), '1');
+    // Thrown out stays hidden until it is asked for, then overrides the
+    // defaulted 0 live.
+    await tester.tap(find.text('Some was thrown out'));
+    await tester.pumpAndSettle();
+    final thrownOut = find.widgetWithText(TextFormField, 'Thrown out');
+    expect(thrownOut, findsOneWidget);
+    await tester.enterText(thrownOut, '1');
     await tester.pumpAndSettle();
     expect(find.text('Used: 7'), findsOneWidget);
 
-    // Live recompute; a negative worksheet warns and blocks confirm.
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'How many are left?'),
-      '12',
-    );
+    // Live recompute; numbers that cannot add up warn and block confirm.
+    await tester.enterText(find.widgetWithText(TextFormField, 'Left'), '12');
     await tester.pumpAndSettle();
     expect(
-      find.textContaining('Left over and waste exceed loaded'),
+      find.textContaining('more than Loaded — check the numbers'),
       findsOneWidget,
     );
     expect(
@@ -100,10 +96,7 @@ void main() {
       isNull,
     );
 
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'How many are left?'),
-      '2',
-    );
+    await tester.enterText(find.widgetWithText(TextFormField, 'Left'), '2');
     await tester.pumpAndSettle();
     expect(find.text('Used: 7'), findsOneWidget);
 
@@ -179,8 +172,14 @@ void main() {
     });
   });
 
-  testWidgets('direct path: used entered directly, zero used, skip, '
+  testWidgets('the overflow records what was used instead; zero used, Skip, '
       'stockout flag', (tester) async {
+    // Tall enough that all three cards are laid out at once — laziness has
+    // its own test.
+    tester.view.physicalSize = const Size(1000, 3000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
     final h = (await tester.runAsync(
       () => AppHarness.start(state: AppHarnessState.workspace),
     ))!;
@@ -212,38 +211,39 @@ void main() {
     Finder inCard(int index, Finder matching) =>
         find.descendant(of: cards.at(index), matching: matching);
 
-    // The direct alternative lives in the worksheet expansion now — the
-    // collapsed card leads with leftovers.
+    // Nothing on any card asks for "used" until somebody says leftovers
+    // make no sense here.
     expect(find.widgetWithText(TextFormField, 'Used'), findsNothing);
 
-    // Card 0: direct used + "Ran out".
-    await tester.ensureVisible(inCard(0, find.textContaining('Worksheet')));
-    await tester.tap(inCard(0, find.textContaining('Worksheet')));
+    // Card 0: the overflow's used-instead mode swaps the two boxes for one.
+    await tester.tap(inCard(0, find.text('More')));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('Enter what was used instead'));
+    await tester.pumpAndSettle();
+    expect(
+      inCard(0, find.widgetWithText(TextFormField, 'Used')),
+      findsOneWidget,
+    );
+    expect(inCard(0, find.widgetWithText(TextFormField, 'Left')), findsNothing);
     await tester.enterText(
       inCard(0, find.widgetWithText(TextFormField, 'Used')),
       '3',
     );
-    await tester.ensureVisible(inCard(0, find.text('Ran out')));
+    await tester.pumpAndSettle();
     await tester.tap(inCard(0, find.text('Ran out')));
-    await tester.pump();
-    // Card 1: a confirmed zero is a legal label (§5).
-    await tester.ensureVisible(inCard(1, find.textContaining('Worksheet')));
-    await tester.tap(inCard(1, find.textContaining('Worksheet')));
     await tester.pumpAndSettle();
-    await tester.enterText(
-      inCard(1, find.widgetWithText(TextFormField, 'Used')),
-      '0',
-    );
-    // Card 2: skipped — records no line.
-    await tester.ensureVisible(inCard(2, find.text('Skip item')));
-    await tester.tap(inCard(2, find.text('Skip item')));
+
+    // Card 1: a confirmed zero is a legal label (§5) — one chip does it.
+    await tester.tap(inCard(1, find.text('Everything left')));
     await tester.pumpAndSettle();
-    expect(
-      find.textContaining('nothing will be recorded for this item'),
-      findsOneWidget,
-    );
-    expect(find.text('2 of 3 confirmed'), findsOneWidget);
+
+    // Card 2: skipped — records no line, and folds to its one-row summary.
+    await tester.tap(inCard(2, find.text('Skip')));
+    await tester.pumpAndSettle();
+    expect(inCard(2, find.text('Skipped')), findsOneWidget);
+    // Both counters now speak of the same population: the two lines that
+    // still needed counting.
+    expect(find.text('2 of 2 confirmed'), findsOneWidget);
 
     await tester.tap(find.text('Finish closeout'));
     await tester.pumpAndSettle();

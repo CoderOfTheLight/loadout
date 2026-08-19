@@ -55,7 +55,7 @@ void main() {
       'Soup',
     );
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('link-line-0')), findsOneWidget);
+    expect(await ingredientMenuOffers(tester, 0, 'link-line-0'), isTrue);
 
     // …the sales-table item's exact name never does: the line stays free
     // text (typing it is fine — linking to a CD is not).
@@ -64,7 +64,7 @@ void main() {
       'Album CD',
     );
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('link-line-0')), findsNothing);
+    expect(await ingredientMenuOffers(tester, 0, 'link-line-0'), isFalse);
   });
 
   testWidgets(
@@ -79,10 +79,17 @@ void main() {
       await tester.enterText(find.byKey(const Key('paste-input')), 'album cd');
       await tapVisible(tester, find.byKey(const Key('paste-review')));
 
-      // Not matched, and NOT offered as "Create «album cd»" — that would
-      // just duplicate the sales-table item under a new id.
-      expect(find.textContaining('is on the sales table'), findsOneWidget);
-      expect(find.textContaining('Create «'), findsNothing);
+      // Not matched, and NOT offered as anything that would duplicate the
+      // sales-table item under a new id. The review's SECOND state: greyed,
+      // with the reason in plain words.
+      expect(
+        find.text(
+          'Skipped: this is something you sell, not something you cook with.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('paste-skipped-0')), findsOneWidget);
+      expect(find.byType(CheckboxListTile), findsNothing);
 
       // Nothing to add, so confirm is disabled.
       final confirm = tester.widget<FilledButton>(

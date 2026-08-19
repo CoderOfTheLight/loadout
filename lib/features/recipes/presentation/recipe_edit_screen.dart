@@ -11,14 +11,23 @@
 ///
 /// v5 (recipe decoupling): a recipe no longer needs the item catalog AT
 /// ALL. Each ingredient row is free text — a name, an amount (decimals and
-/// fractions), and an optional display-only unit label entered with the
-/// shared suggestion chips (`unit_label_suggestions.dart`, the same const
-/// the item form uses). When a typed name exactly matches a live item
-/// (case-insensitive), an optional per-row "link" affordance offers to
-/// link the line to that item — never required, never forced. There is no
-/// output-item picker on creation: a recipe is created standalone (name,
-/// yield, lines); its output joins the item list later, only if the owner
-/// asks ("Add to my items" on the detail screen).
+/// fractions), and an optional display-only unit label. When a typed name
+/// exactly matches a live item (case-insensitive), an optional "link"
+/// affordance offers to link the line to that item — never required, never
+/// forced. There is no output-item picker on creation: a recipe is created
+/// standalone (name, yield, lines); its output joins the item list later,
+/// only if the owner asks ("Add to my items" on the detail screen).
+///
+/// ONE ROW IS ONE LINE (owner feedback: five ingredients used to span three
+/// screens). The row carries exactly three controls — name, amount, unit —
+/// and nothing else. Everything that is not typing lives behind the row's
+/// overflow: link, unlink, remove. Reordering is a long press on the row
+/// itself (`ReorderableListView`'s own delayed drag delegate), so no drag
+/// handle competes for width. A linked row says so with a small link mark
+/// inside the name field; the verb for it is in the overflow. On a viewport
+/// too narrow for three fields abreast — a 320 dp phone, or any phone at
+/// large text scale — the row folds to name-above-amount+unit rather than
+/// squeezing or overflowing.
 ///
 /// Two proposal rules live here too: "Paste ingredients" opens the review
 /// sheet (`ingredient_paste_sheet.dart`) whose confirmed rows are appended
@@ -38,6 +47,7 @@ import '../../../app/providers.dart';
 import '../../../app/theme.dart';
 import '../../../app/unit_label_suggestions.dart';
 import '../../../app/widgets/content_column.dart';
+import '../../../app/widgets/form_action_bar.dart';
 import '../../../app/widgets/quantity_form_field.dart';
 import '../../../core/errors.dart';
 import '../../../core/quantity.dart';
@@ -154,24 +164,15 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
     String? name,
     String? unitLabel,
     Quantity? quantity,
-  }) {
-    final row = _IngredientRow(
-      uid: _nextRowUid++,
-      itemId: itemId,
-      nameController: TextEditingController(text: name ?? ''),
-      unitController: TextEditingController(text: unitLabel ?? ''),
-      quantityController: TextEditingController(
-        text: quantity == null ? '' : QuantityCodec.format(quantity),
-      ),
-    );
-    // The unit suggestion chips show only for the focused row.
-    row.unitFocus.addListener(_refresh);
-    return row;
-  }
-
-  void _refresh() {
-    if (mounted) setState(() {});
-  }
+  }) => _IngredientRow(
+    uid: _nextRowUid++,
+    itemId: itemId,
+    nameController: TextEditingController(text: name ?? ''),
+    unitController: TextEditingController(text: unitLabel ?? ''),
+    quantityController: TextEditingController(
+      text: quantity == null ? '' : QuantityCodec.format(quantity),
+    ),
+  );
 
   void _prefillFrom(RecipeDetail detail) {
     _prefilled = true;
@@ -265,15 +266,10 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (_isRevise) ...[
-                    _InfoNote(
-                      message:
-                          'Revisions are permanent. Saving adds revision '
-                          '$_nextRevision on top; earlier revisions never '
-                          'change.',
-                    ),
-                    const SizedBox(height: 16),
-                  ],
+                  // The "revisions are permanent" warning is NOT on the
+                  // form: it is a fact about SAVING, so it lives in the
+                  // save confirmation ([_confirmRevision]) where it is read
+                  // at the only moment it can still change a decision.
                   if (_submitError != null) ...[
                     _SubmitErrorBanner(
                       error: _submitError!,
@@ -313,8 +309,7 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Type what goes in — amounts take decimals and '
-                    'fractions ("1 1/2"). Linking to your items is optional.',
+                    'Amounts take decimals and fractions, like "1 1/2".',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
@@ -323,7 +318,9 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
                   ReorderableListView.builder(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    buildDefaultDragHandles: false,
+                    // Long-press to reorder: Flutter's own delayed drag
+                    // delegate on mobile. The row keeps its full width for
+                    // the three fields that matter.
                     itemCount: _rows.length,
                     // onReorderItem already adjusts newIndex for the removal.
                     onReorderItem: (oldIndex, newIndex) => setState(() {
@@ -399,21 +396,22 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
                     ),
                   ),
                   const SizedBox(height: 24),
-                  FilledButton(
-                    key: const Key('save-recipe'),
-                    style: FilledButton.styleFrom(
-                      minimumSize: primaryButtonMinSize,
-                    ),
-                    onPressed: _submitting ? null : _submit,
-                    child: Text(
-                      _isRevise
-                          ? 'Save as revision $_nextRevision'
-                          : 'Save recipe',
-                    ),
-                  ),
-                  const SizedBox(height: 24),
                 ],
               ),
+            ),
+          ),
+        ),
+        // The app's form grammar: the primary action pinned where every
+        // other form in Loadout puts it, always reachable without scrolling
+        // to the bottom of a long ingredient list.
+        bottomNavigationBar: FormActionBar(
+          child: FilledButton(
+            key: const Key('save-recipe'),
+            style: FilledButton.styleFrom(minimumSize: primaryButtonMinSize),
+            onPressed: _submitting ? null : _submit,
+            child: Text(
+              _isRevise ? 'Save as revision $_nextRevision' : 'Save recipe',
+              textAlign: TextAlign.center,
             ),
           ),
         ),
@@ -571,7 +569,6 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
 
   void _removeRow(_IngredientRow row) {
     _rows.remove(row);
-    row.unitFocus.removeListener(_refresh);
     row.dispose();
   }
 
@@ -591,6 +588,10 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
     return item;
   }
 
+  /// One ingredient: THREE controls on one line — name, amount, unit — plus
+  /// the overflow that holds every verb (link, unlink, remove). Nothing
+  /// else. The row folds to two lines only when three fields abreast would
+  /// not fit (narrow phone, or large text scale).
   Widget _buildIngredientRow(
     BuildContext context,
     int index, {
@@ -599,169 +600,189 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
   }) {
     final theme = Theme.of(context);
     final row = _rows[index];
-    final linkedItem = row.itemId == null ? null : itemsById[row.itemId];
+    final linked = row.itemId != null;
     final candidate = _linkCandidate(row, linkTargetsByName);
-    return Padding(
-      key: ValueKey('ingredient-row-${row.uid}'),
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Semantics(
-            label: 'Reorder ingredient ${index + 1}',
-            child: ReorderableDragStartListener(
-              index: index,
-              child: const Padding(
-                padding: EdgeInsets.only(top: 16, right: 4),
-                child: Icon(Icons.drag_indicator),
-              ),
-            ),
-          ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                TextFormField(
-                  key: ValueKey('ingredient-name-${row.uid}'),
-                  controller: row.nameController,
-                  textCapitalization: TextCapitalization.sentences,
-                  decoration: const InputDecoration(
-                    labelText: 'Ingredient',
-                    border: OutlineInputBorder(),
-                  ),
-                  // Re-evaluate the link affordance as the name is typed.
-                  onChanged: (_) => setState(() {}),
-                  validator: (value) {
-                    final trimmed = (value ?? '').trim();
-                    if (row.itemId == null && trimmed.isEmpty) {
-                      return 'Enter an ingredient name';
-                    }
-                    if (trimmed.length > 120) {
-                      return 'Keep it under 120 characters';
-                    }
-                    if (row.itemId != null) {
-                      // Flag duplicates on the later row only: the first
-                      // occurrence stays valid, the repeat gets the error.
-                      if (_rows
-                          .take(_rows.indexOf(row))
-                          .any((other) => other.itemId == row.itemId)) {
-                        return 'Already in this recipe';
-                      }
-                      if (itemsById[row.itemId]?.isArchived ?? false) {
-                        return 'This linked item is archived';
-                      }
-                    }
-                    return null;
-                  },
+
+    final name = TextFormField(
+      key: ValueKey('ingredient-name-${row.uid}'),
+      controller: row.nameController,
+      textCapitalization: TextCapitalization.sentences,
+      decoration: InputDecoration(
+        labelText: 'Ingredient',
+        border: const OutlineInputBorder(),
+        // The link is an INDICATOR, not a control — the verb for it is in
+        // the row's overflow. Tooltip carries its meaning to a screen
+        // reader, so the mark is never colour-only.
+        prefixIcon: linked
+            ? Tooltip(
+                message: 'Linked to one of your items',
+                child: Icon(
+                  Icons.link,
+                  size: 18,
+                  color: theme.colorScheme.primary,
                 ),
-                if (row.itemId != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.link,
-                          size: 18,
-                          color: theme.colorScheme.primary,
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            'Linked to “${linkedItem?.name ?? row.nameController.text.trim()}”',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        TextButton(
-                          key: ValueKey('unlink-line-${row.uid}'),
-                          onPressed: () => setState(() => row.itemId = null),
-                          child: const Text('Unlink'),
-                        ),
-                      ],
-                    ),
-                  )
-                else if (candidate != null)
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton.icon(
-                      key: ValueKey('link-line-${row.uid}'),
-                      onPressed: () =>
-                          setState(() => row.itemId = candidate.id.value),
-                      icon: const Icon(Icons.link, size: 18),
-                      label: Text('Link to your item “${candidate.name}”'),
-                    ),
-                  ),
-                const SizedBox(height: 8),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: QuantityFormField(
-                        key: ValueKey('ingredient-qty-${row.uid}'),
-                        controller: row.quantityController,
-                        allowFractions: true,
-                        labelText: 'Per batch',
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextFormField(
-                        key: ValueKey('ingredient-unit-${row.uid}'),
-                        controller: row.unitController,
-                        focusNode: row.unitFocus,
-                        inputFormatters: [
-                          LengthLimitingTextInputFormatter(unitLabelMaxLength),
-                        ],
-                        decoration: const InputDecoration(
-                          labelText: 'Unit (optional)',
-                          hintText: 'cup, lbs…',
-                          border: OutlineInputBorder(),
-                        ),
-                        onChanged: (_) => setState(() {}),
-                      ),
-                    ),
-                  ],
-                ),
-                // The shared suggestion chips, shown for the focused row
-                // only. A convenience keyboard, not a managed list — the
-                // field stays free text.
-                if (row.unitFocus.hasFocus)
-                  Padding(
-                    key: ValueKey('unit-suggestions-${row.uid}'),
-                    padding: const EdgeInsets.only(top: 8),
-                    child: SizedBox(
-                      height: 40,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: unitLabelSuggestions.length,
-                        separatorBuilder: (_, _) => const SizedBox(width: 8),
-                        itemBuilder: (context, chipIndex) {
-                          final label = unitLabelSuggestions[chipIndex];
-                          return ActionChip(
-                            label: Text(label),
-                            visualDensity: VisualDensity.compact,
-                            onPressed: () =>
-                                setState(() => row.unitController.text = label),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-              ],
+              )
+            : null,
+        prefixIconConstraints: const BoxConstraints(
+          minWidth: 32,
+          minHeight: 24,
+        ),
+      ),
+      // Re-evaluate the link affordance as the name is typed.
+      onChanged: (_) => setState(() {}),
+      validator: (value) {
+        final trimmed = (value ?? '').trim();
+        if (row.itemId == null && trimmed.isEmpty) {
+          return 'Enter an ingredient name';
+        }
+        if (trimmed.length > 120) {
+          return 'Keep it under 120 characters';
+        }
+        if (row.itemId != null) {
+          // Flag duplicates on the later row only: the first occurrence
+          // stays valid, the repeat gets the error.
+          if (_rows
+              .take(_rows.indexOf(row))
+              .any((other) => other.itemId == row.itemId)) {
+            return 'Already in this recipe';
+          }
+          if (itemsById[row.itemId]?.isArchived ?? false) {
+            return 'This linked item is archived';
+          }
+        }
+        return null;
+      },
+    );
+
+    final amount = QuantityFormField(
+      key: ValueKey('ingredient-qty-${row.uid}'),
+      controller: row.quantityController,
+      allowFractions: true,
+      labelText: 'Amount',
+    );
+
+    final unit = TextFormField(
+      key: ValueKey('ingredient-unit-${row.uid}'),
+      controller: row.unitController,
+      inputFormatters: [LengthLimitingTextInputFormatter(unitLabelMaxLength)],
+      decoration: const InputDecoration(
+        labelText: 'Unit',
+        hintText: 'cup, bag',
+        border: OutlineInputBorder(),
+      ),
+    );
+
+    final overflow = Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: PopupMenuButton<_RowAction>(
+        key: ValueKey('ingredient-menu-${row.uid}'),
+        tooltip: 'Ingredient ${index + 1} options',
+        padding: const EdgeInsets.all(12),
+        onSelected: (action) => _applyRowAction(row, action, candidate),
+        itemBuilder: (_) => [
+          if (linked)
+            PopupMenuItem(
+              key: ValueKey('unlink-line-${row.uid}'),
+              value: _RowAction.unlink,
+              child: const Text('Unlink from item'),
             ),
-          ),
-          IconButton(
+          if (candidate != null)
+            PopupMenuItem(
+              key: ValueKey('link-line-${row.uid}'),
+              value: _RowAction.link,
+              child: Text('Link to your item “${candidate.name}”'),
+            ),
+          PopupMenuItem(
             key: ValueKey('remove-ingredient-${row.uid}'),
-            tooltip: 'Remove ingredient',
-            padding: const EdgeInsets.only(top: 12),
-            icon: const Icon(Icons.remove_circle_outline),
-            onPressed: () => setState(() => _removeRow(row)),
+            value: _RowAction.remove,
+            child: const Text('Remove ingredient'),
           ),
         ],
       ),
     );
+
+    return Padding(
+      key: ValueKey('ingredient-row-${row.uid}'),
+      padding: const EdgeInsets.only(bottom: 12),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Three labelled fields need roughly 280 dp of type; scale that
+          // by the reader's own text size rather than guessing a breakpoint
+          // in device pixels.
+          final scale = MediaQuery.textScalerOf(context).scale(16) / 16;
+          if (constraints.maxWidth >= 280 * scale) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(flex: 5, child: name),
+                const SizedBox(width: 8),
+                Expanded(flex: 3, child: amount),
+                const SizedBox(width: 8),
+                Expanded(flex: 3, child: unit),
+                overflow,
+              ],
+            );
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              name,
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: amount),
+                  const SizedBox(width: 8),
+                  Expanded(child: unit),
+                  overflow,
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _applyRowAction(_IngredientRow row, _RowAction action, Item? candidate) {
+    setState(() {
+      switch (action) {
+        case _RowAction.link:
+          if (candidate != null) row.itemId = candidate.id.value;
+        case _RowAction.unlink:
+          row.itemId = null;
+        case _RowAction.remove:
+          _removeRow(row);
+      }
+    });
+  }
+
+  /// The revise warning, at the only moment it can still change a decision.
+  /// It used to sit at the top of the form, above everything the owner came
+  /// here to type, where it was read once and never again.
+  Future<bool> _confirmRevision() async {
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Save revision $_nextRevision?'),
+        content: Text(
+          'Revisions are permanent. This adds revision $_nextRevision on '
+          'top; earlier revisions never change.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Keep editing'),
+          ),
+          FilledButton(
+            key: const Key('confirm-revision'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text('Save revision $_nextRevision'),
+          ),
+        ],
+      ),
+    );
+    return go == true && mounted;
   }
 
   Future<void> _submit() async {
@@ -772,6 +793,7 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
     });
     final valid = _formKey.currentState?.validate() ?? false;
     if (!valid || _rows.isEmpty) return;
+    if (_isRevise && !await _confirmRevision()) return;
     final draft = RecipeFormDraft(
       name: _nameController.text.trim(),
       outputItemId: _outputItemId,
@@ -833,6 +855,10 @@ class _RecipeEditScreenState extends ConsumerState<RecipeEditScreen> {
 /// Which capture path the 'Scan a recipe' chooser picked.
 enum _ScanSource { camera, photo }
 
+/// The verbs behind an ingredient row's overflow. Everything that is not
+/// typing lives here, so the row itself stays three fields wide.
+enum _RowAction { link, unlink, remove }
+
 final class _IngredientRow {
   _IngredientRow({
     required this.uid,
@@ -852,9 +878,6 @@ final class _IngredientRow {
   final TextEditingController unitController;
   final TextEditingController quantityController;
 
-  /// Drives the per-row unit suggestion chips.
-  final FocusNode unitFocus = FocusNode();
-
   String get trimmedName => nameController.text.trim();
 
   String get trimmedUnit => unitController.text.trim();
@@ -870,7 +893,6 @@ final class _IngredientRow {
     nameController.dispose();
     unitController.dispose();
     quantityController.dispose();
-    unitFocus.dispose();
   }
 }
 
@@ -920,24 +942,22 @@ class _SubmitErrorBanner extends StatelessWidget {
   String get _message {
     final err = error;
     // An output-less (not-in-items) recipe contributes an empty id to the
-    // path; drop it rather than render a dangling arrow.
+    // path; drop it rather than render a dangling link.
     if (err is RecipeNestingError && err.path.isNotEmpty) {
-      final path = err.path
-          .where((id) => id.isNotEmpty)
-          .map(_labelFor)
-          .join(' → ');
-      return 'Recipes stay flat in this version — ${err.message}: $path. '
-          'Use the base items directly, or archive the other recipe first.';
+      return 'Recipes stay flat in this version — ${err.message}: '
+          '${_path(err.path)}. Use the base items directly, or archive the '
+          'other recipe first.';
     }
     if (err is RecipeCycleError && err.path.isNotEmpty) {
-      final path = err.path
-          .where((id) => id.isNotEmpty)
-          .map(_labelFor)
-          .join(' → ');
-      return '${err.message}: $path';
+      return '${err.message}: ${_path(err.path)}';
     }
     return err.message;
   }
+
+  /// The rejected chain in words. An arrow glyph used to join these and it
+  /// rendered as an empty box in the app's font — a path nobody could read.
+  String _path(List<String> ids) =>
+      ids.where((id) => id.isNotEmpty).map(_labelFor).join(' then ');
 
   String _labelFor(String id) {
     final item = itemsById[id];
@@ -945,41 +965,5 @@ class _SubmitErrorBanner extends StatelessWidget {
     final recipeName = recipeNamesById[id];
     if (recipeName != null) return "recipe '$recipeName'";
     return id;
-  }
-}
-
-class _InfoNote extends StatelessWidget {
-  const _InfoNote({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return Material(
-      color: scheme.secondaryContainer,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          children: [
-            Icon(
-              Icons.history_edu_outlined,
-              color: scheme.onSecondaryContainer,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                message,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: scheme.onSecondaryContainer,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }

@@ -1,10 +1,10 @@
 /// Leftover-first entry on the closeout card (owner feedback: ask how much
-/// is LEFT, not how much was used): the lead "How many are left?" field
-/// writes the `returned` count, and THE one leftover rule — shared with
-/// the scan-to-count sheet — fills a blank loaded from the planned load
-/// and counts a blank waste as 0 once loaded is known, so a leftover count
-/// alone can complete a line. Used stays the derived depletion: loaded −
-/// left over − waste, and the captions say which rule is in force.
+/// is LEFT, not how much was used), now with the plan's load already IN the
+/// Loaded box rather than printed beside it as dead text. So the whole job
+/// per line is typing one number — Left — and THE one leftover rule (shared
+/// with the scan-to-count sheet) counts a blank thrown-out as 0 so that one
+/// number completes the line. Used stays the derived depletion: loaded −
+/// left − thrown out.
 library;
 
 import 'package:flutter/material.dart';
@@ -16,9 +16,20 @@ import 'package:loadout/features/closeout/presentation/closeout_screen.dart';
 import '../../support/app_harness.dart';
 import '../events/feature_seeds.dart';
 
+/// The text currently in the box labelled [label].
+String _boxText(WidgetTester tester, String label) => tester
+    .widget<EditableText>(
+      find.descendant(
+        of: find.widgetWithText(TextFormField, label),
+        matching: find.byType(EditableText),
+      ),
+    )
+    .controller
+    .text;
+
 void main() {
-  testWidgets('a leftover count with only a planned load completes the '
-      'line: loaded fills, waste counts as 0', (tester) async {
+  testWidgets('the planned load is prefilled INTO Loaded, stays editable, '
+      'and one number finishes the line', (tester) async {
     final h = (await tester.runAsync(
       () => AppHarness.start(state: AppHarnessState.workspace),
     ))!;
@@ -51,28 +62,36 @@ void main() {
     });
 
     await h.pumpScreen(tester, CloseoutScreen(eventId: eventId));
-    expect(find.textContaining('Planned load was 12'), findsOneWidget);
-    // The caption announces the rule before the count lands.
+
+    // The 12 is IN the box, not in a caption beside it — and the card says
+    // out loud that it is only a starting value.
+    expect(_boxText(tester, 'Loaded'), '12');
+    expect(find.textContaining('Planned load was'), findsNothing);
     expect(
-      find.text('Waste counts as 0 unless you set it in the worksheet.'),
+      find.text(
+        'Loaded comes from your plan — change any that were different.',
+      ),
       findsOneWidget,
     );
+    // A prefill is not progress: an untouched line still looks untouched.
+    expect(find.text('In progress'), findsNothing);
+    expect(find.text('0 of 1 confirmed'), findsOneWidget);
 
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'How many are left?'),
-      '2',
-    );
+    await tester.enterText(find.widgetWithText(TextFormField, 'Left'), '2');
     await tester.pumpAndSettle();
 
-    // Loaded filled from the planned load, waste defaulted to 0: used
-    // derives 12 − 2 − 0 and the line confirms.
+    // Thrown out defaulted to 0: used derives 12 − 2 − 0 and the line
+    // confirms off ONE typed number.
     expect(find.text('Used: 10'), findsOneWidget);
-    expect(
-      find.text('Used excludes waste — derived from the worksheet.'),
-      findsOneWidget,
-    );
     expect(find.text('Confirmed'), findsOneWidget);
     expect(find.text('1 of 1 confirmed'), findsOneWidget);
+
+    // Still editable: overtyping the plan's number re-derives.
+    await tester.enterText(find.widgetWithText(TextFormField, 'Loaded'), '20');
+    await tester.pumpAndSettle();
+    expect(find.text('Used: 18'), findsOneWidget);
+    await tester.enterText(find.widgetWithText(TextFormField, 'Loaded'), '12');
+    await tester.pumpAndSettle();
 
     // The count rode the same debounced autosave typing does.
     await tester.pump(const Duration(milliseconds: 600));
@@ -88,8 +107,8 @@ void main() {
     await h.flushTimers(tester);
   });
 
-  testWidgets('a leftover count alone stays in progress; adding loaded '
-      'later completes it the same way', (tester) async {
+  testWidgets('with no forecast Loaded starts empty; a Left count alone '
+      'stays in progress until Loaded is filled in', (tester) async {
     final h = (await tester.runAsync(
       () => AppHarness.start(state: AppHarnessState.workspace),
     ))!;
@@ -109,22 +128,20 @@ void main() {
 
     await h.pumpScreen(tester, CloseoutScreen(eventId: eventId));
 
-    // No loaded value and no planned load: the caption points at the
-    // worksheet instead of promising a completion that cannot happen.
-    expect(
-      find.text('Add loaded in the worksheet to work out what was used.'),
-      findsOneWidget,
-    );
+    // Nothing to prefill from, so nothing is invented.
+    expect(_boxText(tester, 'Loaded'), isEmpty);
 
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'How many are left?'),
-      '4',
-    );
+    await tester.enterText(find.widgetWithText(TextFormField, 'Left'), '4');
     await tester.pumpAndSettle();
 
-    // Partial must never look like done (§4).
+    // Partial must never look like done (§4), and the card says which of
+    // the two numbers is missing.
     expect(find.text('In progress'), findsOneWidget);
     expect(find.text('0 of 1 confirmed'), findsOneWidget);
+    expect(
+      find.text('Fill in Loaded to work out what was used.'),
+      findsOneWidget,
+    );
 
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pump();
@@ -137,11 +154,8 @@ void main() {
     expect(line.waste, isNull);
     expect(line.depletion, isNull);
 
-    // Loaded arriving after the leftover count lands identically: the
-    // blank waste counts as 0 and the line confirms.
-    await tester.ensureVisible(find.textContaining('Worksheet'));
-    await tester.tap(find.textContaining('Worksheet'));
-    await tester.pumpAndSettle();
+    // Loaded arriving after the Left count lands identically: the blank
+    // thrown-out counts as 0 and the line confirms.
     await tester.enterText(find.widgetWithText(TextFormField, 'Loaded'), '10');
     await tester.pumpAndSettle();
     expect(find.text('Used: 6'), findsOneWidget);

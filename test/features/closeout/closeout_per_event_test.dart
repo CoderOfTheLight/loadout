@@ -1,9 +1,10 @@
 /// Closeout for per-event lines (proposal §3 + owner's Question 3 answer):
 /// the worksheet inherits the folder sections, and "about the same every
-/// event" lines start as "didn't count it" — a first-class skip, because a
-/// made-up number would become permanent history. A skipped line records
-/// nothing and teaches nothing (the card says so), the closeout confirms
-/// without it, and the forecast afterwards rests only on real counts.
+/// event" lines start SKIPPED — because a made-up number would become
+/// permanent history. A skipped line records nothing and teaches nothing,
+/// the closeout confirms without it, and the forecast afterwards rests only
+/// on real counts. Skip is one word and one control on every card now, so
+/// there is nothing per-basis left to learn.
 library;
 
 import 'package:flutter/material.dart';
@@ -16,11 +17,17 @@ import 'package:loadout/features/closeout/domain/closeout_form.dart';
 import '../../support/app_harness.dart';
 import '../events/feature_seeds.dart';
 
+/// Scrolls [finder] clear of the docked confirm bar, then taps it.
+Future<void> _tap(WidgetTester tester, Finder finder) async {
+  await tester.ensureVisible(finder);
+  await tester.pumpAndSettle();
+  await tester.tap(finder);
+  await tester.pumpAndSettle();
+}
+
 void main() {
-  testWidgets('a supply line defaults to "didn\'t count it", the closeout '
-      'confirms without it, and the forecast uses only real counts', (
-    tester,
-  ) async {
+  testWidgets('a supply line starts skipped, the closeout confirms without '
+      'it, and the forecast uses only real counts', (tester) async {
     final h = (await tester.runAsync(
       () => AppHarness.start(state: AppHarnessState.workspace),
     ))!;
@@ -74,36 +81,32 @@ void main() {
     expect(find.text('Done'), findsOneWidget); // Cleaning & setup
     expect(find.text('0 of 1'), findsOneWidget); // Unfiled
 
-    // The per-event line starts as "didn't count it" — recommended default —
-    // and the copy says plainly what a skip means.
-    final skipChip = find.widgetWithText(FilterChip, "Didn't count it");
-    expect(skipChip, findsOneWidget);
-    expect(tester.widget<FilterChip>(skipChip).selected, isTrue);
-    expect(find.textContaining('teaches the forecast nothing'), findsOneWidget);
-    // Skips never count as confirmed.
-    expect(find.text('0 of 2 confirmed'), findsOneWidget);
-    // The per-person line keeps today's behaviour: a Skip item button and
-    // the leftover lead field (the skipped soap card shows no field).
-    expect(find.text('Skip item'), findsOneWidget);
-    expect(
-      find.widgetWithText(TextFormField, 'How many are left?'),
-      findsOneWidget,
-    );
+    // The per-event line starts skipped — the recommended default — and
+    // folds straight down to its one-row summary, so it costs one line of
+    // screen rather than a card full of controls nobody will use.
+    expect(find.text('Skipped'), findsOneWidget);
+    expect(find.text('Some was thrown out'), findsOneWidget); // tortillas only
+    // The header and the confirm bar count the SAME population: the one
+    // line that still needs counting. They used to disagree out loud.
+    expect(find.text('0 of 1 confirmed'), findsOneWidget);
+    expect(find.text('1 item not confirmed yet'), findsOneWidget);
+    // One word, one control, both bases.
+    expect(find.text('Skip'), findsOneWidget);
+    expect(find.text('Skip item'), findsNothing);
+    expect(find.text("Didn't count it"), findsNothing);
+    expect(find.widgetWithText(TextFormField, 'Left'), findsOneWidget);
 
-    // Count the tortillas through the direct alternative in the
-    // worksheet; the soap stays uncounted.
-    await tester.ensureVisible(find.textContaining('Worksheet'));
-    await tester.tap(find.textContaining('Worksheet'));
+    // Count the tortillas the ordinary way; the soap stays uncounted.
+    await tester.enterText(find.widgetWithText(TextFormField, 'Loaded'), '10');
     await tester.pumpAndSettle();
-    await tester.enterText(find.widgetWithText(TextFormField, 'Used'), '3');
+    await tester.enterText(find.widgetWithText(TextFormField, 'Left'), '7');
     await tester.pumpAndSettle();
-    expect(find.text('1 of 2 confirmed'), findsOneWidget);
+    expect(find.text('Used: 3'), findsOneWidget);
+    expect(find.text('1 of 1 confirmed'), findsOneWidget);
 
     // Confirms without the supply line.
-    await tester.tap(find.text('Finish closeout'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Confirm'));
-    await tester.pumpAndSettle();
+    await _tap(tester, find.text('Finish closeout'));
+    await _tap(tester, find.text('Confirm'));
     // The worksheet is replaced by its report (the skipped supply line is
     // simply not in it — a skip records nothing).
     expect(find.text('Closeout report'), findsOneWidget);
@@ -161,8 +164,8 @@ void main() {
           ),
         ],
       );
-      // Event 2: soap planned but skipped ("didn't count it") — only the
-      // tortillas line confirms, exactly what the UI test's confirm sends.
+      // Event 2: soap planned but skipped — only the tortillas line
+      // confirms, exactly what the UI test's confirm sends.
       final skipped = await seedEvent(
         h,
         name: 'Street fair',
@@ -208,8 +211,8 @@ void main() {
     });
   });
 
-  testWidgets('unticking "didn\'t count it" opens the counting body and the '
-      'count confirms', (tester) async {
+  testWidgets('unskipping a supply line opens the counting body, and the '
+      "overflow's used-instead path confirms it", (tester) async {
     final h = (await tester.runAsync(
       () => AppHarness.start(state: AppHarnessState.workspace),
     ))!;
@@ -231,37 +234,29 @@ void main() {
     await h.pumpApp(tester);
     await h.go(tester, '/events/$eventId/closeout');
 
-    // Starts skipped: no field, no way to confuse it with per-person skip.
-    expect(
-      find.widgetWithText(TextFormField, 'How many are left?'),
-      findsNothing,
-    );
-    expect(find.text('Skip item'), findsNothing);
+    // Starts skipped and folded: no boxes, nothing to confuse.
+    expect(find.widgetWithText(TextFormField, 'Left'), findsNothing);
+    expect(find.text('Skipped'), findsOneWidget);
+    expect(find.text('0 of 0 confirmed'), findsOneWidget);
+
+    // This time somebody counted. Tap the folded card open, untick Skip.
+    await _tap(tester, find.text('Dish soap'));
+    await _tap(tester, find.widgetWithText(FilterChip, 'Skip'));
+    expect(find.widgetWithText(TextFormField, 'Left'), findsOneWidget);
     expect(find.text('0 of 1 confirmed'), findsOneWidget);
 
-    // This time somebody counted: the leftover lead field appears, and the
-    // worksheet holds the direct used alternative with the per-event copy.
-    await tester.tap(find.widgetWithText(FilterChip, "Didn't count it"));
-    await tester.pumpAndSettle();
-    expect(
-      find.widgetWithText(TextFormField, 'How many are left?'),
-      findsOneWidget,
-    );
-    await tester.ensureVisible(find.textContaining('Worksheet'));
-    await tester.tap(find.textContaining('Worksheet'));
-    await tester.pumpAndSettle();
-    expect(
-      find.textContaining('Or enter used directly — what was used or sold.'),
-      findsOneWidget,
-    );
+    // Nobody counts leftover soap, so the overflow's used-instead mode
+    // swaps the two boxes for the one number that means something here.
+    await _tap(tester, find.text('More'));
+    await _tap(tester, find.text('Enter what was used instead'));
+    expect(find.widgetWithText(TextFormField, 'Left'), findsNothing);
+    expect(find.text('What was used or sold.'), findsOneWidget);
     await tester.enterText(find.widgetWithText(TextFormField, 'Used'), '1');
     await tester.pumpAndSettle();
     expect(find.text('1 of 1 confirmed'), findsOneWidget);
 
-    await tester.tap(find.text('Finish closeout'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Confirm'));
-    await tester.pumpAndSettle();
+    await _tap(tester, find.text('Finish closeout'));
+    await _tap(tester, find.text('Confirm'));
 
     await tester.runAsync(() async {
       final revisions = await h

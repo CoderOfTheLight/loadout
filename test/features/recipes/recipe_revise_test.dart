@@ -1,6 +1,10 @@
 /// §9 + §11.3 RecipeEditScreen (revise mode) widget tests: the form
 /// prefills from the latest revision and APPENDS immutable revision N+1 —
 /// revision N stays byte-identical.
+///
+/// The "revisions are permanent" warning is no longer a banner sitting on
+/// top of the form: it is the SAVE CONFIRMATION, read at the only moment it
+/// can still change a decision.
 library;
 
 import 'package:flutter/material.dart';
@@ -48,6 +52,8 @@ void main() {
     expect(find.text('10 kits'), findsNothing);
     expect(find.text('v1 method'), findsOneWidget);
     expect(find.text('Save as revision 2'), findsOneWidget);
+    // The banner is off the form; the warning arrives with the save.
+    expect(find.textContaining('Revisions are permanent'), findsNothing);
     expect(
       tester
           .widget<TextFormField>(find.byKey(const Key('recipe-name')))
@@ -62,11 +68,21 @@ void main() {
       '24',
     );
     await tapVisible(tester, find.byKey(const Key('save-recipe')));
+    await tester.pumpAndSettle();
+
+    // The permanence warning, at the moment it can still change a decision.
+    expect(find.text('Save revision 2?'), findsOneWidget);
+    expect(
+      find.textContaining('Revisions are permanent'),
+      findsOneWidget,
+      reason: 'the warning lives in the confirmation, not on the form',
+    );
+    await tapVisible(tester, find.byKey(const Key('confirm-revision')));
     await h.flushTimers(tester);
     await tester.pumpAndSettle();
 
-    // Saving returns to the recipe, now viewing revision 2.
-    expect(find.textContaining('Revision 2'), findsWidgets);
+    // Saving returns to the recipe, now showing revision 2's yield.
+    expect(find.text('Makes 12 per batch'), findsOneWidget);
 
     final detail = (await tester.runAsync(
       () => h.read(recipeServiceProvider).watchRecipe(recipeId).first,
@@ -115,6 +131,7 @@ void main() {
     FocusManager.instance.primaryFocus?.unfocus();
     await tester.pumpAndSettle();
     await tapVisible(tester, find.byKey(const Key('save-recipe')));
+    await tapVisible(tester, find.byKey(const Key('confirm-revision')));
     await h.flushTimers(tester);
     await tester.pumpAndSettle();
 

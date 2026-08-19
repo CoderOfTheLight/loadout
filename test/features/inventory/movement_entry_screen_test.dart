@@ -1,7 +1,14 @@
-/// MovementEntryScreen widget tests (design §9 `/movements/new`, §11.3):
-/// record purchase / waste / count — the count computes the signed adjust
-/// through the service, the negative-on-hand warning is shown but never
-/// blocks, and waste defaults its event association to the active event.
+/// MovementEntryScreen widget tests (design §9 `/movements/new`, §11.3).
+///
+/// The screen is THREE plain screens now, one per `?kind=`: "Count what you
+/// have", "Something arrived", "Something was thrown out". Pinned here: each
+/// route shows its own title and NO kind picker (the three-way segmented
+/// control the owner had to set before the form made sense is gone), the
+/// count computes the signed adjust through the service and previews it in
+/// plain words ("That's 1.5 kg fewer than before"), the negative-on-hand
+/// warning is shown but never blocks, waste still associates itself with the
+/// active event — silently, with no dropdown to read — and every one of the
+/// three survives 200 % text scale.
 library;
 
 import 'package:flutter/material.dart';
@@ -14,6 +21,7 @@ import 'package:loadout/features/catalog/domain/item.dart';
 import 'package:loadout/features/events/domain/event.dart';
 import 'package:loadout/features/inventory/application/inventory_service.dart';
 import 'package:loadout/features/inventory/domain/movement.dart';
+import 'package:loadout/features/inventory/presentation/movement_entry_screen.dart';
 
 import '../../support/app_harness.dart';
 
@@ -54,6 +62,42 @@ Future<void> _enterQuantity(WidgetTester tester, String text) async {
 }
 
 void main() {
+  testWidgets('each kind is its own plain screen, with no kind picker', (
+    tester,
+  ) async {
+    final h = await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    );
+    addTearDown(h!.dispose);
+    final itemId = await _seedItem(h, tester);
+
+    await h.pumpApp(tester);
+
+    for (final entry in {
+      '/movements/new?kind=count&itemId=$itemId': 'Count what you have',
+      '/movements/new?kind=receive&itemId=$itemId': 'Something arrived',
+      '/movements/new?kind=waste&itemId=$itemId': 'Something was thrown out',
+    }.entries) {
+      // go_router reuses the page when only the query changes; leave first.
+      await h.go(tester, '/items');
+      await h.go(tester, entry.key);
+      expect(find.text(entry.value), findsOneWidget, reason: entry.key);
+      // The three-way control that had to be set before the form made
+      // sense — and the jargon title over it — are gone.
+      expect(find.byType(SegmentedButton<MovementKind>), findsNothing);
+      expect(find.text('Record movement'), findsNothing);
+      // So is the date row: today unless she says otherwise.
+      expect(find.text('Occurred'), findsNothing);
+      // And the privacy note that lives on the Settings privacy card.
+      expect(find.text('Stored encrypted, never logged'), findsNothing);
+    }
+
+    // No kind at all still lands somewhere sensible.
+    await h.go(tester, '/items');
+    await h.go(tester, '/movements/new');
+    expect(find.text('Something arrived'), findsOneWidget);
+  });
+
   testWidgets('records a purchase with kind and item prefilled', (
     tester,
   ) async {
@@ -66,7 +110,7 @@ void main() {
     await h.pumpApp(tester);
     await h.go(tester, '/movements/new?kind=receive&itemId=$itemId');
 
-    expect(find.text('Record movement'), findsOneWidget);
+    expect(find.text('Something arrived'), findsOneWidget);
     expect(find.textContaining('Tortillas'), findsOneWidget);
     await _enterQuantity(tester, '3');
     await tester.tap(find.text('Record'));
@@ -80,9 +124,8 @@ void main() {
     expect(views.single.movement.deltaMicros, 3000000);
   });
 
-  testWidgets('count computes the signed adjustment via the service', (
-    tester,
-  ) async {
+  testWidgets('count computes the signed adjustment via the service, and '
+      'says what it will do in plain words', (tester) async {
     final h = await tester.runAsync(
       () => AppHarness.start(state: AppHarnessState.workspace),
     );
@@ -103,9 +146,13 @@ void main() {
     await h.pumpApp(tester);
     await h.go(tester, '/movements/new?kind=count&itemId=$itemId');
 
-    expect(find.text('Loadout has 12 kg'), findsOneWidget);
+    // "Loadout has 12 kg" said the app's name back to her; this says hers.
+    expect(find.text('You have 12 kg'), findsOneWidget);
     await _enterQuantity(tester, '10.5');
-    expect(find.text('Will record a change of −1.5 kg'), findsOneWidget);
+    expect(find.text("That's 1.5 kg fewer than before"), findsOneWidget);
+    await _enterQuantity(tester, '14');
+    expect(find.text("That's 2 kg more than before"), findsOneWidget);
+    await _enterQuantity(tester, '10.5');
 
     await tester.tap(find.text('Record'));
     await tester.pumpAndSettle();
@@ -183,9 +230,8 @@ void main() {
     expect(views.first.movement.deltaMicros, -5000000);
   });
 
-  testWidgets('waste defaults its event association to the active event', (
-    tester,
-  ) async {
+  testWidgets('waste still associates itself with the active event — '
+      'silently, with no dropdown to read', (tester) async {
     final h = await tester.runAsync(
       () => AppHarness.start(state: AppHarnessState.workspace),
     );
@@ -211,8 +257,9 @@ void main() {
     await h.pumpApp(tester);
     await h.go(tester, '/movements/new?kind=waste&itemId=$itemId');
 
-    // The association dropdown resolved to the active event.
-    expect(find.text('Taco Night'), findsOneWidget);
+    // The dropdown is gone; its default behaviour is not.
+    expect(find.text('Event (optional)'), findsNothing);
+    expect(find.text('Taco Night'), findsNothing);
     await _enterQuantity(tester, '1');
     await tester.tap(find.text('Record'));
     await tester.pumpAndSettle();
@@ -221,5 +268,50 @@ void main() {
     final views = await _movements(h, tester);
     expect(views.first.movement.kind, MovementKind.waste);
     expect(views.first.movement.eventId as String?, eventId);
+  });
+
+  testWidgets('all three survive 200% text scale on a 320 dp viewport', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1.0;
+    tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+    addTearDown(tester.view.reset);
+    addTearDown(tester.platformDispatcher.clearAllTestValues);
+
+    final h = await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    );
+    addTearDown(h!.dispose);
+    final itemId = await _seedItem(h, tester);
+    await tester.runAsync(
+      () => h
+          .read(inventoryServiceProvider)
+          .record(
+            MovementFormDraft(
+              itemId: itemId,
+              kind: MovementKind.receive,
+              quantity: Quantity.whole(12),
+            ),
+          ),
+    );
+
+    // An overflow at this scale throws and fails the test here.
+    for (final entry in {
+      'count': 'Count what you have',
+      'receive': 'Something arrived',
+      'waste': 'Something was thrown out',
+    }.entries) {
+      // A unique key per pump: the same widget type at the same spot
+      // reuses its State, and this screen reads its kind once in initState.
+      await h.pumpScreen(
+        tester,
+        MovementEntryScreen(key: UniqueKey(), kind: entry.key, itemId: itemId),
+      );
+      expect(find.text(entry.value), findsOneWidget, reason: entry.key);
+      await tester.drag(find.byType(ListView), const Offset(0, -200));
+      await tester.pumpAndSettle();
+    }
+    await h.flushTimers(tester);
   });
 }

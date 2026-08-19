@@ -3,10 +3,12 @@
 /// Batches needed = ceil(need ÷ yield), where NEED is the amount the
 /// event's stored packing list says to bring for the recipe's output item
 /// (the effective load: override wins, baseline fills in) and YIELD is the
-/// current revision's per-batch yield. The rounding is said out loud —
-/// "Needs 2.2 batches → make 3 — about 8 spare portions" — exactly as the
-/// proposal promised, because the person doing this math at 6 a.m. should
-/// not have to check it on a phone calculator.
+/// current revision's per-batch yield. The answer is one plain sentence —
+/// "Make 3 batches. That's 30 — you need 22." — because the person doing
+/// this math at 6 a.m. should not have to check it on a phone calculator,
+/// and because a fractional batch count ("needs about 2.2 batches") is a
+/// number nobody can cook. The instruction comes first; the two figures
+/// that justify it follow in the same breath.
 library;
 
 import '../../../core/errors.dart';
@@ -37,28 +39,26 @@ final class RecipeBatchPlan {
   /// envelope.
   int get spareMicros => batches * yieldMicros - needMicros;
 
-  /// The rounding, said out loud. Exact-decimal batch counts print as-is
-  /// ("Needs 2.2 batches"); anything beyond one decimal is honestly
-  /// "about". Spare is always "about" — the need itself is a forecast.
+  /// What the whole batches make in total: `batches × yield`. Bounded by
+  /// `need + yield`, so it stays inside the quantity envelope.
+  int get madeMicros => batches * yieldMicros;
+
+  /// The whole answer in one sentence: the instruction, then the two
+  /// figures behind it. "Make 3 batches. That's 30 — you need 22."
+  ///
+  /// Both figures are display-rounded (§ counted goods): `need` came off a
+  /// forecast and carries the engine's micros residue, so "22" beats
+  /// "21.999999" on a screen that counts trays. The spare is deliberately
+  /// not spelled out — "That's 30 — you need 22" already says it, in the
+  /// two numbers the cook actually acts on.
   String get verdict {
     if (needMicros == 0) {
-      return 'The packing list says none are needed — no batches.';
+      return 'The packing list says none are needed. Make no batches.';
     }
-    if (needMicros % yieldMicros == 0) {
-      final word = batches == 1 ? 'batch' : 'batches';
-      return 'Needs $batches $word → make $batches — nothing spare';
-    }
-    // One-decimal batch count by integer math: need ≤ 1e15 micros, so
-    // need × 10 stays far inside int64.
-    final tenths = (needMicros * 10) ~/ yieldMicros;
-    final exact = (needMicros * 10) % yieldMicros == 0;
-    final decimal = '${tenths ~/ 10}.${tenths % 10}';
-    // Spare is `batches × yield − need`, and `need` came off a forecast —
-    // so it carries the engine's micros residue. Display-rounded (§ counted
-    // goods): "about 0.3 spare portions", never "about 0.299999".
-    final spare = QuantityCodec.formatDisplayMicros(spareMicros);
-    return 'Needs ${exact ? decimal : 'about $decimal'} batches '
-        '→ make $batches — about $spare spare portions';
+    final word = batches == 1 ? 'batch' : 'batches';
+    final made = QuantityCodec.formatDisplayMicros(madeMicros);
+    final need = QuantityCodec.formatDisplayMicros(needMicros);
+    return "Make $batches $word. That's $made — you need $need.";
   }
 }
 

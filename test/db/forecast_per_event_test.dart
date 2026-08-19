@@ -130,11 +130,16 @@ void main() {
         [2000000, 2000000, 2000000],
       );
 
-      // And the line explains itself in the owner's words.
-      expect(
-        basisExplanation(line, upcomingExposure: view.upcomingExposure),
-        '2 per event, from 3 events',
+      // And the line explains itself in the owner's words — quoting what
+      // was used and NEVER the headcount it was used at, which is the whole
+      // claim the per-event basis makes.
+      final words = forecastLineSentence(
+        line,
+        upcomingExposure: view.upcomingExposure,
+        exposureLabel: 'attendance',
       );
+      expect(words, contains('Last time you used 2; before that, 2.'));
+      expect(words, isNot(contains('200')));
     });
 
     test('the same item as per-person WOULD scale — proving the basis is the '
@@ -168,9 +173,18 @@ void main() {
             'unfiled = per person: 0.01/person × 2000 = 20 — the honest '
             'per-person answer, which is exactly what soap must escape',
       );
+      // The per-person line quotes the headcount each observation came
+      // from, because for this basis that is exactly what makes it scale.
       expect(
-        basisExplanation(line, upcomingExposure: 2000),
-        '0.01 per person, from 3 events',
+        forecastLineSentence(
+          line,
+          upcomingExposure: 2000,
+          exposureLabel: 'attendance',
+        ),
+        contains(
+          'Last time you used 2 for 200 attendance; before that, '
+          '2 for 200.',
+        ),
       );
     });
   });
@@ -204,8 +218,15 @@ void main() {
       expect(line.baselineServesPerUnitMicros, isNull);
       expect(line.warnings.last, contains('usual 2 per event'));
       expect(
-        basisExplanation(line, upcomingExposure: 2000),
-        contains('2 per event — your usual amount'),
+        forecastLineSentence(
+          line,
+          upcomingExposure: 2000,
+          exposureLabel: 'attendance',
+        ),
+        contains(
+          'A guess — no past events to learn from yet. You said you usually '
+          'bring 2.',
+        ),
       );
     });
 

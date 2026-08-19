@@ -120,7 +120,13 @@ void main() {
   ) async {
     final h = await boot(tester);
 
-    await openTile(tester, 'Default planning policy');
+    // Plain names, unchanged behaviour: the rows no longer say "Default
+    // planning policy" / "Exposure label" / "History window".
+    expect(find.text('Default planning policy'), findsNothing);
+    expect(find.text('Exposure label'), findsNothing);
+    expect(find.text('History window'), findsNothing);
+
+    await openTile(tester, 'How much extra to bring');
     await tester.tap(find.text('Cautious (+20 % reserve)'));
     await tester.pumpAndSettle();
     await settleUntil(
@@ -129,7 +135,7 @@ void main() {
       reason: 'policy subtitle',
     );
 
-    await openTile(tester, 'Exposure label');
+    await openTile(tester, 'What you count (people, plates…)');
     await saveDialogText(tester, 'covers');
     await settleUntil(
       tester,
@@ -137,7 +143,7 @@ void main() {
       reason: 'exposure label subtitle',
     );
 
-    await openTile(tester, 'History window');
+    await openTile(tester, 'How far back to look');
     await saveDialogText(tester, '6');
     await settleUntil(
       tester,

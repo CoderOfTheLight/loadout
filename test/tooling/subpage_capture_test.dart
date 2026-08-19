@@ -810,7 +810,25 @@ void main() {
     Future<void> tapIn(String itemName, Finder matching) =>
         _tap(tester, inCard(itemName, matching));
 
+    // The card list builds lazily now, so a card has to be scrolled into
+    // range before it can be found at all.
+    Future<void> reveal(String itemName) async {
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, 6000));
+      await tester.pumpAndSettle();
+      final target = find.text(itemName);
+      if (target.evaluate().isEmpty) {
+        await tester.scrollUntilVisible(
+          target,
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+      }
+      await tester.ensureVisible(target.first);
+      await tester.pumpAndSettle();
+    }
+
     Future<void> typeIn(String itemName, String label, String value) async {
+      await reveal(itemName);
       final field = inCard(itemName, find.widgetWithText(TextFormField, label));
       await tester.ensureVisible(field.first);
       await tester.pumpAndSettle();
@@ -818,16 +836,15 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    // One line fully worked through the expanding worksheet.
-    await tapIn('Chicken soup', find.textContaining('Worksheet ('));
+    // One line counted the ordinary way: two boxes, no disclosure.
     await typeIn('Chicken soup', 'Loaded', '40');
-    await typeIn('Chicken soup', 'How many are left?', '6');
-    await _snap(tester, 'F3-closeout-worksheet-open.png');
+    await typeIn('Chicken soup', 'Left', '6');
+    await _snap(tester, 'F3-closeout-card-counted.png');
 
     // A second line left mid-entry, a third skipped.
-    await tapIn('Rice trays', find.textContaining('Worksheet ('));
     await typeIn('Rice trays', 'Loaded', '9');
-    await tapIn('Beef chili', find.text('Skip item'));
+    await reveal('Beef chili');
+    await tapIn('Beef chili', find.text('Skip'));
     await tester.pump(const Duration(seconds: 1));
     await tester.drag(find.byType(Scrollable).first, const Offset(0, 4000));
     await tester.pumpAndSettle();
@@ -836,21 +853,21 @@ void main() {
     await _snapScrolled(tester, 'F6-closeout-part-done-more.png', dy: 700);
 
     // Fill everything else with the quick fills so the confirm sheet opens.
-    for (var pass = 0; pass < 3; pass++) {
-      final pending = [
-        for (final card in tester.widgetList<CloseoutLineCard>(
-          find.byType(CloseoutLineCard),
-        ))
-          if (!card.line.done) card.line.itemName,
-      ];
-      if (pending.isEmpty) break;
-      for (final name in pending) {
-        final chip = inCard(name, find.text('Everything left'));
-        if (chip.evaluate().isNotEmpty) {
-          await _tap(tester, chip);
-        }
+    // The list builds lazily, so walk it from the top tapping whatever is
+    // on screen rather than enumerating the (few) built cards.
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, 6000));
+    await tester.pumpAndSettle();
+    for (var step = 0; step < 80; step++) {
+      final chip = find.text('Everything left');
+      if (chip.evaluate().isNotEmpty) {
+        await _tap(tester, chip.first);
+        continue;
       }
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -200));
+      await tester.pumpAndSettle();
     }
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, 6000));
+    await tester.pumpAndSettle();
     final exposure = find.byType(TextFormField).first;
     await tester.ensureVisible(exposure);
     await tester.pumpAndSettle();
@@ -982,7 +999,7 @@ void main() {
 
   // ---------------------------------------------------------- settings
 
-  testWidgets('J settings / backup / restore / production', (tester) async {
+  testWidgets('J settings / backup / restore', (tester) async {
     _phoneView(tester);
     final h = await _startWorkspace(tester);
     await tester.runAsync(() => _seedKitchen(h));
@@ -1000,8 +1017,5 @@ void main() {
     await h.go(tester, '/settings/restore');
     await _snap(tester, 'J6-restore.png');
     await _snapScrolled(tester, 'J7-restore-bottom.png', dy: 350);
-
-    await h.go(tester, '/production');
-    await _snap(tester, 'J8-production-planning.png');
   });
 }

@@ -1,11 +1,21 @@
-/// The only manual ledger entry (design §9 MovementEntryScreen).
+/// The only manual ledger entry (design §9 MovementEntryScreen) — THREE
+/// plain screens, one per `?kind=`, chosen by the link that got here:
 ///
-/// Kinds: Purchase (`receive`), Waste, Count (`adjust`) — nothing else.
-/// The UI never does ledger math: Purchase/Waste submit a positive
-/// quantity via [InventoryService.record]; Count submits the counted
+///   * `?kind=count`   → **Count what you have** (`adjust`)
+///   * `?kind=receive` → **Something arrived** (the default)
+///   * `?kind=waste`   → **Something was thrown out**
+///
+/// There is no kind picker: a screen that has to be configured before its
+/// form makes sense is a screen the owner has to think about. Each one asks
+/// for an item, one number, and an optional note; the date defaults to now
+/// and lives in the overflow ("Change the date").
+///
+/// The UI never does ledger math: arrived/thrown-out submit a positive
+/// quantity via [InventoryService.record]; a count submits the counted
 /// on-hand via [InventoryService.recordCount] and the service derives the
 /// signed adjustment. Receipt warnings (NEGATIVE_ON_HAND) surface as a
-/// non-blocking snackbar.
+/// non-blocking snackbar. Waste keeps its silent association with the
+/// active event (§9) — recorded, never asked.
 library;
 
 import 'package:flutter/material.dart';
@@ -29,7 +39,8 @@ import '../../../app/widgets/form_action_bar.dart';
 class MovementEntryScreen extends ConsumerStatefulWidget {
   const MovementEntryScreen({super.key, this.kind, this.itemId});
 
-  /// `?kind=` prefill: receive | waste | count (adjust).
+  /// `?kind=` — which of the three screens this is: receive | waste |
+  /// count (adjust). Unknown or absent reads as `receive`.
   final String? kind;
 
   /// `?itemId=` prefill.
@@ -46,7 +57,9 @@ class _MovementEntryScreenState extends ConsumerState<MovementEntryScreen> {
   final _countedCtrl = TextEditingController();
   final _noteCtrl = TextEditingController();
 
-  late MovementKind _kind;
+  /// Fixed by the route for this screen's whole life — there is no control
+  /// that changes it.
+  late final MovementKind _kind;
   ItemSummary? _item;
   String? _itemError;
   String? _eventId;
@@ -79,6 +92,19 @@ class _MovementEntryScreenState extends ConsumerState<MovementEntryScreen> {
       _countedCtrl.text.isNotEmpty ||
       _noteCtrl.text.isNotEmpty;
 
+  /// What this screen is called, in the words of what happened.
+  String get _title => switch (_kind) {
+    MovementKind.adjust => 'Count what you have',
+    MovementKind.waste => 'Something was thrown out',
+    _ => 'Something arrived',
+  };
+
+  /// The label over this screen's one number.
+  String get _quantityLabel => switch (_kind) {
+    MovementKind.waste => 'How many were thrown out?',
+    _ => 'How many arrived?',
+  };
+
   @override
   Widget build(BuildContext context) {
     _resolvePrefills();
@@ -90,12 +116,12 @@ class _MovementEntryScreenState extends ConsumerState<MovementEntryScreen> {
     final catalog = ref.watch(itemListProvider(const ItemFilter()));
     if (catalog.valueOrNull?.isEmpty ?? false) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Record movement')),
+        appBar: AppBar(title: Text(_title)),
         body: SafeArea(
           child: EmptyState(
             title: 'Add an item first',
             message:
-                'Purchases, waste and counts are all recorded against '
+                'Counts, arrivals and waste are all recorded against '
                 'something you have — its name and how many.',
             actionLabel: 'Add an item',
             onAction: () => context.push('/items/new'),
@@ -108,35 +134,27 @@ class _MovementEntryScreenState extends ConsumerState<MovementEntryScreen> {
       canPop: !_dirty,
       onPopInvokedWithResult: _confirmDiscard,
       child: Scaffold(
-        appBar: AppBar(title: const Text('Record movement')),
+        appBar: AppBar(
+          title: Text(_title),
+          actions: [
+            PopupMenuButton<String>(
+              tooltip: 'More options',
+              onSelected: (action) {
+                if (action == 'date') {
+                  _pickOccurredDate();
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'date', child: Text('Change the date')),
+              ],
+            ),
+          ],
+        ),
         body: ContentColumn(
           child: Form(
             key: _formKey,
             child: ListView(
               children: [
-                SegmentedButton<MovementKind>(
-                  segments: const [
-                    ButtonSegment(
-                      value: MovementKind.receive,
-                      icon: Icon(Icons.shopping_bag_outlined),
-                      label: Text('Purchase'),
-                    ),
-                    ButtonSegment(
-                      value: MovementKind.waste,
-                      icon: Icon(Icons.delete_outline),
-                      label: Text('Waste'),
-                    ),
-                    ButtonSegment(
-                      value: MovementKind.adjust,
-                      icon: Icon(Icons.rule),
-                      label: Text('Count'),
-                    ),
-                  ],
-                  selected: {_kind},
-                  onSelectionChanged: (selection) =>
-                      setState(() => _kind = selection.first),
-                ),
-                const SizedBox(height: 16),
                 InkWell(
                   onTap: _pickItem,
                   child: InputDecorator(
@@ -163,27 +181,23 @@ class _MovementEntryScreenState extends ConsumerState<MovementEntryScreen> {
                 else
                   QuantityFormField(
                     controller: _quantityCtrl,
-                    labelText: 'How many?',
+                    labelText: _quantityLabel,
                     onChanged: (_) => setState(() {}),
                   ),
-                if (_kind == MovementKind.waste) ...[
+                // The date is today unless she said otherwise, and it only
+                // takes up a line once she has.
+                if (!_isToday(_occurredAt)) ...[
                   const SizedBox(height: 16),
-                  _eventField(),
+                  Text(
+                    'Dated ${dateTimeLabel(_occurredAt)}',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
                 ],
                 const SizedBox(height: 16),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.today_outlined),
-                  title: const Text('Occurred'),
-                  subtitle: Text(dateTimeLabel(_occurredAt)),
-                  onTap: _pickOccurredDate,
-                ),
-                const SizedBox(height: 8),
                 TextFormField(
                   controller: _noteCtrl,
                   decoration: const InputDecoration(
                     labelText: 'Note (optional)',
-                    helperText: 'Stored encrypted, never logged',
                     border: OutlineInputBorder(),
                   ),
                   maxLines: 2,
@@ -211,7 +225,7 @@ class _MovementEntryScreenState extends ConsumerState<MovementEntryScreen> {
               const SizedBox(height: 8),
               OutlinedButton(
                 onPressed: _submitting ? null : () => _submit(addAnother: true),
-                child: const Text('Record & add another'),
+                child: const Text('Save and do another'),
               ),
             ],
           ),
@@ -232,7 +246,7 @@ class _MovementEntryScreenState extends ConsumerState<MovementEntryScreen> {
         : formatSignedMicros(position.onHandMicros, item.item.unit);
     return [
       Text(
-        'Loadout has $derivedLabel',
+        'You have $derivedLabel',
         style: Theme.of(context).textTheme.bodyLarge,
       ),
       const SizedBox(height: 12),
@@ -250,8 +264,9 @@ class _MovementEntryScreenState extends ConsumerState<MovementEntryScreen> {
     ];
   }
 
-  /// Signed-adjustment preview ("will record a change of −1.5 kg") —
-  /// display only; the service recomputes the delta at submit time.
+  /// What the count will do, said the way a person would say it ("That's 7
+  /// fewer than before") — display only; the service recomputes the delta
+  /// at submit time.
   String _adjustPreview(StockPosition? position) {
     final item = _item;
     final counted = QuantityFormField.tryParse(_countedCtrl.text);
@@ -260,30 +275,10 @@ class _MovementEntryScreenState extends ConsumerState<MovementEntryScreen> {
     }
     final delta = counted.micros - position.onHandMicros;
     if (delta == 0) return 'No change to record.';
-    return 'Will record a change of '
-        '${formatDeltaMicros(delta, item.item.unit)}';
-  }
-
-  Widget _eventField() {
-    final events =
-        ref.watch(eventListProvider(EventStatusFilter.active)).valueOrNull ??
-        const <EventSummary>[];
-    return DropdownButtonFormField<String?>(
-      // Recreate when the default association resolves (§9: waste defaults
-      // to the active event) — FormFields read initialValue only once.
-      key: ValueKey(_eventId),
-      initialValue: _eventId,
-      decoration: const InputDecoration(
-        labelText: 'Event (optional)',
-        border: OutlineInputBorder(),
-      ),
-      items: [
-        const DropdownMenuItem<String?>(child: Text('No event')),
-        for (final event in events)
-          DropdownMenuItem<String?>(value: event.id, child: Text(event.name)),
-      ],
-      onChanged: (value) => setState(() => _eventId = value),
-    );
+    final magnitude = formatSignedMicros(delta.abs(), item.item.unit);
+    return delta < 0
+        ? "That's $magnitude fewer than before"
+        : "That's $magnitude more than before";
   }
 
   void _resolvePrefills() {
@@ -302,20 +297,22 @@ class _MovementEntryScreenState extends ConsumerState<MovementEntryScreen> {
         }
       }
     }
-    if (!_eventPrefillResolved) {
+    if (!_eventPrefillResolved && _kind == MovementKind.waste) {
       final events = ref
           .watch(eventListProvider(EventStatusFilter.active))
           .valueOrNull;
       if (events != null) {
         _eventPrefillResolved = true;
-        // Waste association defaults to the active event (§9).
+        // Waste association defaults to the active event (§9) — the same
+        // default as before, now silent instead of a dropdown she has to
+        // read and leave alone.
         if (events.isNotEmpty) _eventId = events.first.id;
       }
     }
   }
 
   /// Live on-hand, not the value captured when the item was picked: after
-  /// "Record & add another" the summary snapshot is a movement out of date.
+  /// "Save and do another" the summary snapshot is a movement out of date.
   String _onHandLabel(ItemSummary item) {
     final live = ref
         .watch(stockPositionProvider(item.item.id as String))
@@ -324,6 +321,13 @@ class _MovementEntryScreenState extends ConsumerState<MovementEntryScreen> {
       live?.onHandMicros ?? item.onHandMicros,
       item.item.unit,
     );
+  }
+
+  static bool _isToday(DateTime value) {
+    final now = DateTime.now();
+    return value.year == now.year &&
+        value.month == now.month &&
+        value.day == now.day;
   }
 
   Future<void> _pickItem() async {

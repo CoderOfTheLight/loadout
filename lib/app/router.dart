@@ -35,7 +35,6 @@ import '../features/inventory/presentation/movement_entry_screen.dart';
 import '../features/onboarding/presentation/create_workspace_screen.dart';
 import '../features/onboarding/presentation/recovery_screen.dart';
 import '../features/onboarding/presentation/welcome_screen.dart';
-import '../features/production/presentation/production_planning_screen.dart';
 import '../features/recipes/presentation/recipe_detail_screen.dart';
 import '../features/recipes/presentation/recipe_edit_screen.dart';
 import '../features/recipes/presentation/recipe_list_screen.dart';
@@ -83,6 +82,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/recovery', builder: (_, _) => const RecoveryScreen()),
 
       // ------------------------------- root-level pushes (no tab bar)
+      // THREE destinations, one per `?kind=`, each its own plain screen:
+      // `?kind=count` → "Count what you have", `?kind=receive` (the
+      // default) → "Something arrived", `?kind=waste` → "Something was
+      // thrown out". There is no picker on the screen; the link decides.
       GoRoute(
         path: '/movements/new',
         parentNavigatorKey: rootKey,
@@ -111,11 +114,6 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/activity',
         parentNavigatorKey: rootKey,
         builder: (_, _) => const ActivityScreen(),
-      ),
-      GoRoute(
-        path: '/production',
-        parentNavigatorKey: rootKey,
-        builder: (_, _) => const ProductionPlanningScreen(),
       ),
 
       // ------------------------------------------------------- the shell

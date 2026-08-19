@@ -1,8 +1,11 @@
 /// `/settings` (design §9): workspace preferences and the doors to the
 /// data/privacy/diagnostics/about/reset sub-screens.
 ///
-/// Groups: Workspace (name, default policy, exposure label, history
-/// window — plain upserts through [SettingsService.updatePreferences]);
+/// Groups: Workspace (name, then the three preferences under the plain
+/// names they were renamed to for a spreadsheet-literate owner — "How much
+/// extra to bring" (default policy), "What you count" (exposure label),
+/// "How far back to look" (history window); all plain upserts through
+/// [SettingsService.updatePreferences], values and behaviour unchanged);
 /// Appearance (Follow phone / Light / Dark — three radio rows rather than a
 /// `SegmentedButton`, because "Follow phone" beside two more segments stops
 /// fitting one line well before 200 % text scale, and rows are already this
@@ -118,7 +121,7 @@ class SettingsScreen extends ConsumerWidget {
                     ),
                     ListTile(
                       leading: const Icon(Icons.tune),
-                      title: const Text('Default planning policy'),
+                      title: const Text('How much extra to bring'),
                       subtitle: Text(
                         workspace == null
                             ? '—'
@@ -145,14 +148,14 @@ class SettingsScreen extends ConsumerWidget {
                     ),
                     ListTile(
                       leading: const Icon(Icons.groups_outlined),
-                      title: const Text('Exposure label'),
+                      title: const Text('What you count (people, plates…)'),
                       subtitle: Text(workspace?.exposureLabel ?? '—'),
                       onTap: workspace == null
                           ? null
                           : () async {
                               final label = await _promptText(
                                 context,
-                                title: 'Exposure label',
+                                title: 'What you count',
                                 initial: workspace.exposureLabel,
                                 helper:
                                     'Your word for how many people you are '
@@ -172,7 +175,7 @@ class SettingsScreen extends ConsumerWidget {
                     ),
                     ListTile(
                       leading: const Icon(Icons.history_toggle_off),
-                      title: const Text('History window'),
+                      title: const Text('How far back to look'),
                       subtitle: Text(
                         workspace == null
                             ? '—'
@@ -464,7 +467,7 @@ Future<int?> _promptHistoryWindow(
   final raw = await showDialog<String>(
     context: context,
     builder: (_) => _TextPromptDialog(
-      title: 'History window',
+      title: 'How far back to look',
       initial: '$initial',
       helper: 'How many recent closed events forecasts learn from. At least 1.',
       digitsOnly: true,
@@ -481,7 +484,7 @@ Future<PlanningPolicy?> _promptPolicy(
 }) => showDialog<PlanningPolicy>(
   context: context,
   builder: (dialogContext) => SimpleDialog(
-    title: const Text('Default planning policy'),
+    title: const Text('How much extra to bring'),
     children: [
       for (final policy in PlanningPolicy.values)
         ListTile(

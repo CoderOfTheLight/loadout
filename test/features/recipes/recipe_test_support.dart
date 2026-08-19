@@ -115,6 +115,44 @@ Future<void> tapVisible(WidgetTester tester, Finder finder) async {
   await tester.pumpAndSettle();
 }
 
+/// Opens RecipeDetailScreen's app-bar "More" menu and taps the entry keyed
+/// [itemKey] ('archive-action', 'earlier-versions', 'revise-action').
+Future<void> tapRecipeMenuItem(WidgetTester tester, String itemKey) async {
+  await tapVisible(tester, find.byKey(const Key('recipe-menu')));
+  await tester.tap(find.byKey(Key(itemKey)));
+  await tester.pumpAndSettle();
+}
+
+/// Opens ingredient row [uid]'s overflow on RecipeEditScreen.
+Future<void> openIngredientMenu(WidgetTester tester, int uid) =>
+    tapVisible(tester, find.byKey(ValueKey('ingredient-menu-$uid')));
+
+/// Opens ingredient row [uid]'s overflow and taps the entry keyed [itemKey]
+/// ('link-line-N', 'unlink-line-N', 'remove-ingredient-N').
+Future<void> tapIngredientMenuItem(
+  WidgetTester tester,
+  int uid,
+  String itemKey,
+) async {
+  await openIngredientMenu(tester, uid);
+  await tester.tap(find.byKey(ValueKey(itemKey)));
+  await tester.pumpAndSettle();
+}
+
+/// Whether ingredient row [uid]'s overflow offers the entry keyed
+/// [itemKey]. Leaves the menu closed again.
+Future<bool> ingredientMenuOffers(
+  WidgetTester tester,
+  int uid,
+  String itemKey,
+) async {
+  await openIngredientMenu(tester, uid);
+  final offered = find.byKey(ValueKey(itemKey)).evaluate().isNotEmpty;
+  await tester.tapAt(const Offset(2, 2)); // the menu's barrier
+  await tester.pumpAndSettle();
+  return offered;
+}
+
 /// Scrolls the OPEN folder-picker sheet until [label] is visible and taps
 /// it. The picker's list is lazy and the eight starter folders push later
 /// entries (a created folder, "Unfiled") below the sheet's fold, where a

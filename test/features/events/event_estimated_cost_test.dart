@@ -2,13 +2,16 @@
 /// will this event cost?") answered while she can still do something about
 /// it, i.e. for PLANNED and ACTIVE events only.
 ///
-/// Two figures, never compared by the app: the hero is her packing list at
-/// today's prices, and under it the history line is what events like this
-/// one usually cost, read off confirmed closeouts. Both obey the same
-/// honesty rules — an unpriced item is counted out loud, one or two past
-/// events are called thin evidence rather than a pattern, unpriced history
-/// makes the prediction a floor, and an absent answer is absent rather than
-/// a zero or an empty state.
+/// ONE figure on the face, and it is the planned one — her packing list at
+/// today's prices, the number tied to the list she is looking at. Under it,
+/// the history goes as one plain sentence with no qualifiers beside it.
+///
+/// Every honesty rule is intact, and the qualifiers that used to shout from
+/// the card ("$2.10 a person × 150", "from 1 past event — one event is a
+/// data point, not a pattern.", "…so this is a floor.") are word for word
+/// one tap away behind "How is this worked out?". An unpriced item is still
+/// counted out loud ON the card, and an absent answer is still absent rather
+/// than a zero or an empty state.
 ///
 /// Most cases drive the two cost providers directly: the copy and the
 /// branches are this screen's contract, and pinning them to a seeded
@@ -103,6 +106,20 @@ Future<String> plannedEvent(
     exposure: exposure,
     itemIds: [cups],
   );
+}
+
+/// The explainer row sits at the bottom of a scrolling screen, so it is
+/// scrolled to before it is tapped.
+Future<void> openExplainer(WidgetTester tester) async {
+  await tester.ensureVisible(find.text('How is this worked out?'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('How is this worked out?'));
+  await tester.pumpAndSettle();
+}
+
+Future<void> closeExplainer(WidgetTester tester) async {
+  await tester.tap(find.text('Close'));
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -238,7 +255,7 @@ void main() {
 
     await h.pumpScreen(tester, screenWithCost(eventId));
     expect(find.text('Estimated cost'), findsNothing);
-    expect(find.textContaining('Events like this'), findsNothing);
+    expect(find.textContaining('Past events like this'), findsNothing);
     expect(find.textContaining('no price yet'), findsNothing);
     await h.flushTimers(tester);
   });
@@ -275,16 +292,32 @@ void main() {
       ),
     );
 
-    // Both figures, side by side, with no editorial about the gap.
+    // The card's figure is the planned one; the history is one sentence.
     expect(find.text(r'$284.50'), findsOneWidget);
     expect(
-      find.text(r'Events like this usually cost about $315'),
+      find.text(r'Past events like this averaged about $315.'),
       findsOneWidget,
     );
+    // No qualifier stands beside a total any more …
+    expect(find.text(r'$2.10 a person × 150'), findsNothing);
+    expect(find.text('from 4 past events'), findsNothing);
+
+    // … they are all one tap away, word for word.
+    await openExplainer(tester);
     expect(find.text(r'$2.10 a person × 150'), findsOneWidget);
     expect(find.text('from 4 past events'), findsOneWidget);
+    expect(
+      find.textContaining('It is arithmetic, not a guess.'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('Neither is a correction of the other.'),
+      findsOneWidget,
+    );
+    // Four events is not thin, and nothing here was unpriced.
     expect(find.textContaining('pattern'), findsNothing);
     expect(find.textContaining('floor'), findsNothing);
+    await closeExplainer(tester);
     await h.flushTimers(tester);
   });
 
@@ -311,6 +344,9 @@ void main() {
         ),
       ),
     );
+    // Never on the face …
+    expect(find.textContaining('data point'), findsNothing);
+    await openExplainer(tester);
     expect(
       find.text(
         'from 1 past event — one event is a data point, not a '
@@ -318,6 +354,7 @@ void main() {
       ),
       findsOneWidget,
     );
+    await closeExplainer(tester);
 
     await h.pumpScreen(
       tester,
@@ -334,10 +371,12 @@ void main() {
         ),
       ),
     );
+    await openExplainer(tester);
     expect(
       find.text('from 2 past events — two is thin evidence, not a pattern.'),
       findsOneWidget,
     );
+    await closeExplainer(tester);
     await h.flushTimers(tester);
   });
 
@@ -372,6 +411,9 @@ void main() {
         ),
       ),
     );
+    // The floor caveat is behind the explainer, not shouted at a total.
+    expect(find.textContaining('floor'), findsNothing);
+    await openExplainer(tester);
     expect(
       find.text(
         'Some of those events had items with no price, so this is a floor.',
@@ -379,6 +421,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('from 3 past events'), findsOneWidget);
+    await closeExplainer(tester);
     await h.flushTimers(tester);
   });
 
@@ -405,8 +448,10 @@ void main() {
       ),
     );
     expect(find.text(r'$284.50'), findsOneWidget);
-    expect(find.textContaining('Events like this'), findsNothing);
+    expect(find.textContaining('Past events like this'), findsNothing);
     expect(find.textContaining('past event'), findsNothing);
+    // No history means nothing to explain, so no explainer row either.
+    expect(find.text('How is this worked out?'), findsNothing);
     await h.flushTimers(tester);
   });
 
@@ -439,7 +484,7 @@ void main() {
     );
     expect(find.text('Estimated cost'), findsOneWidget);
     expect(
-      find.text(r'Events like this usually cost about $210'),
+      find.text(r'Past events like this averaged about $210.'),
       findsOneWidget,
     );
     // No planned cost: the hero and its label are simply absent.
@@ -481,13 +526,15 @@ void main() {
     expect(find.text('Spent'), findsOneWidget);
     expect(find.text(r'$60'), findsOneWidget);
     expect(find.text('Estimated cost'), findsNothing);
-    expect(find.textContaining('Events like this'), findsNothing);
+    expect(find.textContaining('Past events like this'), findsNothing);
     await h.flushTimers(tester);
   });
 
-  testWidgets('both answers survive 200 % text scale, in both brightnesses', (
-    tester,
-  ) async {
+  testWidgets('both answers survive 200 % text scale on a 320 dp phone, in '
+      'both brightnesses', (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
     tester.platformDispatcher.textScaleFactorTestValue = 2.0;
     addTearDown(tester.platformDispatcher.clearAllTestValues);
     final h = (await tester.runAsync(
@@ -525,11 +572,26 @@ void main() {
       ),
     );
     expect(find.text(r'$284.50'), findsOneWidget);
+    expect(
+      find.text(r'Past events like this averaged about $315.'),
+      findsOneWidget,
+    );
+    // The explainer has to survive the same scale — it is where every
+    // qualifier now lives.
+    await openExplainer(tester);
     expect(find.text(r'$2.10 a person × 150'), findsOneWidget);
+    expect(
+      find.text(
+        'from 1 past event — one event is a data point, not a pattern.',
+      ),
+      findsOneWidget,
+    );
+    await closeExplainer(tester);
 
     tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
     await tester.pumpAndSettle();
     expect(find.text(r'$284.50'), findsOneWidget);
+    expect(tester.takeException(), isNull);
     await h.flushTimers(tester);
   });
 }

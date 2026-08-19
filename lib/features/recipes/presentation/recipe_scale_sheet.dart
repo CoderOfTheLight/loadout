@@ -1,7 +1,9 @@
 /// "Scale to event" bottom sheet (proposal §3, recipe screen): pick an
 /// upcoming event and see the CURRENT revision as whole batches — batches
-/// needed = ceil(need ÷ yield) with the rounding said out loud, and every
-/// ingredient in two columns (per batch, for all batches).
+/// needed = ceil(need ÷ yield), stated as one plain sentence, and every
+/// ingredient with the amount to buy. A second "per batch" column appears
+/// only when there is more than one batch: at ×1 the two columns carry the
+/// same number, and a table that repeats itself is a table nobody reads.
 ///
 /// The NEED is read from the event's latest PERSISTED forecast snapshot —
 /// the same number the packing list shows (effective load: override wins,
@@ -78,22 +80,23 @@ class _RecipeScaleSheetState extends ConsumerState<RecipeScaleSheet> {
         ),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text('Scale to event', style: theme.textTheme.titleMedium),
-              const SizedBox(height: 4),
-              Text(
-                'Using revision ${widget.revision.revision} (current). '
-                'A view only — the saved recipe never changes.',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+          // The HEADING scrolls with the body. Held out of the scroll it
+          // could eat the whole sheet at large text scale and overflow it.
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('Scale to event', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 4),
+                Text(
+                  'Nothing here changes the recipe.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              Flexible(
-                child: events.when(
+                const SizedBox(height: 12),
+                events.when(
                   loading: () =>
                       const Center(child: CircularProgressIndicator()),
                   error: (_, _) => const Padding(
@@ -111,8 +114,8 @@ class _RecipeScaleSheetState extends ConsumerState<RecipeScaleSheet> {
                         )
                       : _buildPicked(theme, upcoming),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -125,41 +128,40 @@ class _RecipeScaleSheetState extends ConsumerState<RecipeScaleSheet> {
       orElse: () => upcoming.first,
     );
     // Non-lazy on purpose: the ingredient table is short and must be
-    // walkable (and testable) as one column.
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          DropdownButtonFormField<String>(
-            key: const Key('scale-event-picker'),
-            initialValue: selected.id,
-            isExpanded: true,
-            decoration: const InputDecoration(
-              labelText: 'Event',
-              border: OutlineInputBorder(),
-            ),
-            items: [
-              for (final event in upcoming)
-                DropdownMenuItem(
-                  value: event.id,
-                  child: Text(
-                    '${event.name} · ${event.scheduledDate}',
-                    overflow: TextOverflow.ellipsis,
-                  ),
+    // walkable (and testable) as one column. The scroll lives one level up,
+    // around the heading too.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        DropdownButtonFormField<String>(
+          key: const Key('scale-event-picker'),
+          initialValue: selected.id,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            labelText: 'Event',
+            border: OutlineInputBorder(),
+          ),
+          items: [
+            for (final event in upcoming)
+              DropdownMenuItem(
+                value: event.id,
+                child: Text(
+                  '${event.name} · ${event.scheduledDate}',
+                  overflow: TextOverflow.ellipsis,
                 ),
-            ],
-            onChanged: (value) => setState(() => _eventId = value),
-          ),
-          const SizedBox(height: 12),
-          _ScaleBody(
-            eventId: selected.id,
-            outputItemId: widget.outputItemId,
-            outputItemName: widget.outputItemName,
-            revision: widget.revision,
-            itemsById: widget.itemsById,
-          ),
-        ],
-      ),
+              ),
+          ],
+          onChanged: (value) => setState(() => _eventId = value),
+        ),
+        const SizedBox(height: 12),
+        _ScaleBody(
+          eventId: selected.id,
+          outputItemId: widget.outputItemId,
+          outputItemName: widget.outputItemName,
+          revision: widget.revision,
+          itemsById: widget.itemsById,
+        ),
+      ],
     );
   }
 }
@@ -205,7 +207,7 @@ class _ScaleBody extends ConsumerWidget {
         }
         if (line == null) {
           return _Message(
-            '«$outputItemName» is not on this event\'s packing list, so '
+            '“$outputItemName” is not on this event\'s packing list, so '
             'there is nothing to scale from. Add it to the event and '
             'regenerate the forecast.',
           );
@@ -213,7 +215,7 @@ class _ScaleBody extends ConsumerWidget {
         final need = line.effectiveLoadMicros;
         if (need == null) {
           return _Message(
-            'Loadout has no amount for «$outputItemName» at this event '
+            'Loadout has no amount for “$outputItemName” at this event '
             'yet — set a baseline from its forecast line first.',
           );
         }
@@ -225,19 +227,14 @@ class _ScaleBody extends ConsumerWidget {
           yieldMicros: revision.yieldQuantity.micros,
         );
         final label = revision.yieldLabel;
-        // The total the whole batches make — the "Serves 240" glance figure
-        // of spec §6, computed exactly (batches × yield). '—' would mean
-        // the quantity envelope was left; the verdict still tells the story.
-        final made = plan.batches == 0
-            ? null
-            : scaledIngredientTotal(revision.yieldQuantity, plan.batches);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Scale header card (spec §6): the multiplier as one prominent
-            // chip, the resulting amount as the glance number, and the
-            // rounding said out loud. Restraint zone — the numbers are the
-            // payload; no hue, no motion.
+            // Scale header card (spec §6). The multiplier pill and the
+            // "Makes 30" glance figure are deliberately gone: the sentence
+            // below now carries both numbers, and three renderings of one
+            // fact is what made this sheet unreadable. Restraint zone — the
+            // numbers are the payload; no hue, no motion.
             Card(
               margin: EdgeInsets.zero,
               child: Padding(
@@ -245,48 +242,23 @@ class _ScaleBody extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (plan.batches > 0) ...[
-                      Wrap(
-                        spacing: Space.m,
-                        runSpacing: Space.s,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Container(
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.secondaryContainer,
-                              borderRadius: BorderRadius.circular(Radii.small),
-                            ),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: Space.m,
-                              vertical: Space.xs,
-                            ),
-                            child: Text(
-                              '×${plan.batches} '
-                              '${plan.batches == 1 ? 'batch' : 'batches'}',
-                              style: theme.textTheme.labelLarge?.copyWith(
-                                color: theme.colorScheme.onSecondaryContainer,
-                                fontFeatures: Numerals.tabular,
-                              ),
-                            ),
-                          ),
-                          if (made != null && made != '—')
-                            Text(
-                              'Makes $made',
-                              style: Numerals.glance(theme.textTheme),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: Space.m),
-                    ],
+                    // A sentence, not a figure, so it takes a TEXT role
+                    // rather than a Numerals tier — but with tabular digits
+                    // so the numbers inside it sit straight.
                     Text(
                       key: const Key('scale-verdict'),
                       plan.verdict,
-                      style: theme.textTheme.titleMedium,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        fontFeatures: Numerals.tabular,
+                      ),
                     ),
                     const SizedBox(height: Space.s),
+                    // The need itself is already in the sentence above, so
+                    // this line only says where it came from.
                     Text(
                       key: const Key('scale-context'),
-                      'Packing list: bring ${formatMicros(need)} for '
+                      "From this event's packing list for "
                       '${snapshot.upcomingExposure} '
                       '${exposureLabelOf(snapshot)}.'
                       '${line.isBaseline ? ' An estimate — nothing confirmed yet.' : ''}',
@@ -358,9 +330,11 @@ class _ScaleBody extends ConsumerWidget {
 }
 
 /// One ingredient row (spec §6): name left, the scaled total right in the
-/// row-quantity numeral role, the per-batch amount directly beneath it as a
-/// caption. Plain vertical list — no hue, no motion, no chips (ingredients
-/// aren't folders). Both figures exact.
+/// row-quantity numeral role, and — only when there is more than one batch
+/// — the per-batch amount directly beneath it as a caption. At ×1 the two
+/// figures are the same number twice, so the caption is dropped. Plain
+/// vertical list — no hue, no motion, no chips (ingredients aren't
+/// folders). Both figures exact.
 class _IngredientRow extends StatelessWidget {
   const _IngredientRow({
     required this.line,
@@ -395,9 +369,13 @@ class _IngredientRow extends StatelessWidget {
         : unitSuffix(item.unit);
     return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: 56),
+      // Both sides FLEX. An unbounded figure column overflowed the row at
+      // 200 % text scale on a 320 dp phone: at that size "3 per batch" is
+      // wider than half the screen on its own.
       child: Row(
         children: [
           Expanded(
+            flex: 3,
             child: Text(
               name,
               style: theme.textTheme.bodyLarge?.copyWith(
@@ -406,23 +384,29 @@ class _IngredientRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: Space.m),
-          Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                '${scaledIngredientTotal(line.quantityPerBatch, batches)}'
-                '$suffix',
-                style: Numerals.rowQuantity(theme.textTheme),
-              ),
-              Text(
-                '${QuantityCodec.format(line.quantityPerBatch)}$suffix '
-                'per batch',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+          Expanded(
+            flex: 2,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  '${scaledIngredientTotal(line.quantityPerBatch, batches)}'
+                  '$suffix',
+                  textAlign: TextAlign.end,
+                  style: Numerals.rowQuantity(theme.textTheme),
                 ),
-              ),
-            ],
+                if (batches != 1)
+                  Text(
+                    '${QuantityCodec.format(line.quantityPerBatch)}$suffix '
+                    'per batch',
+                    textAlign: TextAlign.end,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+              ],
+            ),
           ),
         ],
       ),

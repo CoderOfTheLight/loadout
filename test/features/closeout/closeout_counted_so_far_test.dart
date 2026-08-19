@@ -39,18 +39,14 @@ void main() {
 
     await h.pumpScreen(tester, CloseoutScreen(eventId: eventId));
 
-    // Loaded 10, 2 left → used 8 (waste counts as 0), at $2.50 each = $20.
-    await tester.ensureVisible(find.textContaining('Worksheet'));
-    await tester.tap(find.textContaining('Worksheet'));
-    await tester.pumpAndSettle();
+    // Loaded 10, 2 left → used 8 (thrown out counts as 0), at $2.50 each
+    // = $20.
     await tester.enterText(find.widgetWithText(TextFormField, 'Loaded'), '10');
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'How many are left?'),
-      '2',
-    );
+    await tester.enterText(find.widgetWithText(TextFormField, 'Left'), '2');
     await tester.pumpAndSettle();
     expect(find.text('Used: 8'), findsOneWidget);
 
+    await tester.ensureVisible(find.text('Finish closeout'));
     await tester.tap(find.text('Finish closeout'));
     await tester.pumpAndSettle();
     expect(find.text(r'Counted so far: $20'), findsOneWidget);

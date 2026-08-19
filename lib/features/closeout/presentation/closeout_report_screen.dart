@@ -221,7 +221,14 @@ class _ReportBody extends StatelessWidget {
               ),
             ),
           ),
-          for (final row in rows) _ReportRowCard(row: row),
+          for (final row in rows)
+            _ReportRowCard(
+              row: row,
+              // "No forecast for this item." on every single row is noise
+              // when NO row had one — the card above has already said so,
+              // once. It earns its place only where the rows disagree.
+              sayWhenNoForecast: matched + over + short > 0,
+            ),
           const SizedBox(height: Space.xl),
         ],
       ),
@@ -383,9 +390,14 @@ String varianceHeadline({
 /// expected and by how much it differed, and what it cost at the
 /// snapshotted price.
 class _ReportRowCard extends StatelessWidget {
-  const _ReportRowCard({required this.row});
+  const _ReportRowCard({required this.row, required this.sayWhenNoForecast});
 
   final _ReportRow row;
+
+  /// Whether a missing forecast is worth saying on THIS row: true only when
+  /// other rows do have one, so the absence is a difference rather than the
+  /// state of the whole page (which the totals card states once).
+  final bool sayWhenNoForecast;
 
   @override
   Widget build(BuildContext context) {
@@ -450,7 +462,7 @@ class _ReportRowCard extends StatelessWidget {
                   ),
                 ],
               )
-            else
+            else if (sayWhenNoForecast)
               Text('No forecast for this item.', style: absent),
             const SizedBox(height: Space.xs),
             if ((row.cost, row.unitPrice) case (final cost?, final price?))

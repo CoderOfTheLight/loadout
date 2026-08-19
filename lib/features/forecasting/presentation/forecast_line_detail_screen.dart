@@ -1,8 +1,24 @@
-/// `/events/:eventId/forecast/:itemId` — the full story for one forecast
-/// line (design §9, §6.6): result with the arithmetic narrated, the stored
-/// evidence value-copies, assumptions, warnings verbatim, override entry
-/// (mandatory reason ≥ 3 chars, clear-override appends a NULL-load row) and
-/// the append-only override history, plus the method/version footer.
+/// `/events/:eventId/forecast/:itemId` — one forecast line, said once.
+///
+/// This screen used to be the data model with a Scaffold around it: a
+/// four-cell grid (Expected / Planned / Load / Acquire), then an
+/// "Assumptions" table of Exposure, Policy, Basis, "You had at generation",
+/// "Confirmed inbound" and "History window", then the arithmetic narrated a
+/// second time underneath. Six of those rows are inputs to a calculation
+/// nobody standing in a kitchen is going to re-run, and none of them is
+/// something she can check.
+///
+/// What she CAN check is the past events themselves. So the screen is now:
+///
+///  1. ONE sentence — what to bring, what that rests on, what is on the
+///     shelf ([forecastLineSentence]), read off exactly the fields the table
+///     printed;
+///  2. the stored evidence value-copies, one tappable row each, which are
+///     the only thing on the screen a human can verify against her own
+///     memory;
+///  3. any warning the sentence does not already speak for;
+///  4. the override — the one ACTION here — and its append-only log (§9,
+///     §12.17: mandatory reason >= 3 chars, clear appends a NULL-load row).
 library;
 
 import 'package:flutter/material.dart';
@@ -15,12 +31,9 @@ import '../../../app/unit_display.dart';
 import '../../../app/widgets/content_column.dart';
 import '../../../app/widgets/empty_state.dart';
 import '../../../app/widgets/quantity_form_field.dart';
-import '../../../core/quantity.dart';
 import '../../../core/units.dart';
 import '../../catalog/domain/demand_basis.dart';
-import '../../catalog/domain/item.dart';
 import '../../events/domain/event.dart';
-import '../application/baseline_estimator.dart';
 import '../domain/snapshot.dart';
 import 'forecast_presentation_support.dart';
 
@@ -119,8 +132,11 @@ class _ForecastLineDetailScreenState
   @override
   Widget build(BuildContext context) {
     final snapshotAsync = ref.watch(latestSnapshotProvider(widget.eventId));
+    final item = ref
+        .watch(forecastItemIndexProvider)
+        .valueOrNull?[widget.itemId];
     return Scaffold(
-      appBar: AppBar(title: const Text('Forecast line')),
+      appBar: AppBar(title: Text(item?.name ?? 'Forecast line')),
       body: snapshotAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (_, _) => const EmptyState(
@@ -148,7 +164,7 @@ class _ForecastLineDetailScreenState
                   'snapshot.',
             );
           }
-          return _body(context, snapshot, line);
+          return _body(context, snapshot, line, item?.unit);
         },
       ),
     );
@@ -158,12 +174,9 @@ class _ForecastLineDetailScreenState
     BuildContext context,
     ForecastSnapshotView snapshot,
     ForecastLineView line,
+    ItemUnit? unit,
   ) {
     final theme = Theme.of(context);
-    final item = ref
-        .watch(forecastItemIndexProvider)
-        .valueOrNull?[widget.itemId];
-    final unit = item?.unit;
     final status = ref
         .watch(eventDetailProvider(widget.eventId))
         .valueOrNull
@@ -183,32 +196,41 @@ class _ForecastLineDetailScreenState
       _reasonPrefilled = true;
     }
     final exposureLabel = exposureLabelOf(snapshot);
+    // The cold-start warnings say, in the engine's vocabulary, exactly what
+    // the sentence already said in the owner's. Everything else still
+    // renders verbatim.
+    final warnings = isColdStartLine(line)
+        ? [
+            for (final warning in line.warnings)
+              if (!isColdStartWarning(warning)) warning,
+          ]
+        : line.warnings;
     return ContentColumn(
       child: ListView(
         children: [
-          _resultCard(theme, snapshot, line, item, unit, exposureLabel),
-          _sectionTitle(theme, 'Evidence'),
-          if (line.evidence.isEmpty)
-            Text(
-              'No comparable confirmed outcomes were available when this '
-              'forecast was generated.',
-              style: theme.textTheme.bodyMedium,
-            )
-          else
+          _AnswerCard(
+            line: line,
+            unit: unit,
+            upcomingExposure: snapshot.upcomingExposure,
+            exposureLabel: exposureLabel,
+          ),
+          if (line.evidence.isNotEmpty) ...[
+            _sectionTitle(theme, 'What this is based on'),
             for (final evidence in line.evidence)
               _EvidenceRow(
                 evidence: evidence,
                 unit: unit,
                 exposureLabel: exposureLabel,
+                perEvent: line.demandBasis == DemandBasis.perEvent,
+                contextYear: instantYear(snapshot.createdAt),
               ),
-          _sectionTitle(theme, 'Assumptions'),
-          _assumptionsCard(theme, snapshot, line, unit, exposureLabel),
-          if (line.warnings.isNotEmpty) ...[
-            _sectionTitle(theme, 'Warnings'),
+          ],
+          if (warnings.isNotEmpty) ...[
+            const SizedBox(height: Space.l),
             // Verbatim stored warnings — engine and application-layer notes
             // alike — on the semantic amber container (spec §5), the same
             // visual weight the review screen gives them.
-            for (final warning in line.warnings)
+            for (final warning in warnings)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Container(
@@ -242,19 +264,10 @@ class _ForecastLineDetailScreenState
                 ),
               ),
           ],
-          _sectionTitle(theme, 'Override'),
+          _sectionTitle(theme, 'Change this number'),
           if (editable) _overrideForm(theme, snapshot, line, unit),
           _overrideHistory(theme, snapshot, unit),
-          const SizedBox(height: 24),
-          Center(
-            child: Text(
-              '${snapshot.method} · v${snapshot.methodVersion}',
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
+          const SizedBox(height: Space.xl),
         ],
       ),
     );
@@ -264,287 +277,6 @@ class _ForecastLineDetailScreenState
     padding: const EdgeInsets.only(top: 24, bottom: 8),
     child: Text(title, style: theme.textTheme.titleMedium),
   );
-
-  // ------------------------------------------------------------- result
-
-  Widget _resultCard(
-    ThemeData theme,
-    ForecastSnapshotView snapshot,
-    ForecastLineView line,
-    Item? item,
-    ItemUnit? unit,
-    String exposureLabel,
-  ) {
-    final overridden = line.isOverridden;
-    return Card(
-      margin: const EdgeInsets.only(top: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              item?.name ?? widget.itemId,
-              style: theme.textTheme.titleLarge,
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 24,
-              runSpacing: 12,
-              children: [
-                // `suggested*` / `plannedExpectedUse*`, not the raw engine
-                // fields: those are null on a "1 serves N" line and would
-                // print four em-dashes beside a usable estimate.
-                _figure(
-                  theme,
-                  'Expected',
-                  formatQuantity(line.plannedExpectedUseMicros, unit),
-                ),
-                _figure(
-                  theme,
-                  'Planned',
-                  formatQuantity(line.suggestedPlannedMicros, unit),
-                ),
-                _figure(
-                  theme,
-                  'Load',
-                  formatQuantity(line.effectiveLoadMicros, unit),
-                  struck: overridden
-                      ? formatQuantity(line.suggestedLoadMicros, unit)
-                      : null,
-                ),
-                _figure(
-                  theme,
-                  'Acquire',
-                  formatQuantity(line.suggestedAcquireMicros, unit),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              _narration(snapshot, line, unit, exposureLabel),
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            if (overridden) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Overridden: ${line.override!.reason}',
-                style: theme.textTheme.bodyMedium,
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _figure(
-    ThemeData theme,
-    String label,
-    String value, {
-    String? struck,
-  }) => ConstrainedBox(
-    constraints: const BoxConstraints(minWidth: 110),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: theme.textTheme.labelSmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Wrap(
-          spacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            Text(value, style: theme.textTheme.titleMedium),
-            if (struck != null)
-              Text(
-                struck,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                  decoration: TextDecoration.lineThrough,
-                ),
-              ),
-          ],
-        ),
-      ],
-    ),
-  );
-
-  /// §9: "median of 2 observed rates × 150 attendance, +10 % reserve,
-  /// rounded up to packs of 12, minus 10 on hand".
-  String _narration(
-    ForecastSnapshotView snapshot,
-    ForecastLineView line,
-    ItemUnit? unit,
-    String exposureLabel,
-  ) {
-    final usableOnHand = line.onHandMicros < 0 ? 0 : line.onHandMicros;
-    final available = usableOnHand + line.confirmedInboundMicros;
-    final onHandClause =
-        'minus ${formatQuantity(available, unit)} you already have.';
-    switch (line.basis) {
-      case ForecastBasis.insufficientData:
-        return 'No comparable confirmed outcomes — set a baseline load below '
-            'to plan this item.';
-      case ForecastBasis.servesBaseline:
-        // The owner's own words for the arithmetic she supplied: this is
-        // NOT history, and the warning beneath says so verbatim. The
-        // cold-start answer was either "1 serves N" or the flipped "N per
-        // person" ratio — never both.
-        final ratio = switch ((
-          line.baselinePerPersonNumerator,
-          line.baselinePerPersonDenominator,
-        )) {
-          (final numerator?, final denominator?) => formatPerPersonRatio(
-            numerator,
-            denominator,
-          ),
-          _ => null,
-        };
-        final start = ratio != null
-            ? '${ratio.substring(0, 1).toUpperCase()}${ratio.substring(1)} '
-                  '× ${snapshot.upcomingExposure} $exposureLabel'
-            : 'One serves '
-                  '${formatMicros(line.baselineServesPerUnitMicros ?? 0)} × '
-                  '${snapshot.upcomingExposure} $exposureLabel';
-        return '$start, +${snapshot.policy.reservePercent} % spare, '
-            '${_packClause(line)}$onHandClause';
-      case ForecastBasis.perEventBaseline:
-        // Attendance deliberately absent: that is what per-event means.
-        return 'You usually bring '
-            '${formatMicros(line.baselinePerEventMicros ?? 0)} — about the '
-            'same every event, +${snapshot.policy.reservePercent} % spare, '
-            '${_packClause(line)}$onHandClause';
-      case ForecastBasis.singleEvent:
-      case ForecastBasis.observedRange:
-        final count = line.evidence.length;
-        if (line.demandBasis == DemandBasis.perEvent) {
-          return 'Middle of what $count confirmed '
-              'event${count == 1 ? '' : 's'} actually used — '
-              'headcount ignored, +${snapshot.policy.reservePercent} % '
-              'reserve, ${_packClause(line)}$onHandClause';
-        }
-        return 'Median of $count observed rate${count == 1 ? '' : 's'} × '
-            '${snapshot.upcomingExposure} $exposureLabel, '
-            '+${snapshot.policy.reservePercent} % reserve, '
-            '${_packClause(line)}$onHandClause';
-    }
-  }
-
-  /// Pack-rounding clause, present only when rounding actually happens.
-  ///
-  /// Pack size left the product surface in schema v2: everything created
-  /// since is one unit per pack, so the clause would read "rounded up to
-  /// packs of 1" — jargon describing a no-op. Legacy measured rows still
-  /// round to a real pack and still need the explanation.
-  String _packClause(ForecastLineView line) =>
-      line.packSizeMicros == Quantity.one.micros
-      ? ''
-      : 'rounded up to packs of ${formatMicros(line.packSizeMicros)}, ';
-
-  // -------------------------------------------------------- assumptions
-
-  Widget _assumptionsCard(
-    ThemeData theme,
-    ForecastSnapshotView snapshot,
-    ForecastLineView line,
-    ItemUnit? unit,
-    String exposureLabel,
-  ) {
-    Widget row(String label, String value) => Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            flex: 2,
-            child: Text(
-              value,
-              textAlign: TextAlign.end,
-              style: theme.textTheme.bodyMedium,
-            ),
-          ),
-        ],
-      ),
-    );
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            row('Exposure', '${snapshot.upcomingExposure} $exposureLabel'),
-            row('Policy', '${policyChipLabel(snapshot.policy)} reserve'),
-            // WHICH question this line answered, said plainly: "2 per
-            // event, from 5 events" vs "0.4 per person, from 5 events".
-            if (basisExplanation(
-                  line,
-                  upcomingExposure: snapshot.upcomingExposure,
-                )
-                case final explanation?)
-              row('Basis', explanation),
-            // What was done about days that ran out. The Warnings section
-            // below says why in plain language; this says how much of the
-            // history it touched.
-            if (selloutHandlingNote(line, methodVersion: snapshot.methodVersion)
-                case final note?)
-              row('Days you ran out', note),
-            if (line.baselineServesPerUnitMicros != null)
-              row(
-                'One serves',
-                '${formatMicros(line.baselineServesPerUnitMicros!)} people',
-              ),
-            if ((
-                  line.baselinePerPersonNumerator,
-                  line.baselinePerPersonDenominator,
-                )
-                case (final numerator?, final denominator?))
-              row('Per person', formatPerPersonRatio(numerator, denominator)),
-            if (line.baselinePerEventMicros != null)
-              row(
-                'You usually bring',
-                formatMicros(line.baselinePerEventMicros!),
-              ),
-            // Only when rounding actually happens — see [_packClause].
-            if (line.packSizeMicros != Quantity.one.micros)
-              row(
-                'Pack rounding',
-                '${formatQuantity(line.packSizeMicros, unit)} per pack',
-              ),
-            row(
-              'You had at generation',
-              '${formatQuantity(line.onHandMicros, unit)} · '
-                  '${absoluteTimeLabel(snapshot.createdAt)}',
-            ),
-            row(
-              'Confirmed inbound',
-              formatQuantity(line.confirmedInboundMicros, unit),
-            ),
-            row(
-              'History window',
-              'last ${snapshot.historyWindow} closed '
-                  'events',
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   // ----------------------------------------------------------- override
 
@@ -656,6 +388,56 @@ class _ForecastLineDetailScreenState
   }
 }
 
+/// The whole answer, in one sentence.
+///
+/// The instruction leads in [Numerals.glance] and the evidence follows in
+/// body text, in ONE paragraph rather than a figure floating over a caption:
+/// at 200 % scale a wrapped paragraph simply grows, where a grid of labelled
+/// figures has to choose between clipping and reflowing into nonsense.
+class _AnswerCard extends StatelessWidget {
+  const _AnswerCard({
+    required this.line,
+    required this.unit,
+    required this.upcomingExposure,
+    required this.exposureLabel,
+  });
+
+  final ForecastLineView line;
+  final ItemUnit? unit;
+  final int upcomingExposure;
+  final String exposureLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: const EdgeInsets.only(top: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Text.rich(
+          TextSpan(
+            children: [
+              TextSpan(
+                text: '${forecastLineInstruction(line, unit: unit)} ',
+                style: Numerals.glance(theme.textTheme),
+              ),
+              TextSpan(
+                text: forecastLineExplanation(
+                  line,
+                  upcomingExposure: upcomingExposure,
+                  exposureLabel: exposureLabel,
+                  unit: unit,
+                ),
+                style: theme.textTheme.bodyLarge,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// One stored `forecast_evidence` value-copy — exactly what the engine
 /// consumed, frozen at generation time. Tap → source event detail.
 class _EvidenceRow extends ConsumerWidget {
@@ -663,48 +445,65 @@ class _EvidenceRow extends ConsumerWidget {
     required this.evidence,
     required this.unit,
     required this.exposureLabel,
+    required this.perEvent,
+    required this.contextYear,
   });
 
   final EvidenceView evidence;
   final ItemUnit? unit;
   final String exposureLabel;
 
+  /// True when the line ignores headcount, in which case quoting one here
+  /// would suggest the number moves with it.
+  final bool perEvent;
+
+  /// The year a bare "Aug 7" is read against — see [shortEventDate].
+  final int contextYear;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final sourceEventId = evidence.sourceEventId as String;
     final source = ref.watch(eventDetailProvider(sourceEventId)).valueOrNull;
+    final used = 'used ${formatQuantity(evidence.depletionMicros, unit)}';
     final title = source == null
-        ? sourceEventId
-        : '${source.event.name} · ${source.event.scheduledDate}';
+        ? '$sourceEventId — $used'
+        : '${source.event.name} '
+              '(${shortEventDate(source.event.scheduledDate, contextYear: contextYear)})'
+              ' — $used';
+    final flagged = evidence.stockout || evidence.approximate;
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
       clipBehavior: Clip.antiAlias,
       child: ListTile(
         onTap: () => context.push('/events/$sourceEventId'),
         title: Text(title),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '${evidence.exposure} $exposureLabel · depletion '
-              '${formatQuantity(evidence.depletionMicros, unit)}',
-            ),
-            if (evidence.stockout || evidence.approximate)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Wrap(
-                  spacing: 12,
-                  children: [
-                    if (evidence.stockout)
-                      _flag(theme, Icons.warning_amber_outlined, 'Ran out'),
-                    if (evidence.approximate)
-                      _flag(theme, Icons.help_outline, 'Estimate'),
-                  ],
-                ),
+        subtitle: perEvent && !flagged
+            ? null
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (!perEvent)
+                    Text('for ${evidence.exposure} $exposureLabel'),
+                  if (flagged)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Wrap(
+                        spacing: 12,
+                        children: [
+                          if (evidence.stockout)
+                            _flag(
+                              theme,
+                              Icons.warning_amber_outlined,
+                              'Ran out',
+                            ),
+                          if (evidence.approximate)
+                            _flag(theme, Icons.help_outline, 'Estimate'),
+                        ],
+                      ),
+                    ),
+                ],
               ),
-          ],
-        ),
         trailing: const Icon(Icons.chevron_right),
       ),
     );

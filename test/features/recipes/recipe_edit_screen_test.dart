@@ -1,15 +1,18 @@
 /// §9 + §11.3 RecipeEditScreen (create mode) widget tests, v5 decoupled
 /// form: a recipe is created standalone from free-text ingredient rows —
-/// name + amount (decimals AND fractions) + optional unit label from the
-/// shared suggestion chips — with NO catalog dependency at all (the old
-/// empty-catalog dead end is deliberately gone), an optional per-row link
-/// affordance when a typed name matches a live item, and the nesting guard
-/// still surfaced with its resolved path when a LINK would nest recipes.
+/// name + amount (decimals AND fractions) + optional unit label — with NO
+/// catalog dependency at all (the old empty-catalog dead end is
+/// deliberately gone), an optional link affordance when a typed name
+/// matches a live item, and the nesting guard still surfaced with its
+/// resolved path when a LINK would nest recipes.
 ///
-/// Deliberately superseded pins: the output-item picker is gone from
-/// creation (a recipe binds to an item only via "Add to my items" later),
-/// so "second live recipe for the same output item" can no longer happen
-/// on this form — its guard lives in the add-to-items flow now.
+/// ONE ROW IS ONE LINE: exactly three controls (name, amount, unit) and a
+/// row overflow holding link / unlink / remove. Deliberately superseded
+/// pins: the output-item picker is gone from creation (a recipe binds to an
+/// item only via "Add to my items" later); the per-row drag handle is now a
+/// long press; the unit suggestion chips, the "Linked to X" caption and the
+/// inline "Unlink" button are gone; and the "revisions are permanent"
+/// banner moved off the form into the save confirmation.
 library;
 
 import 'package:flutter/material.dart';
@@ -39,6 +42,23 @@ void main() {
     expect(find.byKey(const Key('output-item-picker')), findsNothing);
     expect(find.byKey(const ValueKey('ingredient-name-0')), findsOneWidget);
 
+    // THREE controls on the row, and nothing else: name, amount, unit. No
+    // drag handle (long-press reorders), no inline unlink, no chip strip.
+    final row = find.byKey(const ValueKey('ingredient-row-0'));
+    expect(
+      find.descendant(of: row, matching: find.byType(TextField)),
+      findsNWidgets(3),
+    );
+    expect(
+      find.descendant(of: row, matching: find.byIcon(Icons.drag_indicator)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: row, matching: find.byType(ActionChip)),
+      findsNothing,
+    );
+    expect(find.text('Unlink'), findsNothing);
+
     await tester.enterText(
       find.byKey(const Key('recipe-name')),
       'Sourdough loaves',
@@ -60,13 +80,15 @@ void main() {
       find.byKey(const ValueKey('ingredient-qty-0')),
       '1 1/2',
     );
+    // A plain unit box with a hint — the chip strip that used to appear
+    // under the focused row is gone.
     await tapVisible(tester, find.byKey(const ValueKey('ingredient-unit-0')));
-    expect(
-      find.byKey(const ValueKey('unit-suggestions-0')),
-      findsOneWidget,
-      reason: 'focusing the unit field shows the shared suggestion chips',
+    expect(find.byKey(const ValueKey('unit-suggestions-0')), findsNothing);
+    expect(find.byType(ActionChip), findsNothing);
+    await tester.enterText(
+      find.byKey(const ValueKey('ingredient-unit-0')),
+      'cup',
     );
-    await tapVisible(tester, find.widgetWithText(ActionChip, 'cup'));
 
     // Row 1: typed unit label.
     await tapVisible(tester, find.byKey(const Key('add-ingredient')));
@@ -158,24 +180,33 @@ void main() {
         'Torti',
       );
       await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('link-line-0')), findsNothing);
+      expect(await ingredientMenuOffers(tester, 0, 'link-line-0'), isFalse);
 
-      // Case-insensitive exact match → the affordance names its target.
+      // Case-insensitive exact match → the overflow names its target. The
+      // row itself stays three fields wide; the verb lives one tap down.
       await tester.enterText(
         find.byKey(const ValueKey('ingredient-name-0')),
         'tortillas',
       );
       await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('link-line-0')), findsOneWidget);
+      await openIngredientMenu(tester, 0);
       expect(find.text('Link to your item “Tortillas”'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('link-line-0')));
+      await tester.pumpAndSettle();
 
-      // Link → linked state with an unlink affordance; unlink → offer again.
-      await tapVisible(tester, find.byKey(const ValueKey('link-line-0')));
-      expect(find.text('Linked to “Tortillas”'), findsOneWidget);
-      await tapVisible(tester, find.byKey(const ValueKey('unlink-line-0')));
+      // Linked: a mark on the row, never a caption sentence, and the unlink
+      // verb in the overflow rather than a button competing for width.
       expect(find.text('Linked to “Tortillas”'), findsNothing);
-      expect(find.byKey(const ValueKey('link-line-0')), findsOneWidget);
-      await tapVisible(tester, find.byKey(const ValueKey('link-line-0')));
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('ingredient-row-0')),
+          matching: find.byIcon(Icons.link),
+        ),
+        findsOneWidget,
+      );
+      await tapIngredientMenuItem(tester, 0, 'unlink-line-0');
+      expect(await ingredientMenuOffers(tester, 0, 'unlink-line-0'), isFalse);
+      await tapIngredientMenuItem(tester, 0, 'link-line-0');
 
       // A second row typing the same name gets NO affordance — the item is
       // already linked on the first row (no duplicate links by design).
@@ -185,11 +216,8 @@ void main() {
         'Tortillas',
       );
       await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('link-line-1')), findsNothing);
-      await tapVisible(
-        tester,
-        find.byKey(const ValueKey('remove-ingredient-1')),
-      );
+      expect(await ingredientMenuOffers(tester, 1, 'link-line-1'), isFalse);
+      await tapIngredientMenuItem(tester, 1, 'remove-ingredient-1');
 
       await tester.enterText(
         find.byKey(const ValueKey('ingredient-qty-0')),
@@ -245,16 +273,21 @@ void main() {
       'Salsa',
     );
     await tester.pumpAndSettle();
-    await tapVisible(tester, find.byKey(const ValueKey('link-line-0')));
+    await tapIngredientMenuItem(tester, 0, 'link-line-0');
     await tester.enterText(find.byKey(const ValueKey('ingredient-qty-0')), '2');
     await tapVisible(tester, find.byKey(const Key('save-recipe')));
 
-    // The RecipeNestingError message and its resolved path are shown.
+    // The RecipeNestingError message and its resolved path are shown — the
+    // path joined with a WORD, because the arrow glyph it used to use is a
+    // tofu box in the app's font.
     expect(
       find.textContaining('ingredient is the output of a live recipe'),
       findsOneWidget,
     );
-    expect(find.textContaining("Salsa → recipe 'Salsa base'"), findsOneWidget);
+    expect(
+      find.textContaining("Salsa then recipe 'Salsa base'"),
+      findsOneWidget,
+    );
     final summaries = (await tester.runAsync(
       () => h.read(recipeServiceProvider).watchRecipes().first,
     ))!;
@@ -280,5 +313,52 @@ void main() {
       () => h.read(recipeServiceProvider).watchRecipes().first,
     ))!;
     expect(summaries, isEmpty);
+  });
+
+  testWidgets('the form renders at 200 % text scale on a 320 dp viewport: the '
+      'row folds instead of overflowing', (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1.0;
+    tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+    addTearDown(tester.view.reset);
+    addTearDown(tester.platformDispatcher.clearAllTestValues);
+
+    final h = (await tester.runAsync(
+      () => AppHarness.start(state: AppHarnessState.workspace),
+    ))!;
+    addTearDown(h.dispose);
+    late String recipeId;
+    await tester.runAsync(() async {
+      final tortillas = await seedItem(h, 'Tortillas');
+      recipeId = await seedRecipe(
+        h,
+        name: 'Taco kit build',
+        outputItemId: await seedItem(h, 'Taco kit'),
+        lines: {tortillas: 20},
+      );
+    });
+
+    // An overflow at 200 % scale would throw and fail the test here.
+    await h.pumpApp(tester);
+    await h.go(tester, '/recipes/new');
+    expect(find.byKey(const ValueKey('ingredient-row-0')), findsOneWidget);
+    // Still exactly three controls — the row stacks, it does not shed a
+    // field or squeeze one to nothing.
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('ingredient-row-0')),
+        matching: find.byType(TextField),
+      ),
+      findsNWidgets(3),
+    );
+
+    // Revise mode too: prefilled rows, the pinned save bar, and the save
+    // confirmation all at 200 %.
+    await h.go(tester, '/recipes/$recipeId/revise');
+    expect(find.byKey(const ValueKey('ingredient-row-0')), findsOneWidget);
+    await tapVisible(tester, find.byKey(const Key('save-recipe')));
+    expect(find.text('Save revision 2?'), findsOneWidget);
+    await tapVisible(tester, find.text('Keep editing'));
+    await h.flushTimers(tester);
   });
 }

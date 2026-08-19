@@ -1,8 +1,13 @@
-/// ONE answer per forecast card. The card used to print Expected /
-/// Planned / Load / Acquire at identical weight; it now leads with the
-/// single figure the owner acts on ("Bring 60", [Numerals.hero]), gives the
-/// acquisition the second emphasis WHEN there is something to buy, and
-/// drops the rest to caption tier.
+/// ONE answer per forecast card. The card used to print Expected / Planned /
+/// Load / Acquire at identical weight; it now carries exactly two figures,
+/// and both are actions: "Bring 60" ([Numerals.hero]) and, only when there
+/// is something to buy, "Buy 60 more" ([Numerals.glance]).
+///
+/// Expected and Planned are gone entirely. They were the last of the four-up
+/// grid still standing, demoted to a caption — but they are engine
+/// intermediates (the median before the reserve, the reserve before the pack
+/// rounding) and there is nothing a volunteer can do with either. The
+/// line-detail screen says what the number rests on in a sentence instead.
 library;
 
 import 'package:flutter/material.dart';
@@ -56,17 +61,12 @@ void main() {
     // The acquisition is the second action, one tier down.
     final acquire = tester.widget<Text>(find.text('Buy 60 more'));
     expect(acquire.style, Numerals.glance(text));
+    expect(acquire.style!.fontSize!, lessThan(heroSize!));
 
-    // Expected and planned survive as ONE caption-tier line, subordinate
-    // by weight and size rather than deleted.
-    final caption = tester.widget<Text>(
-      find.text('Expected 45 · Planned 49.5'),
-    );
-    expect(caption.style?.fontSize, Numerals.caption(text)?.fontSize);
-    expect(caption.style?.fontWeight, Numerals.caption(text)?.fontWeight);
-    expect(caption.style!.fontSize!, lessThan(heroSize!));
-    // Tabular everywhere a figure is read.
-    expect(caption.style?.fontFeatures, Numerals.tabular);
+    // The engine's intermediates are not on the card at all.
+    expect(find.textContaining('Expected'), findsNothing);
+    expect(find.textContaining('Planned'), findsNothing);
+    expect(find.textContaining('49.5'), findsNothing);
 
     // The evidence badge is untouched.
     expect(find.text('1 event'), findsOneWidget);
@@ -123,13 +123,18 @@ void main() {
 
     // The answer is still there …
     expect(find.text('Bring'), findsOneWidget);
-    expect(find.text('Expected 45 · Planned 49.5'), findsOneWidget);
+    expect(find.text('60'), findsOneWidget);
     // … and nothing invents a "Buy 0 more".
     expect(find.textContaining('Buy '), findsNothing);
     await h.flushTimers(tester);
   });
 
-  testWidgets('the card survives 200 % text scale', (tester) async {
+  testWidgets('the card survives 200 % text scale on a 320 dp phone', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
     tester.platformDispatcher.textScaleFactorTestValue = 2.0;
     addTearDown(tester.platformDispatcher.clearAllTestValues);
     final h = (await tester.runAsync(
@@ -148,7 +153,15 @@ void main() {
       tester,
       ForecastReviewScreen(eventId: scenario.upcomingEventId),
     );
+    // On a 320 dp phone at 200 % the header alone fills the fold, so the
+    // hero is scrolled to — an overflow anywhere on the way fails here.
+    await tester.scrollUntilVisible(
+      find.text('60'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('60'), findsOneWidget);
+    expect(tester.takeException(), isNull);
     await h.flushTimers(tester);
   });
 }

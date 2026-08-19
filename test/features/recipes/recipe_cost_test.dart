@@ -302,7 +302,9 @@ void main() {
     // Revision 2 is current: 4 × $2.00.
     expect(find.text(r'$8 a batch · $0.80 each'), findsOneWidget);
 
-    await tapVisible(tester, find.text('Revision 1'));
+    // Earlier versions live behind ONE overflow entry now.
+    await tapRecipeMenuItem(tester, 'earlier-versions');
+    await tapVisible(tester, find.byKey(const ValueKey('version-1')));
     expect(find.text('Makes 10 per batch'), findsOneWidget);
     expect(find.byKey(batchCostKey), findsNothing);
     await h.flushTimers(tester);
@@ -414,11 +416,14 @@ void main() {
 
   testWidgets('the batch cost survives 200 % text scale in both '
       'brightnesses', (tester) async {
-    // Default viewport on purpose: RecipeDetailScreen's app-bar actions and
-    // its revision-picker row already overflow a 320 dp viewport at 200 %
-    // scale WITHOUT any money on the screen (pre-existing, unrelated to the
-    // cost block, which is a plain wrapping Column of Text).
+    // 320 dp at 200 % scale: the app-bar actions row and the revision
+    // picker that used to overflow here without any money on the screen are
+    // both fixed (the picker is gone; the bar collapses "Revise" into its
+    // menu at this size).
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1.0;
     tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+    addTearDown(tester.view.reset);
     addTearDown(tester.platformDispatcher.clearAllTestValues);
 
     final h = await startWorkspace(tester);

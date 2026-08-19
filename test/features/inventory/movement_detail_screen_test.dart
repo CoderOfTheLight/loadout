@@ -1,8 +1,11 @@
-/// MovementDetailScreen widget tests (design §9 `/movements/:id`):
-/// provenance (occurred vs recorded, source command), the single "Correct
-/// this entry" action, and the refused states — closeout-written rows,
-/// reversal rows, and already-corrected rows surface the state instead of
-/// offering the action.
+/// MovementDetailScreen widget tests (design §9 `/movements/:id`): when it
+/// happened, the single "Correct this entry" action, and the refused states
+/// — closeout-written rows, reversal rows, and already-corrected rows
+/// surface the state instead of offering the action.
+///
+/// Deliberately superseded pins: the "Source command" row and its
+/// 20-character id are gone (pure model leakage), and "Recorded" only shows
+/// when it differs from "Occurred".
 library;
 
 import 'package:flutter_test/flutter_test.dart';
@@ -72,8 +75,11 @@ void main() {
     expect(find.text('Tortillas'), findsOneWidget);
     expect(find.text('+3 kg'), findsOneWidget);
     expect(find.text('Occurred'), findsOneWidget);
-    expect(find.text('Recorded'), findsOneWidget);
-    expect(find.text('Source command'), findsOneWidget);
+    // Recorded when it happened, so the second identical timestamp is not a
+    // row she has to read to learn nothing.
+    expect(find.text('Recorded'), findsNothing);
+    // The internal command id is model leakage — never on her screen.
+    expect(find.text('Source command'), findsNothing);
     expect(find.text('Correct this entry'), findsOneWidget);
   });
 
