@@ -709,19 +709,40 @@ void main() {
       expect(await h.db.eventDao.plannedItems(eventId), hasLength(1));
     });
 
-    test(
-      'clonePlannedItemsFrom returns the live planned items in order',
-      () async {
-        final a = await h.createItem(name: 'A');
-        final b = await h.createItem(name: 'B');
-        final c = await h.createItem(name: 'C');
-        final eventId = await h.createEvent(
-          name: 'Last month',
-          plannedItemIds: [c, a, b],
-        );
-        await h.ok(SetItemArchived(itemId: ItemId(a), archived: true));
-        expect(await events.clonePlannedItemsFrom(eventId), [c, b]);
-      },
-    );
+    test('copyPlannedItemsFrom returns the live planned items in order, and '
+        'counts the ones that no longer exist', () async {
+      final a = await h.createItem(name: 'A');
+      final b = await h.createItem(name: 'B');
+      final c = await h.createItem(name: 'C');
+      final eventId = await h.createEvent(
+        name: 'Last month',
+        plannedItemIds: [c, a, b],
+      );
+      await h.ok(SetItemArchived(itemId: ItemId(a), archived: true));
+      final copy = await events.copyPlannedItemsFrom(eventId);
+      expect(copy.itemIds, [c, b]);
+      expect(copy.missingCount, 1);
+    });
+
+    test('copySourceEvents lists events newest first, with the size of the '
+        'list each one planned, and never the event being edited', () async {
+      final soap = await h.createItem(name: 'Soap');
+      final older = await h.createEvent(
+        name: 'March fair',
+        scheduledDate: '2026-03-01',
+        plannedItemIds: [soap],
+      );
+      final newer = await h.createEvent(
+        name: 'May fair',
+        scheduledDate: '2026-05-01',
+      );
+
+      final all = await events.copySourceEvents();
+      expect([for (final e in all) e.name], ['May fair', 'March fair']);
+      expect([for (final e in all) e.itemCount], [0, 1]);
+
+      final excluded = await events.copySourceEvents(excludingEventId: newer);
+      expect([for (final e in excluded) e.id], [older]);
+    });
   });
 }

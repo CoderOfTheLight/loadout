@@ -24,6 +24,7 @@ import '../features/closeout/presentation/closeout_screen.dart';
 import '../features/events/presentation/event_detail_screen.dart';
 import '../features/events/presentation/event_edit_screen.dart';
 import '../features/events/presentation/event_list_screen.dart';
+import '../features/export/presentation/export_screen.dart';
 import '../features/forecasting/presentation/forecast_line_detail_screen.dart';
 import '../features/forecasting/presentation/forecast_review_screen.dart';
 import '../features/home/presentation/home_screen.dart';
@@ -276,6 +277,11 @@ final routerProvider = Provider<GoRouter>((ref) {
                     path: 'restore',
                     parentNavigatorKey: rootKey,
                     builder: (_, _) => const RestoreScreen(),
+                  ),
+                  GoRoute(
+                    path: 'export',
+                    parentNavigatorKey: rootKey,
+                    builder: (_, _) => const ExportScreen(),
                   ),
                   GoRoute(
                     path: 'privacy',

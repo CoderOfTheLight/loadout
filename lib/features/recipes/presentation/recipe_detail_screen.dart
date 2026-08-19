@@ -15,6 +15,16 @@
 /// ("0.5 cup · Flour") — free lines under their own text, linked lines as
 /// their live item.
 ///
+/// v7 (money): the CURRENT revision carries what one batch costs, right
+/// under the yield so it reads "this batch costs X". Σ (per-batch quantity ×
+/// the linked item's price) over linked, priced lines, at TODAY's prices —
+/// a live figure, not a snapshot: repricing an ingredient moves it. Lines
+/// with no price (unlinked, or linked to an unpriced item) contribute
+/// nothing and are counted out loud, and a recipe with nothing priced shows
+/// no money at all rather than a $0. Only the current revision is costed:
+/// an old revision's amounts at today's prices would be a hybrid of two
+/// moments, so viewing one simply shows no figure.
+///
 /// "Scale to event" (proposal §3) opens a read-only sheet
 /// (`recipe_scale_sheet.dart`) that shows the CURRENT revision as whole
 /// batches against an upcoming event's stored packing list. A view — the
@@ -31,15 +41,19 @@ import '../../../app/unit_display.dart';
 import '../../../app/widgets/content_column.dart';
 import '../../../app/widgets/folder_chip.dart';
 import '../../../app/widgets/warning_banner.dart';
+import '../../../core/money.dart';
+import '../../../core/money_codec.dart';
 import '../../../core/quantity_codec.dart';
 import '../../../core/result.dart';
 import '../../../core/time.dart';
+import '../../../core/units.dart';
 import '../../catalog/application/catalog_service.dart';
 import '../../catalog/domain/folder.dart';
 import '../../catalog/domain/item.dart';
 import '../../catalog/presentation/catalog_providers.dart';
 import '../application/recipe_service.dart';
 import '../domain/recipe.dart';
+import '../domain/recipe_cost.dart';
 import 'recipe_add_to_items_sheet.dart';
 import 'recipe_scale_sheet.dart';
 
@@ -105,6 +119,20 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
           );
     final outputItemId = recipe.outputItemId?.value;
     final outputItem = outputItemId == null ? null : itemsById[outputItemId];
+    // Only the CURRENT revision is costed (see the library doc): today's
+    // prices over an old revision's amounts would mix two moments.
+    final cost = viewed == null || viewed.revision != latest?.revision
+        ? null
+        : recipeBatchCost([
+            for (final line in viewed.lines)
+              (
+                quantityMicros: line.quantityPerBatch.micros,
+                unitPrice: switch (line.ingredientItemId) {
+                  final id? => itemsById[id.value]?.unitPrice,
+                  null => null,
+                },
+              ),
+          ]);
     return Scaffold(
       appBar: AppBar(
         title: Text(recipe.name),
@@ -177,6 +205,20 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
                     _yieldCaption(viewed, outputItem),
                     style: theme.textTheme.bodyLarge,
                   ),
+                  if (cost != null && !cost.isEmpty) ...[
+                    const SizedBox(height: 4),
+                    _BatchCost(
+                      cost: cost,
+                      // A per-unit figure only where dividing the yield is
+                      // honest: a whole count of things, and never a legacy
+                      // MEASURED output item, whose yield is a weight or a
+                      // volume rather than a number of portions.
+                      perUnit:
+                          outputItem == null || outputItem.unit == ItemUnit.each
+                          ? cost.perYieldUnit(viewed.yieldQuantity)
+                          : null,
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   // Always scales the CURRENT revision (`revisions.first`),
                   // whatever revision is being viewed — you cook today's
@@ -387,6 +429,69 @@ class _InItemsLocation extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
           ),
         ),
+      ],
+    );
+  }
+}
+
+/// What one batch costs, directly under the yield: "$12.40 a batch ·
+/// $1.24 each". The money is the figure ([Numerals.glance] — the recipe
+/// itself is the screen's subject, so the cost is a block of its own, not a
+/// hero); the connecting words stay at body size so the line reads as a
+/// sentence rather than a headline.
+///
+/// One plain note for everything the total left out. "Not linked to an item"
+/// and "linked but never priced" are different plumbing but the same money
+/// — nothing — and splitting them costs a sentence the owner did not ask
+/// for on a screen she already finds busy.
+class _BatchCost extends StatelessWidget {
+  const _BatchCost({required this.cost, required this.perUnit});
+
+  final RecipeBatchCost cost;
+
+  /// What one of whatever the batch makes costs; null when dividing the
+  /// yield would not be honest arithmetic.
+  final Money? perUnit;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final figure = Numerals.glance(theme.textTheme);
+    final words = theme.textTheme.bodyMedium?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    final muted = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    return Column(
+      key: const Key('recipe-batch-cost'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text.rich(
+          TextSpan(
+            children: [
+              TextSpan(text: MoneyCodec.format(cost.total), style: figure),
+              TextSpan(text: ' a batch', style: words),
+              if (perUnit != null) ...[
+                TextSpan(text: ' · ', style: words),
+                TextSpan(text: MoneyCodec.format(perUnit!), style: figure),
+                TextSpan(text: ' each', style: words),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text("At today's item prices.", style: muted),
+        if (cost.isPartial) ...[
+          const SizedBox(height: 4),
+          Text(
+            cost.unpricedLineCount == 1
+                ? '1 ingredient has no price — not counted.'
+                : '${cost.unpricedLineCount} ingredients have no price '
+                      '— not counted.',
+            style: muted,
+          ),
+        ],
       ],
     );
   }

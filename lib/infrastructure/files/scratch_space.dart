@@ -18,7 +18,7 @@ import '../../core/ids.dart';
 abstract interface class ScratchSpace {
   Future<Directory> createSession(
     String purpose,
-  ); // 'ocr' | 'backup' | 'restore'
+  ); // 'ocr' | 'backup' | 'restore' | 'export'
   Future<void> disposeSession(Directory session); // try/finally at call sites
   Future<void> sweepAll(); // on every app start and AppLifecycleState.paused
 }
@@ -30,7 +30,7 @@ final class AppSupportScratchSpace implements ScratchSpace {
   }) : _root = root,
        _diag = diag;
 
-  static const Set<String> _purposes = {'ocr', 'backup', 'restore'};
+  static const Set<String> _purposes = {'ocr', 'backup', 'restore', 'export'};
 
   final Directory _root;
   final Diag _diag;

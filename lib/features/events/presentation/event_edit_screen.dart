@@ -18,6 +18,7 @@ import '../../../app/theme.dart';
 import '../../../app/widgets/content_column.dart';
 import '../../../app/widgets/empty_state.dart';
 import '../../catalog/application/catalog_service.dart';
+import '../application/event_service.dart';
 import '../domain/event.dart';
 import 'event_ui.dart';
 import 'folder_sections.dart';
@@ -134,34 +135,73 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
     }
   }
 
-  /// "Copy items from a previous event": choose an event, then its
-  /// still-live planned items arrive pre-ticked in the picker (merged with
-  /// the current selection) — untick what differs, Done applies.
+  /// "Copy items from a previous event": pick a list, confirm what it will
+  /// do, done. Its still-live items join the list on screen — additively,
+  /// so what is already planned stays and duplicates are counted rather
+  /// than created — and `Save event` submits the merged list through the
+  /// ordinary create/update command. The copy is never its own write path.
   Future<void> _copyFromEvent() async {
-    final sourceId = await showPreviousEventPicker(
+    final source = await showPreviousEventPicker(
       context,
       excludeEventId: widget.eventId,
     );
-    if (sourceId == null || !mounted) return;
-    final cloned = await ref
+    if (source == null || !mounted) return;
+    final copy = await ref
         .read(eventServiceProvider)
-        .clonePlannedItemsFrom(sourceId);
+        .copyPlannedItemsFrom(source.id);
     if (!mounted) return;
-    final selection = await showPlannedItemsPicker(
-      context,
-      selected: [
-        ..._plannedItemIds,
-        for (final id in cloned)
-          if (!_plannedItemIds.contains(id)) id,
-      ],
-    );
-    if (selection != null && mounted) {
-      setState(() {
-        _plannedItemIds = selection;
-        _dirty = true;
-      });
+    final outcome = planCopy(current: _plannedItemIds, copy: copy);
+    if (outcome.addsNothing) {
+      await _explainNothingToCopy(source, outcome);
+      return;
     }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Copy from ${source.name}?'),
+        content: Text(copyConfirmMessage(outcome)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Copy items'),
+          ),
+        ],
+      ),
+    );
+    if (!(confirmed ?? false) || !mounted) return;
+    setState(() {
+      _plannedItemIds = outcome.merged;
+      _dirty = true;
+    });
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(copyOutcomeMessage(outcome))));
   }
+
+  /// A copy with nothing to add is an explanation, never an error: the
+  /// owner asked for a list she already has, and should be told so.
+  Future<void> _explainNothingToCopy(
+    CopySourceEvent source,
+    CopyOutcome outcome,
+  ) => showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text(source.name),
+      content: Text(
+        copyNothingToAddMessage(outcome, sourceItemCount: source.itemCount),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
 
   Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
@@ -236,6 +276,15 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
         ref.watch(workspaceProvider).valueOrNull?.exposureLabel ?? 'attendance';
     final catalogIsEmpty =
         ref.watch(itemListProvider(const ItemFilter())).valueOrNull?.isEmpty ??
+        false;
+    // With no other event on file there is nothing to copy from, so the
+    // offer is absent rather than present-and-dead: a button that can only
+    // ever apologise is worse than no button.
+    final canCopyFromEvent =
+        ref
+            .watch(copySourceEventsProvider(widget.eventId))
+            .valueOrNull
+            ?.isNotEmpty ??
         false;
     final title = _isEdit ? 'Edit event' : 'New event';
     if (_loading) {
@@ -372,12 +421,14 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
                         icon: const Icon(Icons.playlist_add),
                         label: const Text('Add items'),
                       ),
-                      const SizedBox(height: 8),
-                      OutlinedButton.icon(
-                        onPressed: _copyFromEvent,
-                        icon: const Icon(Icons.copy_all_outlined),
-                        label: const Text('Copy items from a previous event'),
-                      ),
+                      if (canCopyFromEvent) ...[
+                        const SizedBox(height: 8),
+                        OutlinedButton.icon(
+                          onPressed: _copyFromEvent,
+                          icon: const Icon(Icons.copy_all_outlined),
+                          label: const Text('Copy items from a previous event'),
+                        ),
+                      ],
                     ],
                     // Create only: updates never re-add, so the review
                     // (unticking) happens on the saved event.

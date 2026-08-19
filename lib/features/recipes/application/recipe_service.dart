@@ -1,4 +1,5 @@
 import '../../../core/ids.dart';
+import '../../../core/money.dart';
 import '../../../core/quantity.dart';
 import '../../../core/result.dart';
 import '../../../core/time.dart';
@@ -7,6 +8,7 @@ import '../../approval/domain/approval_service.dart';
 import '../../approval/domain/commands.dart';
 import '../../approval/domain/proposal.dart';
 import '../domain/recipe.dart';
+import '../domain/recipe_cost.dart';
 import '../domain/recipe_drafts.dart';
 import '../../../data/db/table_watch.dart';
 
@@ -20,6 +22,7 @@ final class RecipeSummary {
     this.yieldMicros,
     this.yieldLabel,
     required this.ingredientCount,
+    this.batchCost,
     this.archivedAt,
   });
 
@@ -35,6 +38,15 @@ final class RecipeSummary {
   final int? yieldMicros;
   final String? yieldLabel;
   final int ingredientCount;
+
+  /// v7: what one batch of the CURRENT revision costs at TODAY's item
+  /// prices — a live figure, recomputed whenever a line, a link or a price
+  /// changes (the stream below already reads `items`). Null when no
+  /// ingredient carries a price at all, so a surface shows no money rather
+  /// than a $0 that would stand in for "unknown"; when only SOME lines are
+  /// priced the figure is real but partial ([RecipeBatchCost.isPartial]) and
+  /// surfaces say so.
+  final RecipeBatchCost? batchCost;
   final Instant? archivedAt;
 
   bool get isInItems => outputItemId != null;
@@ -247,6 +259,7 @@ final class DriftRecipeService implements RecipeService {
       final outputItem = recipe.outputItemId == null
           ? null
           : await _db.itemDao.byId(recipe.outputItemId!);
+      final cost = await _batchCost(lines);
       summaries.add(
         RecipeSummary(
           id: recipe.id,
@@ -257,6 +270,7 @@ final class DriftRecipeService implements RecipeService {
           yieldMicros: latest?.yieldMicros,
           yieldLabel: latest?.yieldLabel,
           ingredientCount: lines.length,
+          batchCost: cost.isEmpty ? null : cost,
           archivedAt: recipe.archivedAtMicros == null
               ? null
               : Instant(recipe.archivedAtMicros!),
@@ -264,6 +278,35 @@ final class DriftRecipeService implements RecipeService {
       );
     }
     return summaries;
+  }
+
+  /// Prices one batch of [lines] at the linked items' CURRENT prices. One
+  /// `byIds` lookup per recipe; an unlinked line, a line whose item has been
+  /// deleted, and a line whose item was never priced are all "no price" and
+  /// are counted, never treated as free.
+  Future<RecipeBatchCost> _batchCost(List<db.RecipeLineV2> lines) async {
+    final linkedIds = <String>{
+      for (final line in lines)
+        if (line.ingredientItemId != null) line.ingredientItemId!,
+    };
+    final centsByItemId = <String, int?>{
+      if (linkedIds.isNotEmpty)
+        for (final item in await _db.itemDao.byIds(linkedIds))
+          item.id: item.unitPriceCents,
+    };
+    return recipeBatchCost([
+      for (final line in lines)
+        (
+          quantityMicros: line.quantityPerBatchMicros,
+          unitPrice: switch (line.ingredientItemId) {
+            final id? => switch (centsByItemId[id]) {
+              final cents? => Money.fromCents(cents),
+              null => null,
+            },
+            null => null,
+          },
+        ),
+    ]);
   }
 
   Future<RecipeDetail> _loadDetail(String recipeId) async {

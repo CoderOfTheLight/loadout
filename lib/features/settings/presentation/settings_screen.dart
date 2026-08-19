@@ -281,6 +281,15 @@ class SettingsScreen extends ConsumerWidget {
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => context.push('/settings/restore'),
                     ),
+                    ListTile(
+                      leading: const Icon(Icons.table_chart_outlined),
+                      title: const Text('Export a spreadsheet'),
+                      subtitle: const Text(
+                        'Save your lists as files Excel can open',
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.push('/settings/export'),
+                    ),
                   ],
                 ),
 

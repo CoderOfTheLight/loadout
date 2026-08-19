@@ -1018,6 +1018,15 @@ void main() {
 
     await h.pumpScreen(tester, const ItemListScreen());
 
+    // The list now opens with the "Stock value" summary, so a mid-list
+    // folder starts below the fold.
+    await tester.dragUntilVisible(
+      inList('Croissants'),
+      find.byType(CustomScrollView),
+      const Offset(0, -120),
+    );
+    await tester.pumpAndSettle();
+
     expect(inList(r'$3.50'), findsOneWidget);
     // On the priced row itself, beside the amount and the name.
     expect(
@@ -1123,6 +1132,14 @@ void main() {
     // An overflow at 200 % scale would throw and fail the test here.
     await h.pumpScreen(tester, const ItemListScreen());
     expect(find.byType(ItemListScreen), findsOneWidget);
+    // The "Stock value" summary opens the list, so at this scale the first
+    // folder sections start below the fold.
+    await tester.dragUntilVisible(
+      inList('Croissants'),
+      find.byType(CustomScrollView),
+      const Offset(0, -120),
+    );
+    await tester.pumpAndSettle();
     expect(inList('Croissants'), findsOneWidget);
 
     // Dark too: the jump row and the headers are rebuilt per brightness.

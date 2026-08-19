@@ -52,6 +52,38 @@ final class EventDetail {
   final List<EventPlannedItem> plannedItems;
 }
 
+/// A past event offered by "Copy items from a previous event" — enough to
+/// choose by: what it was called, when it ran, and how long its list was.
+/// [itemCount] is the list AS IT WAS PLANNED, archived items included,
+/// because it describes the past event rather than promising what the copy
+/// will manage to carry over.
+final class CopySourceEvent {
+  const CopySourceEvent({
+    required this.id,
+    required this.name,
+    required this.scheduledDate,
+    required this.itemCount,
+  });
+
+  final String id;
+  final String name;
+
+  /// 'YYYY-MM-DD'.
+  final String scheduledDate;
+  final int itemCount;
+}
+
+/// What copying one event's planned list would carry over: the items that
+/// still exist, in the order they were planned, and how many have since
+/// been archived or deleted. [missingCount] is what lets the copy say "2
+/// items no longer exist" out loud instead of quietly shrinking the list.
+final class PlannedItemsCopy {
+  const PlannedItemsCopy({required this.itemIds, required this.missingCount});
+
+  final List<String> itemIds;
+  final int missingCount;
+}
+
 /// Screen-facing event surface (design §6.5). Events are mutable until
 /// closed; closing happens only through CloseoutService.
 abstract interface class EventService {
@@ -68,9 +100,17 @@ abstract interface class EventService {
   Future<Result<void>> activate(String eventId);
   Future<Result<void>> cancel(String eventId, {required String reason});
 
-  /// "Copy items from a previous event": [eventId]'s planned items that are
-  /// still live, in position order — a prefill for the picker, not a write.
-  Future<List<String>> clonePlannedItemsFrom(String eventId);
+  /// Past events to copy a planned list from, newest scheduled date first,
+  /// excluding [excludingEventId] — copying an event onto itself is never a
+  /// meaningful offer. A one-shot read: the chooser is a modal, and a live
+  /// query here would only buy a redraw nobody is waiting for.
+  Future<List<CopySourceEvent>> copySourceEvents({String? excludingEventId});
+
+  /// "Copy items from a previous event": what [eventId]'s planned list would
+  /// carry over. A READ that computes the copy — merging it into the current
+  /// list and writing that stays with `createEvent` / `updateEvent`, so a
+  /// copy is an ordinary edit to the list and inherits the one write path.
+  Future<PlannedItemsCopy> copyPlannedItemsFrom(String eventId);
   Stream<List<EventSummary>> watchEvents({required EventStatusFilter filter});
   Stream<EventDetail> watchEvent(String eventId);
 }
@@ -142,17 +182,50 @@ final class DriftEventService implements EventService {
   }
 
   @override
-  Future<List<String>> clonePlannedItemsFrom(String eventId) async {
+  Future<List<CopySourceEvent>> copySourceEvents({
+    String? excludingEventId,
+  }) async {
+    final rows = await _db
+        .customSelect(
+          'SELECT e.id AS id, e.name AS name, '
+          'e.scheduled_date AS scheduled_date, '
+          '(SELECT COUNT(*) FROM event_items ei WHERE ei.event_id = e.id) '
+          'AS item_count '
+          'FROM events e '
+          'ORDER BY e.scheduled_date DESC, e.id DESC',
+          readsFrom: {_db.events, _db.eventItems},
+        )
+        .get();
+    return [
+      for (final row in rows)
+        if (row.read<String>('id') != excludingEventId)
+          CopySourceEvent(
+            id: row.read<String>('id'),
+            name: row.read<String>('name'),
+            scheduledDate: row.read<String>('scheduled_date'),
+            itemCount: row.read<int>('item_count'),
+          ),
+    ];
+  }
+
+  @override
+  Future<PlannedItemsCopy> copyPlannedItemsFrom(String eventId) async {
     final planned = await _db.eventDao.plannedItems(eventId);
     final items = await _db.itemDao.byIds([for (final p in planned) p.itemId]);
     final live = {
       for (final item in items)
         if (item.archivedAtMicros == null) item.id,
     };
-    return [
+    final itemIds = [
       for (final p in planned)
         if (live.contains(p.itemId)) p.itemId,
     ];
+    return PlannedItemsCopy(
+      itemIds: itemIds,
+      // Archived AND deleted: `byIds` returns neither, so the difference
+      // covers both without asking which happened.
+      missingCount: planned.length - itemIds.length,
+    );
   }
 
   @override

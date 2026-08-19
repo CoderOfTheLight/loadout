@@ -31,6 +31,7 @@ import '../features/catalog/application/catalog_service.dart';
 import '../features/closeout/application/closeout_service.dart';
 import '../features/closeout/domain/closeout.dart';
 import '../features/events/application/event_service.dart';
+import '../features/export/application/spreadsheet_export_service.dart';
 import '../features/forecasting/application/event_cost_service.dart';
 import '../features/forecasting/application/forecast_service.dart';
 import '../features/forecasting/domain/event_cost.dart';
@@ -221,6 +222,16 @@ final backupServiceProvider = Provider<BackupService>((ref) {
 
 final backupFacadeProvider = Provider<BackupFacade>(
   (ref) => DefaultBackupFacade(ref.watch(backupServiceProvider)),
+);
+
+/// The plain-CSV way out of the app, for everyone whose tool is Excel.
+/// Read-only: it derives four documents and writes nothing.
+final spreadsheetExportServiceProvider = Provider<SpreadsheetExportService>(
+  (ref) => DriftSpreadsheetExportService(
+    ref.watch(appDatabaseProvider),
+    ref.watch(forecastServiceProvider),
+    ref.watch(eventCostServiceProvider),
+  ),
 );
 
 // ------------------------------------------------------------ projections

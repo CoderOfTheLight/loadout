@@ -42,6 +42,13 @@
 /// * Rows carry the item's price (v7) as a caption-tier figure on the
 ///   second line; an unpriced item shows nothing there. The list's viewport
 ///   stops above the floating "Add item" pill, so no row is ever under it.
+/// * The list opens with what the stock is worth — Σ (on-hand × price each)
+///   over live items ([stockValueOf]) — the screen's one hero figure, above
+///   the search bar and scrolling away with the list rather than joining
+///   the pinned-chrome budget. Unpriced items and items counted below zero
+///   contribute nothing and are said out loud; with nothing priced at all
+///   there is no total UI. Hidden while searching: a whole-catalog total
+///   over a filtered list would be answering a question nobody asked.
 ///
 /// The commands this screen issues are `MoveItemToFolder` and the two
 /// deletes — `DeleteItem` from a row's overflow, `DeleteAllItems` from the
@@ -70,6 +77,7 @@ import 'catalog_providers.dart';
 import 'delete_dialogs.dart';
 import 'folder_management_screen.dart';
 import 'folder_picker_sheet.dart';
+import 'stock_value.dart';
 import 'unfiled_chip.dart';
 
 /// Section ids for the two non-folder sections. Folder ids are 26-char
@@ -172,6 +180,7 @@ class _ItemListScreenState extends ConsumerState<ItemListScreen> {
   final _search = TextEditingController();
   final _scroll = ScrollController();
   final _floatingHeaderKey = GlobalKey();
+  final _stockValueKey = GlobalKey();
   final Map<String, GlobalKey> _chipKeys = {};
   bool _includeArchived = false;
   String _query = '';
@@ -347,10 +356,16 @@ class _ItemListScreenState extends ConsumerState<ItemListScreen> {
   double get _floatingHeaderHeight =>
       _floatingHeaderKey.currentContext?.size?.height ?? 0;
 
+  /// The stock-value summary's current height — the other part of the exact
+  /// jump offset. Zero when there is no summary (nothing priced, or the
+  /// list is being searched) and before the first layout.
+  double get _stockValueHeight =>
+      _stockValueKey.currentContext?.size?.height ?? 0;
+
   /// The exact scroll offset where [section]'s header rests, given the
   /// fixed extents and the collapse state.
   double _sectionOffset(String sectionId, Set<String> collapsed) {
-    var offset = _floatingHeaderHeight;
+    var offset = _stockValueHeight + _floatingHeaderHeight;
     for (final section in _visibleSections) {
       if (section.id == sectionId) {
         break;
@@ -650,6 +665,16 @@ class _ItemListScreenState extends ConsumerState<ItemListScreen> {
       _chipKeys.putIfAbsent(section.id, GlobalKey.new);
     }
 
+    // What the stock is worth: Σ over the LIVE catalog, whether or not a
+    // section is collapsed and whether or not "Show archived" is on —
+    // archived things are not stock. Hidden while searching, where a
+    // whole-catalog total over a filtered list would answer a question
+    // nobody asked, and absent entirely when nothing is priced.
+    final stock = stockValueOf([
+      for (final folderSection in folderSections) ...folderSection.items,
+    ]);
+    final showStockValue = !searching && !stock.isEmpty;
+
     // The FAB floats over the body, so the list's VIEWPORT stops above it
     // rather than the list merely ending with a spacer: a trailing spacer
     // only clears the button at full scroll, and mid-scroll the "Add item"
@@ -661,6 +686,12 @@ class _ItemListScreenState extends ConsumerState<ItemListScreen> {
       child: CustomScrollView(
         controller: _scroll,
         slivers: [
+          // Above the search bar and scrolling away with the list: it is a
+          // summary OF the list, not chrome ON it.
+          if (showStockValue)
+            SliverToBoxAdapter(
+              child: _StockValueSummary(key: _stockValueKey, stock: stock),
+            ),
           // Search + jump chips float: gone scrolling down, back on the
           // first upward flick (spec §4 pinned-chrome budget — mid-scroll
           // pinned chrome is the section header alone).
@@ -889,6 +920,79 @@ TextSpan _amountTextSpan(
       ),
   ],
 );
+
+/// The list's opening summary: what everything on it is worth, at the
+/// owner's current prices.
+///
+/// The screen's ONE hero (spec: if a screen has two, one of them is not a
+/// hero) — the row quantities below stay at the row-quantity tier, so the
+/// money is the only figure at the top of the ladder. It is deliberately a
+/// plain block and not a card: the items screen is a table, and a panel at
+/// the head of it would be one more thing to read past.
+///
+/// The number and its notes, nothing else. Unpriced items and items counted
+/// below zero are named in their own sentences rather than folded into one,
+/// because they are different problems: one is a price the owner has not
+/// given yet, the other is a count that cannot be true.
+class _StockValueSummary extends StatelessWidget {
+  const _StockValueSummary({super.key, required this.stock});
+
+  final StockValue stock;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    return Align(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: contentMaxWidth),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            Space.l,
+            Space.l,
+            Space.l,
+            Space.s,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Stock value', style: theme.textTheme.titleSmall),
+              const SizedBox(height: Space.xs),
+              Text(
+                MoneyCodec.format(stock.total),
+                style: Numerals.hero(theme.textTheme),
+              ),
+              const SizedBox(height: Space.xs),
+              Text("What's on hand, at your current prices.", style: muted),
+              if (stock.unpricedItemCount > 0) ...[
+                const SizedBox(height: Space.xs),
+                Text(
+                  stock.unpricedItemCount == 1
+                      ? '1 item has no price yet — not counted.'
+                      : '${stock.unpricedItemCount} items have no price yet '
+                            '— not counted.',
+                  style: muted,
+                ),
+              ],
+              if (stock.negativeItemCount > 0) ...[
+                const SizedBox(height: Space.xs),
+                Text(
+                  stock.negativeItemCount == 1
+                      ? '1 item has a negative count — not counted.'
+                      : '${stock.negativeItemCount} items have a negative '
+                            'count — not counted.',
+                  style: muted,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 /// One jump-to-folder chip (spec §4): the folder's own small [FolderChip],
 /// its name, its count. The active chip fills with the folder tint;
