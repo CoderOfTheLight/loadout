@@ -6,13 +6,24 @@
 /// before the tap); 56 dp checkbox rows whose selected state is checkbox +
 /// folder-tint fill + name at w700 (never the checkbox alone at arm's
 /// length); and the docked 72 dp running-tally bar — "12 items · 4 folders"
-/// with a scale pulse on change, Done as a real button. Checking a row is
-/// a quiet 150 ms tint change — no haptic: that budget belongs to the
-/// closeout confirm and the one celebration, not to sixty planning taps.
+/// with a scale pulse on change, the RUNNING MONEY underneath it, and Done
+/// as a real button. Checking a row is a quiet 150 ms tint change — no
+/// haptic: that budget belongs to the closeout confirm and the one
+/// celebration, not to sixty planning taps.
 ///
-/// Quantity-free on purpose — quantities stay the forecast's job. Returns
-/// the new selection (existing order preserved, additions appended in
-/// folder-section order), or null when dismissed.
+/// The running money answers the owner's "tell me when I add all the items"
+/// while she is still ticking, so it is computed HERE, from the sheet's own
+/// live selection over the live catalog's current prices — never from
+/// `plannedCostProvider`, which reads the SAVED event and so would sit a
+/// whole picker session behind her. Honesty is the same rule the rest of the
+/// app plays by: an unpriced selection contributes nothing and is counted
+/// out loud ("· 3 not priced"), and with nothing priced at all there is no
+/// money line — a low total or a "$0" would both be lies.
+///
+/// Quantity-free on purpose — quantities stay the forecast's job, so the
+/// running money is one of each at today's price. Returns the new selection
+/// (existing order preserved, additions appended in folder-section order),
+/// or null when dismissed.
 ///
 /// With an empty catalog the sheet explains what to do and offers the way
 /// to `/items/new` — a checklist with nothing on it is a dead end.
@@ -26,6 +37,8 @@ import 'package:go_router/go_router.dart';
 import '../../../app/theme.dart';
 import '../../../app/widgets/empty_state.dart';
 import '../../../app/widgets/folder_chip.dart';
+import '../../../core/money.dart';
+import '../../../core/money_codec.dart';
 import '../../catalog/application/catalog_service.dart';
 import '../../catalog/domain/folder.dart';
 import 'folder_sections.dart';
@@ -123,6 +136,37 @@ class _PlannedItemsSheetState extends ConsumerState<PlannedItemsSheet> {
     return count;
   }
 
+  /// The live selection priced at today's prices — the tally bar's money.
+  ///
+  /// Read off [_selected] and the FULL section list on purpose, twice over:
+  ///
+  ///  * not from `plannedCostProvider`, which prices the SAVED event — this
+  ///    figure has to move on the tick, before anything is saved;
+  ///  * not from `_visibleSections`, because typing in the search box must
+  ///    not change what the selection costs.
+  ///
+  /// Only [pricedCount] is returned beside the total: the tally bar derives
+  /// "not priced" as `selected − priced`, so the two numbers it prints always
+  /// account for every item she ticked — including one whose catalog row has
+  /// since gone (archived), which is silently absent from [sections] and must
+  /// still be admitted rather than quietly dropped from the arithmetic.
+  ({Money total, int pricedCount}) _selectionCost(
+    List<FolderWithItems> sections,
+  ) {
+    var total = Money.zero;
+    var pricedCount = 0;
+    for (final section in sections) {
+      for (final summary in section.items) {
+        if (!_selected.contains(summary.item.id.value)) continue;
+        if (summary.item.unitPrice case final price?) {
+          total = total.plus(price);
+          pricedCount += 1;
+        }
+      }
+    }
+    return (total: total, pricedCount: pricedCount);
+  }
+
   void _toggle(String itemId) {
     setState(() {
       if (_selected.contains(itemId)) {
@@ -176,6 +220,7 @@ class _PlannedItemsSheetState extends ConsumerState<PlannedItemsSheet> {
               );
             }
             final visible = _visibleSections(sections);
+            final cost = _selectionCost(sections);
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -248,6 +293,8 @@ class _PlannedItemsSheetState extends ConsumerState<PlannedItemsSheet> {
                 _TallyBar(
                   itemCount: _selected.length,
                   folderCount: _foldersInSelection(sections),
+                  total: cost.total,
+                  pricedCount: cost.pricedCount,
                   onDone: () => Navigator.of(context).pop(_result(sections)),
                 ),
               ],
@@ -457,24 +504,52 @@ class _PickerRow extends StatelessWidget {
 }
 
 /// The docked running tally (spec §6): 72 dp, `surfaceContainerLow`, top
-/// hairline — "12 items · 4 folders" updating on every tap (the count does
-/// a small scale pulse), Done as a real 56 dp button. The one sanctioned
-/// bottom-bar container.
+/// hairline — "12 items · 4 folders" updating on every tap (the whole tally
+/// does a small scale pulse), Done as a real 56 dp button. The one
+/// sanctioned bottom-bar container.
+///
+/// Under the count sits the money the owner asked for: what she has ticked,
+/// at today's prices, climbing as she ticks. It is a tier-2 figure
+/// ([Numerals.rowQuantity]) rather than a hero — the sheet's subject is the
+/// list, and the money qualifies the count rather than replacing it — and it
+/// carries its own honesty note, "· 3 not priced", whenever some of the
+/// selection contributed nothing. With NOTHING priced the money line is
+/// absent altogether and the bar is exactly what it always was: a total that
+/// silently omitted half the list, or a "$0", would each be worse than no
+/// number at all.
+///
+/// [pricedCount] is what drove [total]; everything else selected did not, so
+/// the bar prints `itemCount − pricedCount` as the unpriced tail. That
+/// subtraction (rather than a second count from the catalog) is deliberate:
+/// the two figures on screen then always add up to the item count she can
+/// see, even for a selection whose catalog row has been archived out from
+/// under it.
 class _TallyBar extends StatelessWidget {
   const _TallyBar({
     required this.itemCount,
     required this.folderCount,
+    required this.total,
+    required this.pricedCount,
     required this.onDone,
   });
 
   final int itemCount;
   final int folderCount;
+
+  /// Σ of the current unit price of every priced selection (one of each —
+  /// the sheet is quantity-free by design).
+  final Money total;
+
+  /// How many of the selected items carried a price and so drove [total].
+  final int pricedCount;
+
   final VoidCallback onDone;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final unpricedCount = itemCount - pricedCount;
     return Container(
       constraints: const BoxConstraints(minHeight: 72),
       decoration: BoxDecoration(
@@ -490,15 +565,46 @@ class _TallyBar extends StatelessWidget {
           Expanded(
             child: _TallyPulse(
               trigger: itemCount,
-              child: Text(
-                '$itemCount item${itemCount == 1 ? '' : 's'} · '
-                '$folderCount folder${folderCount == 1 ? '' : 's'}',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontFeatures: Numerals.tabular,
-                ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '$itemCount item${itemCount == 1 ? '' : 's'} · '
+                    '$folderCount folder${folderCount == 1 ? '' : 's'}',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontFeatures: Numerals.tabular,
+                    ),
+                  ),
+                  if (pricedCount > 0)
+                    // Wrap, not Row: at 200 % text scale the money and its
+                    // note need two lines, and the bar grows to take them.
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          MoneyCodec.format(total),
+                          style: Numerals.rowQuantity(theme.textTheme),
+                        ),
+                        // "One of each" is said out loud because the event
+                        // screen prices the FORECAST quantities: the same
+                        // list legitimately shows two very different
+                        // totals, and only a label stops that reading as a
+                        // contradiction.
+                        Text(
+                          ' one of each'
+                          '${unpricedCount > 0 ? ' · $unpricedCount not priced' : ''}',
+                          style: Numerals.caption(
+                            theme.textTheme,
+                          )?.copyWith(color: scheme.onSurfaceVariant),
+                        ),
+                      ],
+                    ),
+                ],
               ),
             ),
           ),
+          const SizedBox(width: Space.s),
           FilledButton(
             style: FilledButton.styleFrom(minimumSize: const Size(112, 56)),
             onPressed: onDone,

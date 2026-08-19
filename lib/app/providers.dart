@@ -31,7 +31,9 @@ import '../features/catalog/application/catalog_service.dart';
 import '../features/closeout/application/closeout_service.dart';
 import '../features/closeout/domain/closeout.dart';
 import '../features/events/application/event_service.dart';
+import '../features/forecasting/application/event_cost_service.dart';
 import '../features/forecasting/application/forecast_service.dart';
+import '../features/forecasting/domain/event_cost.dart';
 import '../features/forecasting/domain/forecast_engine.dart';
 import '../features/forecasting/domain/snapshot.dart';
 import '../features/inventory/application/inventory_service.dart';
@@ -170,6 +172,16 @@ final forecastServiceProvider = Provider<ForecastService>(
   ),
 );
 
+/// Money over quantities: the frozen engine's numbers priced at today's
+/// prices, and confirmed closeouts priced at the cents they recorded.
+final eventCostServiceProvider = Provider<EventCostService>(
+  (ref) => DriftEventCostService(
+    ref.watch(appDatabaseProvider),
+    ref.watch(forecastServiceProvider),
+    ref.watch(settingsServiceProvider),
+  ),
+);
+
 final closeoutServiceProvider = Provider<CloseoutService>(
   (ref) => DriftCloseoutService(
     ref.watch(appDatabaseProvider),
@@ -301,6 +313,24 @@ final forecastStalenessProvider = FutureProvider.autoDispose
       ref.watch(latestSnapshotProvider(eventId));
       return ref.watch(forecastServiceProvider).isStale(eventId);
     });
+
+/// What this event is about to cost, at today's prices — live as items are
+/// added, removed, repriced, or their forecast load overridden. Never empty
+/// of an answer: with nothing priced it emits a [PlannedCost] whose
+/// `isEmpty` is true, and the surface shows no total rather than a $0.
+final plannedCostProvider = StreamProvider.autoDispose
+    .family<PlannedCost, String>(
+      (ref, eventId) =>
+          ref.watch(eventCostServiceProvider).watchPlannedCost(eventId),
+    );
+
+/// What events like this one usually cost, from confirmed closeouts alone.
+/// Null — no card at all — when no confirmed history backs the question.
+final eventCostPredictionProvider = StreamProvider.autoDispose
+    .family<EventCostPrediction?, String>(
+      (ref, eventId) =>
+          ref.watch(eventCostServiceProvider).watchCostPrediction(eventId),
+    );
 
 final accuracyReviewProvider = FutureProvider.autoDispose
     .family<AccuracyReview, String>(

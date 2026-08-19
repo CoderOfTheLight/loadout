@@ -3,9 +3,12 @@
 /// load list (method/version caption from the latest snapshot row — never
 /// hardcoded), Close out (primary-styled once the date passes; closed events
 /// show `Closed on <date>` + Revise), the disabled Production tile, and
-/// Accuracy review (closed only). Planned items and, for closed events, the
-/// "Spent" cost summary (v7, from the closeout's snapshotted prices) and
-/// the closeout revisions summary. App-bar: Edit; Activate (planned → active);
+/// Accuracy review (closed only). Then the money, and it is TWO sections
+/// that never overlap: "Estimated cost" while the event is still planned or
+/// active (what she is about to spend, plus what events like it usually
+/// cost), and "Spent" once it is closed (what it actually used, at the
+/// prices snapshotted at closeout). Planned items, and for closed events the
+/// closeout revisions summary. App-bar: Edit; Activate (planned → active);
 /// Cancel (planned ONLY — an activated event must be closed out, §12.15).
 library;
 
@@ -24,6 +27,7 @@ import '../../catalog/application/catalog_service.dart';
 import '../../catalog/domain/folder.dart';
 import '../../closeout/application/closeout_service.dart';
 import '../../closeout/presentation/closeout_report_screen.dart';
+import '../../forecasting/domain/event_cost.dart';
 import '../application/event_service.dart';
 import '../domain/event.dart';
 import 'event_ui.dart';
@@ -172,6 +176,11 @@ class _EventDetailBody extends ConsumerWidget {
                       ),
                     ),
                 ],
+                // Spaces itself: renders nothing at all when neither the
+                // planned cost nor the history has an answer.
+                if (event.status == EventStatus.planned ||
+                    event.status == EventStatus.active)
+                  _EstimatedCostSection(eventId: eventId),
                 const SizedBox(height: 16),
                 Text(
                   'Planned items (${detail.plannedItems.length})',
@@ -459,6 +468,163 @@ class _CancelEventDialogState extends State<_CancelEventDialog> {
       ),
     ],
   );
+}
+
+/// "What is this going to cost?", asked while the event can still be
+/// changed — planned and active only, because once it is closed the
+/// question is answered by [_SpentSummary] and an estimate beside a fact
+/// would only invite arithmetic nobody asked for.
+///
+/// Two answers, kept apart because they are different kinds of number
+/// (`forecasting/domain/event_cost.dart`):
+///
+///  * the HERO — the packing list she has built, priced at today's prices.
+///    Arithmetic, not prediction. Items with no price (or no forecast
+///    quantity yet) contribute nothing and are said out loud, and with
+///    nothing priced at all there is no figure — never a $0 standing in for
+///    "unknown".
+///  * the HISTORY LINE — what events like this one usually cost, from
+///    confirmed closeouts. Absent entirely when nothing confirmed backs it:
+///    no empty state, no placeholder, no zero.
+///
+/// The two are shown side by side and never compared. A plan that costs
+/// twice what history says is information the owner reads herself; the app
+/// editorialising it would be guessing which of the two is wrong.
+///
+/// Loading and error render as NOTHING on purpose. The cost is a supporting
+/// answer on a screen whose job is the lifecycle, so a spinner or an error
+/// string here would be louder than the thing it is standing in for.
+class _EstimatedCostSection extends ConsumerWidget {
+  const _EstimatedCostSection({required this.eventId});
+
+  final String eventId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final planned = ref.watch(plannedCostProvider(eventId)).valueOrNull;
+    final prediction = ref
+        .watch(eventCostPredictionProvider(eventId))
+        .valueOrNull;
+    // `isEmpty` means nothing on the list is priced — the figure would be a
+    // lie, so there is no figure.
+    final showPlanned = planned != null && !planned.isEmpty;
+    if (!showPlanned && prediction == null) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 24),
+        Text('Estimated cost', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 8),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (showPlanned) ...[
+                  Text(
+                    MoneyCodec.format(planned.total),
+                    style: Numerals.hero(theme.textTheme),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    "What you're bringing, at today's prices.",
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  if (planned.isPartial) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      planned.unpricedItemCount == 1
+                          ? '1 item has no price yet — not counted.'
+                          : '${planned.unpricedItemCount} items have no price '
+                                'yet — not counted.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ],
+                if (prediction != null) ...[
+                  if (showPlanned) const Divider(height: 24),
+                  _CostHistoryLine(prediction: prediction),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The history half of [_EstimatedCostSection]: the median per-person spend
+/// of the confirmed closeouts, scaled to this event's planned attendance.
+///
+/// Three qualifiers, each of which the figure is worthless without:
+///
+///  * the RATE it was scaled at, so "$315" is traceable to "$2.10 a person
+///    × 150" rather than arriving from nowhere;
+///  * HOW MANY events it read — and when that is one or two, wording that
+///    says so in words instead of leaving a count to be interpreted. One
+///    event is a data point; calling it a pattern would be the app lying
+///    about its own confidence;
+///  * whether those events had unpriced lines, in which case the rate — and
+///    so this figure — is a FLOOR, not an estimate.
+class _CostHistoryLine extends StatelessWidget {
+  const _CostHistoryLine({required this.prediction});
+
+  final EventCostPrediction prediction;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Events like this usually cost about '
+          '${MoneyCodec.format(prediction.total)}',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontFeatures: Numerals.tabular,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '${MoneyCodec.format(prediction.perPerson)} a person × '
+          '${prediction.exposure}',
+          style: Numerals.caption(
+            theme.textTheme,
+          )?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+        ),
+        const SizedBox(height: 4),
+        Text(_evidenceLine(prediction), style: muted),
+        if (prediction.understates) ...[
+          const SizedBox(height: 4),
+          Text(
+            'Some of those events had items with no price, so this is a '
+            'floor.',
+            style: muted,
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// "from N past events", and at one or two the sentence goes on to admit
+  /// what N that small is worth.
+  static String _evidenceLine(EventCostPrediction prediction) {
+    final count = prediction.evidence.length;
+    if (!prediction.isThin) return 'from $count past events';
+    return count == 1
+        ? 'from 1 past event — one event is a data point, not a pattern.'
+        : 'from $count past events — two is thin evidence, not a pattern.';
+  }
 }
 
 /// "What it all was" for a closed event (v7): Σ (confirmed depletion ×

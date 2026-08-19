@@ -29,6 +29,15 @@ abstract interface class ForecastService {
 
   Stream<ForecastSnapshotView?> watchLatestSnapshot(String eventId);
 
+  /// The latest persisted snapshot for [eventId], or null — exactly what
+  /// [watchLatestSnapshot] emits, read ONCE.
+  ///
+  /// Exists so a service assembling a view from several queries (event cost)
+  /// can reuse this one without calling `.first` on a watch stream: that
+  /// opens a second subscription per emission and can hang inside an
+  /// `asyncMap`.
+  Future<ForecastSnapshotView?> latestSnapshot(String eventId);
+
   /// True when the latest snapshot's inputs_hash differs from a hash of the
   /// inputs as they are now (drives the staleness banner).
   Future<bool> isStale(String eventId);
@@ -92,10 +101,13 @@ final class DriftForecastService implements ForecastService {
         _db.forecastEvidence,
         _db.forecastOverrides,
       })
-      .asyncMap((_) async {
-        final latest = await _db.forecastDao.latestSnapshotForEvent(eventId);
-        return latest == null ? null : await _loadView(latest.id);
-      });
+      .asyncMap((_) => latestSnapshot(eventId));
+
+  @override
+  Future<ForecastSnapshotView?> latestSnapshot(String eventId) async {
+    final latest = await _db.forecastDao.latestSnapshotForEvent(eventId);
+    return latest == null ? null : await _loadView(latest.id);
+  }
 
   @override
   Future<bool> isStale(String eventId) async {
