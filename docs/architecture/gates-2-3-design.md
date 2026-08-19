@@ -1362,8 +1362,9 @@ recreating the router. `StatefulShellRoute.indexedStack` hosts a five-tab M3 `Na
 root navigator. Deep links disabled at platform level (no Android link `intent-filter`;
 `FlutterDeepLinkingEnabled = false`). Dirty forms intercept back with `PopScope` + discard
 dialog. Bootstrap alone can route to `/recovery`. Visual language: M3,
-`ColorScheme.fromSeed(0xff356859)`, `ThemeMode.system`, content columns `maxWidth: 640`, primary
-buttons ≥ 56 dp.
+`ColorScheme.fromSeed(0xff356859)`, brightness from the owner's own choice (`theme_mode`
+setting: Follow phone / Light / Dark, `ThemeMode.system` until she picks), content columns
+`maxWidth: 640`, primary buttons ≥ 56 dp.
 
 ```
 /welcome  /welcome/create  /recovery
@@ -1537,8 +1538,17 @@ two sentences on what it will do, readiness checklist ("You're ready: recipes �
 No service, no state.
 
 **`/settings` — SettingsScreen.** Groups: Workspace (name, default policy, exposure label,
-history window); Data (Backup, Restore); Privacy; Diagnostics; About; danger zone (Reset
-workspace). Commands: `SettingsService.updatePreferences` (plain upserts).
+history window); Appearance (Follow phone / Light / Dark, three radio rows — the choice is
+appearance only and touches no data); Data (Backup, Restore); Privacy; Diagnostics; About;
+danger zone (Reset workspace). Commands: `SettingsService.updatePreferences` and
+`SettingsService.setThemeMode` (plain upserts).
+
+The appearance choice is its own `settings` row (`theme_mode` = `"system"` / `"light"` /
+`"dark"`, unset means system) with its own watch stream rather than a `Workspace` field:
+`/welcome` and `/recovery` render before any workspace — and before any database — exists, and
+they inherit the choice from the one `MaterialApp` like every other route. Bootstrap reads it
+once before `runApp` (`startupThemeChoiceProvider`) so the first frame is already correct;
+`themeChoiceProvider` falls back to that value whenever there is nothing to read.
 
 **`/settings/backup` — BackupScreen.** Explainer ("one encrypted file; anyone with file +
 passphrase can read everything"); passphrase ×2 (min 8, advisory meter recommending 12+);

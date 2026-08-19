@@ -41,6 +41,7 @@ import '../features/catalog/application/barcode_scan_service.dart';
 import '../features/recipes/application/recipe_ocr_service.dart';
 import '../features/recipes/application/recipe_service.dart';
 import '../features/settings/application/settings_service.dart';
+import '../features/settings/domain/app_theme_choice.dart';
 import '../infrastructure/backup/backup_service_impl.dart';
 import '../infrastructure/files/loadout_paths.dart';
 import '../infrastructure/files/scratch_space.dart';
@@ -84,6 +85,14 @@ final startupStateProvider = StateProvider<StartupState>(
 /// Where the router starts. Computed at bootstrap from the startup state
 /// plus the workspace_created flag, so the first frame is already correct.
 final initialLocationProvider = Provider<String>((_) => '/welcome');
+
+/// The stored appearance preference as bootstrap read it, before `runApp`.
+/// [themeChoiceProvider] paints with this until the watch stream produces
+/// its first value, so a cold start never flashes the other brightness.
+/// Stays `system` in the states with no open database (fresh, recovery).
+final startupThemeChoiceProvider = Provider<AppThemeChoice>(
+  (_) => AppThemeChoice.system,
+);
 
 /// Bumped by the restore flow after `DatabaseHost` closes and reopens the
 /// authoritative DB (§8.2) so [appDatabaseProvider] rebuilds.
@@ -215,6 +224,27 @@ final workspaceProvider = StreamProvider<Workspace?>((ref) {
   }
   return ref.watch(settingsServiceProvider).watchWorkspace();
 });
+
+/// The appearance preference, watched. Independent of [workspaceProvider]:
+/// `/welcome` and `/recovery` render a MaterialApp before any workspace
+/// exists, and both must honour the choice.
+final _themeChoiceStreamProvider = StreamProvider<AppThemeChoice>((ref) {
+  ref.watch(startupStateProvider);
+  ref.watch(databaseGenerationProvider);
+  if (!ref.watch(databaseHostProvider).isOpen) {
+    return Stream<AppThemeChoice>.value(AppThemeChoice.system);
+  }
+  return ref.watch(settingsServiceProvider).watchThemeMode();
+});
+
+/// What the app root paints with. Never throws and never hangs: while the
+/// stream is loading (or has errored, or there is no database to read) this
+/// falls back to [startupThemeChoiceProvider].
+final themeChoiceProvider = Provider<AppThemeChoice>(
+  (ref) =>
+      ref.watch(_themeChoiceStreamProvider).valueOrNull ??
+      ref.watch(startupThemeChoiceProvider),
+);
 
 final itemListProvider = StreamProvider.autoDispose
     .family<List<ItemSummary>, ItemFilter>(

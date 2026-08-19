@@ -1,5 +1,6 @@
 /// §11.3 settings workflows: preference edits persist through
-/// `SettingsService.updatePreferences`; the OS-lock advisory card is
+/// `SettingsService.updatePreferences`; the Appearance rows switch the whole
+/// app between Follow phone / Light / Dark; the OS-lock advisory card is
 /// unconditional; the backup nudge banner shows while no backup exists;
 /// all sub-screen doors are present.
 library;
@@ -8,6 +9,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:loadout/app/providers.dart';
 import 'package:loadout/features/forecasting/domain/forecast_engine.dart';
+import 'package:loadout/features/settings/domain/app_theme_choice.dart';
+import 'package:loadout/features/settings/presentation/settings_screen.dart';
 
 import '../../support/app_harness.dart';
 import '../backup/backup_test_support.dart';
@@ -41,6 +44,20 @@ void main() {
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
   }
+
+  /// The appearance option the control currently reads as chosen.
+  AppThemeChoice? selectedChoice(WidgetTester tester) => tester
+      .widget<RadioGroup<AppThemeChoice>>(
+        find.byType(RadioGroup<AppThemeChoice>),
+      )
+      .groupValue;
+
+  Finder choiceTile(AppThemeChoice choice) =>
+      find.widgetWithText(RadioListTile<AppThemeChoice>, choice.displayName);
+
+  /// A themed colour the screen is actually painting with.
+  Color surface(WidgetTester tester) =>
+      Theme.of(tester.element(find.byType(SettingsScreen))).colorScheme.surface;
 
   testWidgets('renders groups, advisory card, nudge banner, and doors', (
     tester,
@@ -139,5 +156,93 @@ void main() {
     expect(policy, PlanningPolicy.cautious);
     expect(label, 'covers');
     expect(window, 6);
+  });
+
+  testWidgets('appearance offers three named options, the current one chosen', (
+    tester,
+  ) async {
+    await boot(tester);
+
+    for (final choice in AppThemeChoice.values) {
+      await tester.ensureVisible(find.text(choice.displayName));
+      expect(find.text(choice.displayName), findsOneWidget);
+    }
+    expect(selectedChoice(tester), AppThemeChoice.system);
+    expect(
+      tester
+          .widget<RadioListTile<AppThemeChoice>>(
+            choiceTile(AppThemeChoice.system),
+          )
+          .selected,
+      isTrue,
+    );
+    expect(
+      tester
+          .widget<RadioListTile<AppThemeChoice>>(
+            choiceTile(AppThemeChoice.dark),
+          )
+          .selected,
+      isFalse,
+    );
+  });
+
+  testWidgets('choosing Dark persists and repaints the app immediately', (
+    tester,
+  ) async {
+    final h = await boot(tester);
+    final before = surface(tester);
+    expect(
+      before.computeLuminance(),
+      greaterThan(0.5),
+      reason: 'the test phone is light, so the app starts light',
+    );
+
+    await tapVisible(tester, find.text('Dark'));
+    await settleUntil(
+      tester,
+      () => h.read(themeChoiceProvider) == AppThemeChoice.dark,
+      reason: 'the choice to reach the app root',
+    );
+    // MaterialApp cross-fades between the two themes; let it land.
+    await tester.pumpAndSettle();
+    expect(surface(tester), isNot(before));
+
+    // A themed colour changed — no restart, no navigation.
+    expect(surface(tester).computeLuminance(), lessThan(0.1));
+    expect(selectedChoice(tester), AppThemeChoice.dark);
+    expect(
+      tester
+          .widget<RadioListTile<AppThemeChoice>>(
+            choiceTile(AppThemeChoice.dark),
+          )
+          .selected,
+      isTrue,
+    );
+
+    final stored = await tester.runAsync(
+      () => h.read(settingsServiceProvider).themeMode(),
+    );
+    expect(stored, AppThemeChoice.dark);
+  });
+
+  testWidgets('the appearance rows hold up at 200 % text scale', (
+    tester,
+  ) async {
+    tester.platformDispatcher.textScaleFactorTestValue = 2;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await boot(tester);
+
+    for (final choice in AppThemeChoice.values) {
+      final tile = choiceTile(choice);
+      await tester.ensureVisible(tile);
+      await tester.pump();
+      expect(find.text(choice.displayName), findsOneWidget);
+      expect(
+        tester.getSize(tile).height,
+        greaterThanOrEqualTo(48),
+        reason: '${choice.displayName} must stay a thumb-sized target',
+      );
+    }
+    expect(tester.takeException(), isNull);
   });
 }

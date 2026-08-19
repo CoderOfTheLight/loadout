@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/diagnostics/diag.dart';
 import '../features/settings/application/settings_service.dart';
+import '../features/settings/domain/app_theme_choice.dart';
 import '../infrastructure/files/scratch_space.dart';
 import '../infrastructure/security/key_manager.dart';
 import '../infrastructure/startup/startup_service.dart';
@@ -53,6 +54,14 @@ Future<AppBootstrap> bootstrapLoadout({
           ? '/home'
           : '/welcome',
   };
+  // Read once here so the FIRST frame already has the chosen brightness;
+  // the watch stream takes over from the same value.
+  final themeChoice = switch (state) {
+    StartupWorkspaceOpen(:final database) => await DriftSettingsService(
+      database,
+    ).themeMode(),
+    _ => AppThemeChoice.system,
+  };
   return AppBootstrap(
     state: state,
     initialLocation: initialLocation,
@@ -63,6 +72,7 @@ Future<AppBootstrap> bootstrapLoadout({
       diagProvider.overrideWithValue(diag),
       startupStateProvider.overrideWith((ref) => state),
       initialLocationProvider.overrideWithValue(initialLocation),
+      startupThemeChoiceProvider.overrideWithValue(themeChoice),
     ],
   );
 }

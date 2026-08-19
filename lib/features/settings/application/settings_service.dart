@@ -6,6 +6,7 @@ import '../../../core/time.dart';
 import '../../../data/db/app_database.dart';
 import '../../forecasting/domain/forecast_engine.dart';
 import '../../../data/db/table_watch.dart';
+import '../domain/app_theme_choice.dart';
 
 /// Workspace read model (design §6.5): the singleton `workspace_meta` row
 /// plus the preference settings.
@@ -45,6 +46,16 @@ abstract interface class SettingsService {
   });
 
   Stream<Workspace?> watchWorkspace();
+
+  /// The appearance preference, `AppThemeChoice.system` until it is set.
+  ///
+  /// Its own stream rather than a [Workspace] field: the app root has to
+  /// paint `/welcome` and `/recovery` too, and both run before
+  /// [watchWorkspace] ever emits a non-null workspace.
+  Stream<AppThemeChoice> watchThemeMode();
+
+  /// Appearance only — no record, no data, no schema change.
+  Future<void> setThemeMode(AppThemeChoice choice);
 }
 
 final class DriftSettingsService implements SettingsService {
@@ -61,6 +72,7 @@ final class DriftSettingsService implements SettingsService {
   static const String _policyKey = 'planning_policy_default';
   static const String _exposureLabelKey = 'exposure_label';
   static const String _historyWindowKey = 'history_window_events';
+  static const String _themeModeKey = 'theme_mode';
 
   @override
   Future<Workspace> createWorkspace({
@@ -111,6 +123,19 @@ final class DriftSettingsService implements SettingsService {
       .watchTables('settings.workspace', {_db.workspaceMeta, _db.settings})
       .asyncMap((_) => _loadWorkspace());
 
+  /// `settings.themeMode` is its own watch label: drift caches query streams
+  /// by statement text, so sharing `settings.workspace`'s would hand this
+  /// watcher the workspace stream instead (see [TableWatch]).
+  @override
+  Stream<AppThemeChoice> watchThemeMode() => _db
+      .watchTables('settings.themeMode', {_db.settings})
+      .asyncMap((_) => themeMode())
+      .distinct();
+
+  @override
+  Future<void> setThemeMode(AppThemeChoice choice) =>
+      _upsertSetting(_themeModeKey, jsonEncode(choice.dbValue));
+
   Future<Workspace?> _loadWorkspace({bool requireCreated = true}) async {
     final meta = await _db.select(_db.workspaceMeta).getSingleOrNull();
     if (meta == null) return null;
@@ -143,6 +168,14 @@ final class DriftSettingsService implements SettingsService {
   Future<int> historyWindow() async {
     final raw = await _db.settingsDao.value(_historyWindowKey);
     return raw == null ? 12 : jsonDecode(raw) as int;
+  }
+
+  /// Unset, or a value this build cannot read, means "follow the phone".
+  Future<AppThemeChoice> themeMode() async {
+    final raw = await _db.settingsDao.value(_themeModeKey);
+    if (raw == null) return AppThemeChoice.system;
+    return AppThemeChoice.fromDb(jsonDecode(raw) as String) ??
+        AppThemeChoice.system;
   }
 
   Future<void> _upsertSetting(String key, String value) => _db

@@ -3,6 +3,10 @@
 ///
 /// Groups: Workspace (name, default policy, exposure label, history
 /// window — plain upserts through [SettingsService.updatePreferences]);
+/// Appearance (Follow phone / Light / Dark — three radio rows rather than a
+/// `SegmentedButton`, because "Follow phone" beside two more segments stops
+/// fitting one line well before 200 % text scale, and rows are already this
+/// screen's grammar);
 /// Data (Backup, Restore) with the §12.22 in-app backup nudge banner;
 /// Privacy; Diagnostics; About; danger zone (Reset workspace). The OS-lock
 /// advisory card is shown unconditionally (§12.18).
@@ -27,6 +31,7 @@ import '../../../app/widgets/warning_banner.dart';
 import '../../backup/presentation/backup_providers.dart';
 import '../../forecasting/domain/forecast_engine.dart';
 import '../application/settings_service.dart';
+import '../domain/app_theme_choice.dart';
 
 /// Kept exported from here: this screen was the original home of the shared
 /// policy caption, and other screens import it from this library.
@@ -58,6 +63,7 @@ class SettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final workspace = ref.watch(workspaceProvider).valueOrNull;
+    final themeChoice = ref.watch(themeChoiceProvider);
     final lastBackup = ref.watch(lastBackupProvider);
     final showBackupNudge =
         lastBackup.hasValue && lastBackup.valueOrNull == null;
@@ -227,6 +233,30 @@ class SettingsScreen extends ConsumerWidget {
                         ),
                       ],
                     ),
+                  ),
+                ),
+
+                const SectionHeader('Appearance'),
+                RadioGroup<AppThemeChoice>(
+                  groupValue: themeChoice,
+                  onChanged: (choice) async {
+                    if (choice == null) return;
+                    await _save(context, ref, (s) => s.setThemeMode(choice));
+                  },
+                  child: _Group(
+                    children: [
+                      for (final choice in AppThemeChoice.values)
+                        RadioListTile<AppThemeChoice>(
+                          value: choice,
+                          selected: choice == themeChoice,
+                          title: Text(choice.displayName),
+                          subtitle: choice == AppThemeChoice.system
+                              ? const Text(
+                                  "Match the phone's own light or dark setting",
+                                )
+                              : null,
+                        ),
+                    ],
                   ),
                 ),
 
