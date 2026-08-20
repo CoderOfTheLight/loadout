@@ -1034,10 +1034,15 @@ extension of the same seam (§13); Gate 2 needs `forecastDirect` plus persistenc
 `confirmedInbound = Quantity.zero` (column defaults 0; **no UI in v1** — the line-detail
 assumptions copy states "inbound: 0"); `packSize = item.packSizeMicros`; `policy` from event
 (falling back to workspace default); `upcomingExposure = event.plannedExposure` (required — the
-UI blocks Generate until set). Method `'direct_median'`, version `2`. Assumptions JSON records
-at minimum `reserve_percent`, `history_window`, `exposure_label`, and the sell-out rule below
-(`stockout_rule`, `stockout_rule_note`, `stockout_adjusted_lines`,
-`stockout_all_sellout_lines`).
+UI blocks Generate until set). Method `'direct_median'`; the method version is now **3**, not the
+`2` this section originally specified — `forecastMethodVersion` in
+`lib/features/forecasting/domain/snapshot.dart` is the single source of truth, and v3 added the
+per-event demand basis (`lib/features/forecasting/application/per_event_basis.dart`).
+Assumptions JSON records at minimum `reserve_percent`, `history_window`, `exposure_label`, the
+sell-out rule below (`stockout_rule`, `stockout_rule_note`, `stockout_adjusted_lines`,
+`stockout_all_sellout_lines`) and the per-event rule (`per_event_rule`, `per_event_rule_note`,
+`per_event_lines`). **[forecasting.md](forecasting.md) is the current, verified account of how a
+number is produced; this section is the original contract and predates method v3.**
 
 **Sell-out (right-censored) observations — method v2, normative.** A closeout records a
 depletion plus a `stockout` flag. "Sold 40 and ran out" is a LOWER BOUND on demand, not demand:
@@ -1091,9 +1096,13 @@ String canonicalInputs(SnapshotInputs s) {
   // s.lines sorted by itemId bytewise ascending;
   // evidence in label-query order (scheduled_date DESC, event_id DESC).
   // The leading tag is the METHOD version: it moves whenever the same inputs
-  // start producing different outputs (v1 -> v2 = sell-out handling).
+  // start producing different outputs (v1 -> v2 = sell-out handling;
+  // v2 -> v3 = the per-event demand basis). The live encoding interpolates
+  // `forecastMethodVersion` rather than a literal, and appends the material
+  // per-line fields schema v2/v3 added (|s=, |r=, |b=per_event, |pe=) — see
+  // lib/features/forecasting/domain/snapshot_inputs.dart and forecasting.md.
   final b = StringBuffer()
-    ..write('direct_median|2|${s.policy.name}|${s.upcomingExposure}|${s.historyWindow}');
+    ..write('direct_median|3|${s.policy.name}|${s.upcomingExposure}|${s.historyWindow}');
   for (final line in s.lines) {
     b.write('\n${line.itemId}|${line.packSizeMicros}'
         '|${line.onHandMicros}|${line.confirmedInboundMicros}');
@@ -1366,19 +1375,27 @@ dialog. Bootstrap alone can route to `/recovery`. Visual language: M3,
 setting: Follow phone / Light / Dark, `ThemeMode.system` until she picks), content columns
 `maxWidth: 640`, primary buttons ≥ 56 dp.
 
+The route table below is the one in `lib/app/router.dart` as it stands today (re-verified against
+that file; it is the authority if the two ever drift):
+
 ```
+/  ->  /home
 /welcome  /welcome/create  /recovery
 [shell] /home  /events  /items  /recipes  /settings
 /events/new  /events/:eventId  /events/:eventId/edit
-/events/:eventId/forecast  /events/:eventId/forecast/:itemId  /events/:eventId/closeout
-/items/new  /items/:itemId  /items/:itemId/edit
+/events/:eventId/forecast  /events/:eventId/forecast/:itemId
+/events/:eventId/closeout  /events/:eventId/closeout/report
+/items/new  /items/scan-in  /items/:itemId  /items/:itemId/edit
 /movements/new  /movements/:movementId  /movements/:movementId/correct
 /activity
 /recipes/new  /recipes/:recipeId  /recipes/:recipeId/revise
-/production
-/settings/backup  /settings/restore  /settings/privacy  /settings/about
-/settings/diagnostics  /settings/reset
+/settings/backup  /settings/restore  /settings/export  /settings/privacy
+/settings/about  /settings/diagnostics  /settings/reset
 ```
+
+**There is no `/production` route and no production-planning screen.** An earlier revision of
+this document specified a `/production` stub; it was built and then deleted. Production planning
+is a future capability with no current surface anywhere in the app — see §13.
 
 **`/welcome` — WelcomeScreen.** Value prop + "Nothing is uploaded"; CTA → `/welcome/create`. No
 commands. Empty: n/a. A11y: existing `Semantics` pattern kept.
@@ -1440,15 +1457,17 @@ from workspace), planned items (multi-select bottom sheet over catalog, chips in
 allowed while `planned`/`active` only.
 
 **`/events/:eventId` — EventDetailScreen.** Lifecycle hub. Widgets: header (name, date, status
-chip, planned exposure); tiles: (1) **Forecast & load list** → `/forecast` (subtitle: readiness
-+ `direct_median v1` caption from the latest snapshot row — never hardcoded); (2) **Close out**
-→ `/closeout` (primary-styled once the event date passes; after closing shows "Closed on
-<date>" + "Revise closeout"); (3) **Production plan — coming soon** (disabled tile,
-`Semantics(label: 'Production planning, available in a future update')`) → `/production`; (4)
-**Accuracy review** (closed events only) → forecast screen in accuracy mode. **No Load-out or
-Returns tiles.** App-bar: Edit, Activate (planned → active), Cancel (planned only; confirm
-dialog; activated events must be closed out, possibly as approximate). Commands:
-`EventService.activate` / `cancel`. A11y: tiles ≥ 56 dp.
+chip, planned exposure); tiles: (1) **Packing list** → `/forecast` (subtitle read from the
+latest snapshot row — never hardcoded); (2) **Close out** → `/closeout` (primary-styled once the
+event date passes; after closing shows "Closed on <date>" + Revise); (3) **Accuracy review**
+(closed events only). Then the money — "Estimated cost" while planned/active, "Spent" once
+closed — planned items, and the closeout-revisions summary for closed events. **No Load-out or
+Returns tiles, and no Production tile:** the disabled "Production plan — coming soon" row
+specified by an earlier revision of this document was built and then removed, along with the
+`/production` stub behind it, because it never navigated anywhere. App-bar: Edit, Start this
+event (planned → active), Cancel (planned ONLY — an activated event must be closed out, §12.15).
+Commands: `EventService.activate` / `cancel`. A11y: tiles ≥ 56 dp. Verified against
+`lib/features/events/presentation/event_detail_screen.dart`.
 
 **`/events/:eventId/forecast` — ForecastReviewScreen.** The release-contract surface. Renders
 the **persisted latest snapshot** (`latestSnapshotProvider`) — never a live recompute. Widgets:
@@ -1481,16 +1500,46 @@ closeouts, never from overrides."; (6) footer: method id + version.
 autosaved (debounced 500 ms) to `closeout_drafts` via `saveDraft`, reloaded via `loadDraft`.
 Widgets: (1) **Confirmed exposure** (required): "How many people actually came?" — prefilled
 with the planned estimate, marked "estimate was 150"; (2) per-item `CloseoutLineCard` for each
-planned item — **direct depletion field** (shortcut) plus an expandable **worksheet** (Loaded /
-Returned / Waste; when all three are set the depletion field becomes derived read-only
-`loaded − returned − waste`, captioned "Depletion excludes waste"); prefill caption "planned
-load was N" from the latest snapshot's load/override, blank when none; toggles **"Ran out"**
-(stockout — "demand was at least this") and **"Estimate"** (approximate); per-line done/todo
-state and "Skip item" (records no line, confirm); (3) optional note; (4) sticky bar: progress
-("6 of 8 items confirmed") + "Confirm closeout" with confirmation bottom sheet ("This becomes
+planned item (see below); (3) optional note; (4) pinned progress header ("23 of 60 confirmed")
+and a sticky 64 dp **"Finish closeout"** button with a confirmation bottom sheet ("This becomes
 the history your forecasts learn from"). Commands: `CloseoutService.confirm`; after close,
-"Revise closeout" reopens the same screen → `revise` (revision N+1 per §5). Warnings never
-block — including negative on-hand. A11y: 56 dp targets; toggles are labeled `FilterChip`s.
+Revise reopens the same screen → `revise` (revision N+1 per §5), and the flow lands on
+`/events/:eventId/closeout/report`. Warnings never block — including negative on-hand.
+
+**The line card asks ONE question** (`lib/features/closeout/presentation/closeout_line_card.dart`).
+An earlier revision of this document specified a direct depletion field plus an expandable
+Loaded/Returned/Waste worksheet. That worksheet is **gone**. The face of a card now carries four
+controls:
+
+- **"How many are left?"** — one `QuantityFormField`. That is the job. The leftover count is
+  stored in `closeout_lines.returned_micros` — the schema and the domain keep their names, only
+  the UI wording changed.
+- **Loaded reads as a line of text** (`Loaded 42`), prefilled from the latest snapshot line's
+  effective load (override if there is one, else the engine's, else the baseline's). It only becomes a box when the owner asks for it (More → *Change what was
+  loaded*) or when the plan says nothing about the line — a leftover count needs something to
+  subtract from.
+- **All gone** / **None used** — the two shortcuts. `All gone` writes left = 0 and answers "did
+  you run out?" Yes; `None used` writes left = loaded (used = 0).
+- **More** — the overflow holding *Change what was loaded*, *Some was thrown out*, *Enter what
+  was used instead*, *Skip this item*.
+
+Arithmetic and semantics are unchanged: used = `loaded − left − thrown out`, a blank thrown-out
+counting as 0 once a leftover count and a loaded value coexist, and depletion still excludes
+waste. **"Ran out" is now contextual**, not a permanent chip: the card asks *"Did you run out?"*
+(Yes/No `ChoiceChip`s) only when the line reads as empty (leftover 0) or the flag is already on,
+and never blocks the line from confirming. **"Estimate" is gone from the card** — `approximate`
+is still written by the write path but is never set here. Card states are colour + icon + word
+(Confirmed / In progress / Skipped); a done card collapses to one row and reopens on tap.
+
+**An event can be closed with NO counts at all.** `CommandValidator._closeoutShared` requires
+only a confirmed exposure in 1..1 000 000 and validates each line if present, so an empty line
+list is a real closeout rather than a hack. The way in is the app-bar overflow — *Close without
+counting* (confirms first, collects the headcount in the same dialog if the field is empty) and
+*Skip the rest and finish* — deliberately not a second button beside "Finish closeout". The
+"Finish closeout" button itself stays disabled until every line is done, so the overflow is the
+only path out of a partial count.
+
+A11y: 56 dp targets; the state word moves under the item name above ~1.3× text scale.
 
 **`/movements/new` — MovementEntryScreen.** The only manual ledger entry. Widgets: kind
 `SegmentedButton` — **Purchase** (`receive`), **Waste**, **Count** (`adjust`), nothing else;
@@ -1533,9 +1582,8 @@ runs `assertFlat` / `detectCycles`).
 `DropdownMenu` ("Revision 3 · 2026-08-02") renders any prior revision verbatim; app-bar: Revise,
 Archive. Commands: `RecipeService.setArchived`.
 
-**`/production` — ProductionPlanningScreen (stub).** Static: "Production planning is coming",
-two sentences on what it will do, readiness checklist ("You're ready: recipes ✓, forecasts ✓").
-No service, no state.
+*(A `/production` — ProductionPlanningScreen stub was specified here and shipped; it has since
+been deleted along with its route. Production planning has no screen. See §13.)*
 
 **`/settings` — SettingsScreen.** Groups: Workspace (name, default policy, exposure label,
 history window); Appearance (Follow phone / Light / Dark, three radio rows — the choice is
@@ -1890,8 +1938,11 @@ Cut from Gates 2–3; the schema and seams are shaped so each returns additively
 - **`LocalAgent` execution** (Gate 4) and **`RecipeOcr` execution** (Gate 5): seams declared in
   §6.7; OCR images bound to `ScratchSpace('ocr')`.
 - **Item/event revision logs with reasons** (master data stays plainly mutable).
-- **Deterministic production planning** (Gate 5): `/production` stub becomes real;
-  `ProductionPlanService` interface lands then.
+- **Deterministic production planning** (Gate 5): a future capability with **no current screen
+  and no route**. The `/production` stub this document once specified was built and then
+  deleted, together with its tile on the event screen, because a disabled dead end taught the
+  owner nothing. Nothing in `lib/` references production planning today; a
+  `ProductionPlanService` interface and whatever surface it needs both land at Gate 5.
 - **Migration verifier CI** (`SchemaVerifier`) and the pre-migration safety copy: activate with
   the first real migration (schema v2).
 - **Ledger checkpoints** (`item_stock_checkpoints`): only if ledgers outgrow index-scan sums.

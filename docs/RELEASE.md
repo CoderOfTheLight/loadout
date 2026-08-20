@@ -80,15 +80,61 @@ Both stores need material that does not exist yet:
 - **Privacy labels.** These are unusually easy here and worth stating
   confidently: no data collected, no data shared, no tracking, no analytics,
   no account. The CI gates in `.github/workflows/ci.yml` prove the shipped
-  binary has no network permission at all.
-- **Age rating**, support URL, and a privacy policy URL (a short page saying
-  the app collects nothing and stores everything on the device).
+  **Android** binary has no network permission at all; iOS has no equivalent
+  permission to withhold, so there the claim rests on the dependency and
+  source gates only (see §6.1).
+- **Age rating**, support URL, and a **privacy policy hosted at a public
+  URL** — both stores require one, and there is no such page today. A short
+  page saying the app collects nothing and stores everything on the device is
+  enough, but it has to exist somewhere reachable.
 
-## 4. Version numbering
+## 3b. iOS privacy manifest — **BLOCKER**
 
-`pubspec.yaml` carries `version: <name>+<build>`. The name is what users
-see; the build number must increase on every upload to either store. Bump it
-in `pubspec.yaml`, not in Xcode or Gradle, so both platforms stay in step.
+`ios/Runner/PrivacyInfo.xcprivacy` **does not exist**. Apple has required a
+privacy manifest since May 2024 for apps using "required reason" APIs, and
+submission without one is an automatic rejection rather than a review note.
+
+This app needs one because SQLCipher/`package:sqlite3` reaches for
+required-reason APIs in the ordinary course of opening and writing a
+database — file timestamps (`NSPrivacyAccessedAPICategoryFileTimestamp`) and
+available disk space (`NSPrivacyAccessedAPICategoryDiskSpace`) at minimum.
+The manifest also carries the tracking/collected-data declarations, which for
+Loadout are all "none".
+
+> The two categories above are the ones a SQLite-backed app normally has to
+> declare; **confirm the exact list against the built binary** (Xcode's
+> privacy report, or a symbol scan of the linked `libsqlcipher`) before
+> filling the file in. Getting the list wrong is a second rejection.
+
+## 4. Version numbering — **two places, not one**
+
+`pubspec.yaml` carries `version: <name>+<build>` (today `1.0.0+1`). The name
+is what users see; the build number must increase on every upload to either
+store. Bump it in `pubspec.yaml`, not in Xcode or Gradle, so both platforms
+stay in step — Android `versionCode`/`versionName` and iOS
+`CFBundleShortVersionString`/`CFBundleVersion` are all interpolated from it.
+
+**That is not the only place the version lives.** `seedAppVersion` in
+`lib/data/db/app_database.dart` is a hand-copied duplicate of the same
+string:
+
+```dart
+/// Seeded into `workspace_meta.created_by_app_version`. Keep in sync with
+/// pubspec.yaml; runtime version lookup is deliberately absent (no
+/// package_info dependency in v1).
+const String seedAppVersion = '1.0.0+1';
+```
+
+It is not cosmetic. It is written into `workspace_meta.created_by_app_version`
+on every fresh workspace, stamped into **every backup manifest**
+(`backup_service_impl.dart`), and shown to the owner on `/settings/about`.
+Nothing enforces that the two agree — no test, no CI step, no analyzer rule.
+Forget it and the About screen lies, and every backup file made afterwards
+carries a version stamp for a build that never shipped.
+
+**So the release step is: bump `pubspec.yaml` AND `seedAppVersion`, in the
+same commit.** (The honest fix is a `package_info_plus` lookup or a generated
+constant; neither exists today.)
 
 ## 5. Pre-flight
 
@@ -103,20 +149,99 @@ fvm flutter test integration_test/device_encryption_test.dart -d <device>
 
 CI runs the first three plus the hardening assertions on every push,
 including dumping the **release** APK's permissions to prove there is no
-INTERNET permission. That check is the authoritative offline guarantee —
-debug and profile builds deliberately carry the permission so the Dart VM
-service can attach.
+INTERNET permission. That check is the authoritative offline guarantee **on
+Android** — debug and profile builds deliberately carry the permission so the
+Dart VM service can attach, which is exactly why a source grep is not the
+gate. iOS has no equivalent permission, so nothing there is enforced by the
+OS; see §6.2.
+
+Two checks CI does **not** do, so do them by hand:
+
+```sh
+# 1. seedAppVersion must equal pubspec's version — nothing enforces this (§4).
+grep -n '^version:' pubspec.yaml
+grep -n 'seedAppVersion' lib/data/db/app_database.dart
+
+# 2. The shipped artifact must advertise arm64-v8a and nothing else (§6.1 #7).
+"$ANDROID_HOME"/build-tools/*/aapt dump badging \
+  build/app/outputs/flutter-apk/app-release.apk | grep native-code
+```
 
 ## 6. Still outstanding for v1
 
-Tracked here so it is visible rather than remembered:
+Tracked here so it is visible rather than remembered. Split into what *stops*
+a submission, what is a known gap in the app, and what has simply never been
+done on real hardware.
 
-- **Latency and memory on a physical device.** Gate 1's remaining half.
-  The encrypted backup (Argon2id) is the one to watch — it is deliberately
-  expensive and has never been timed on a phone.
-- **Recovery drill.** Make a backup, delete the app, reinstall, restore.
-  Automated tests cover the round trip; no human has done it end to end.
-- **Interrupted restore now has a route back** (fixed): if the process dies
+### 6.1 Store-submission blockers
+
+Nothing can be uploaded until every one of these is cleared. None is
+technically hard; all of them are undone.
+
+| # | Blocker | Where |
+|---|---|---|
+| 1 | **No Android signing key.** `android/key.properties` does not exist, so release builds silently fall back to **debug keys**. They install and run; Play refuses them | §1 |
+| 2 | **`ITSAppUsesNonExemptEncryption` is unanswered.** Deliberately absent from `ios/Runner/Info.plist` — an owner legal determination, not a repo default. Every submission will ask until it is decided and written in | §2 |
+| 3 | **No `PrivacyInfo.xcprivacy`.** Missing entirely; an automatic App Store rejection for an app that touches required-reason APIs, which SQLCipher does | §3b |
+| 4 | **No privacy policy at a URL.** Both stores require a reachable page. None exists | §3 |
+| 5 | **No store metadata at all.** No screenshots at the required device sizes, no description, no subtitle, no privacy labels filled in, no age rating, no support URL | §3 |
+| 6 | **No AAB and no IPA have ever been built.** `build/` contains a release APK and a `Runner.app`; there is no `.aab`, no `.xcarchive` and no `.ipa` anywhere. The upload formats have therefore never been produced, let alone validated by App Store Connect or the Play console | — |
+| 7 | **The release APK advertises ABIs it cannot run.** `aapt dump badging` on `build/app/outputs/flutter-apk/app-release.apk` reports `native-code: 'arm64-v8a' 'armeabi-v7a' 'x86_64'`, but only `lib/arm64-v8a/` contains `libflutter.so` and `libapp.so` — the other two hold a stray `libdartjni.so` (from the transitive `jni` package) and nothing else. Play derives device targeting from those folders, so a 32-bit-only or x86_64 device could install a build with no engine in it. `abiFilters += "arm64-v8a"` in `android/app/build.gradle.kts` did **not** strip them. Fix before the first upload, and re-check the badging output of the artifact you actually ship | — |
+| 8 | **Play's closed-testing requirement.** For a *personal* Google Play developer account created after 13 November 2023, production access requires a closed test with at least **12 testers opted in continuously for 14 days**. If this account qualifies, that is a two-week floor between "ready" and "published", and it has to be scheduled rather than discovered. Confirm the account type and creation date — this repo cannot | — |
+
+### 6.2 Known gaps in the app
+
+- **There is no error boundary.** This is the half of the v5 white-screen
+  failure class that is *not* fixed, and the distinction matters:
+  - **Fixed — the data-integrity half.** Migrations are now atomic (a failure
+    at any step rolls the file back to the bytes it arrived with) and
+    re-entrant (a file stranded part-way through completes the remainder
+    instead of dying on `duplicate column name`), with a
+    `PRAGMA foreign_key_check` after every upgrade and a test that runs the
+    real keyed open path rather than the harness. A migration can no longer
+    strand a workspace. See [architecture/data-model.md](architecture/data-model.md) §3.
+  - **Not fixed — the presentation half.** `lib/main.dart` has no
+    `runZonedGuarded` and no `ErrorWidget.builder`. `bootstrapLoadout` runs
+    *before* `runApp`, so anything it throws — a corrupt key entry, an
+    unreadable support directory, an unanticipated drift error, and
+    deliberately the cipher-missing guard — propagates out of `main` and the
+    owner gets a **blank screen with no message and no route to recovery**.
+    The startup machine handles the failures it *anticipates* (§7.3); an
+    unanticipated one still looks exactly like the v5 incident did.
+  - Minimum fix: wrap `main` in `runZonedGuarded`, set an `ErrorWidget.builder`
+    that renders a content-free failure screen with a way into `/recovery`,
+    and log the failure through `Diag` (which physically cannot leak content).
+- **The "no network permission" claim is Android-only, and the app repeats it
+  to iOS users.** The CI gate is real and authoritative *for Android*: it
+  builds a release APK and greps `aapt dump permissions` for `INTERNET`. iOS
+  has no such permission to withhold — an iOS app can open a socket whenever
+  it likes — so on that platform the guarantee rests entirely on the
+  dependency gate (`flutter pub deps --no-dev`), the `HttpClient`/`Socket`
+  source grep, and review. `/settings/privacy` currently tells **every** user,
+  iOS included, that "the app ships without network permission, so it cannot
+  send anything anywhere — and an automated release check enforces that."
+  That sentence is true on Android and misleading on iOS. Either reword the
+  screen per platform or reword it to describe what is actually enforced.
+- **`/settings/privacy` also predates the CSV export.** It says nothing leaves
+  the device "except backup files". `/settings/export` writes four
+  **unencrypted** CSV documents through the same save dialog. See
+  [security/THREAT_MODEL.md](security/THREAT_MODEL.md) §4.5.
+- **`/settings/reset` overstates what a reset does.** The screen says the
+  archived data file's "key is destroyed, so the archive becomes permanently
+  unreadable". `StartupService.startFreshFromRecovery` deliberately *retains*
+  a copy of the key under the archive's label before destroying the live
+  entry — which is the right behaviour, because a regretted reset should be
+  recoverable. The sentence is simply wrong. See
+  [security/THREAT_MODEL.md](security/THREAT_MODEL.md) §3.2.
+- **No app lock and no `FLAG_SECURE`.** An unlocked phone in someone else's
+  hands is undefended, and screenshots and app-switcher thumbnails are
+  unrestricted. Both are deliberate v1 decisions (design §12.18, §13), both
+  are worth an explicit "still true at ship" before submitting. See
+  [security/THREAT_MODEL.md](security/THREAT_MODEL.md) §4.1–4.2.
+- **Accessibility pass** — screen reader labels, 200 % text scale, contrast.
+  Individual screens are built for it and some tests assert it; there has been
+  no end-to-end pass.
+- **Interrupted restore has a route back** (fixed): if the process dies
   mid-swap, bootstrap finds the parked workspace before it can conclude
   "fresh install", never rotates a key while recoverable ciphertext is on
   disk, and `/recovery` offers to put the workspace back. What remains open
@@ -125,11 +250,26 @@ Tracked here so it is visible rather than remembered:
   one in, because recovery refuses to act while a live file exists. See §7.3
   of [gates-2-3-design.md](architecture/gates-2-3-design.md).
 - **Sell-outs no longer bias forecasts downward** (fixed in forecast method
-  v2): a sell-out is treated as a lower bound on demand, so it can only raise
-  the estimate. What remains open is that the size of the correction is a
-  floor, not a model — when every past event sold out, the app says outright
-  that real demand is unknown and plans for the busiest day rather than
-  guessing beyond it. See §6.6 of
-  [gates-2-3-design.md](architecture/gates-2-3-design.md).
-- **Accessibility pass** — screen reader labels, 200% text scale, contrast.
-- **Physical Android device** — only the emulator so far.
+  v2; the method is now at v3): a sell-out is treated as a lower bound on
+  demand, so it can only raise the estimate. What remains open is that the
+  size of the correction is a floor, not a model — when every past event sold
+  out, the app says outright that real demand is unknown and plans for the
+  busiest day rather than guessing beyond it. See
+  [architecture/forecasting.md](architecture/forecasting.md) §4.
+
+### 6.3 Never done on real hardware
+
+- **Latency and memory on a physical device.** Gate 1's remaining half.
+  The encrypted backup (Argon2id at 19 MiB × 3 iterations) is the one to
+  watch — it is deliberately expensive and has never been timed on a phone.
+- **Recovery drill.** Make a backup, delete the app, reinstall, restore.
+  Automated tests cover the round trip and every rollback phase; no human has
+  done it end to end, and it is the only migration path that exists (see
+  [security/THREAT_MODEL.md](security/THREAT_MODEL.md) §4.4).
+- **Physical Android device** — only the emulator so far. An emulator's
+  Keystore is software-backed, so hardware-backed key storage is unproven on
+  both platforms (the iOS Simulator has no Secure Enclave either).
+- **iOS Data Protection in force.** `integration_test/device_encryption_test.dart`
+  reads back the class iOS actually applied, but the Simulator does not
+  enforce protection classes at all — this assertion only means something on
+  a real device.

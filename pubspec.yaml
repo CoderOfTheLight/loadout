@@ -69,6 +69,10 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   drift_dev: ^2.34.5
   build_runner: ^2.15.1
+  # Tooling only: `test/tooling/gif_capture_test.dart` downsamples the
+  # captured frames and encodes the README GIFs with it. Nothing under lib/
+  # imports it, so it never reaches a release binary.
+  image: ^4.8.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

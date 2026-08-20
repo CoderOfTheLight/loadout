@@ -24,3 +24,28 @@ product and implementation plan supplied at repository bootstrap.
 6. Harden recovery, privacy, accessibility, packaging, and releases.
 
 No later AI-dependent feature is release-ready until gate 1 passes.
+
+## Gate 5 status
+
+Gate 5 is **half built**, and the two halves are unrelated in everything but
+the gate number.
+
+**OCR recipe review — shipped on iOS.** Apple Vision text recognition
+(revision 3, the iOS 16 floor) sits behind a MethodChannel
+(`ios/Runner/RecipeOcrChannel.swift`,
+`lib/features/recipes/application/recipe_ocr_service.dart`) and feeds the same
+review pipeline as "Paste ingredients" — OCR is a second producer, not a
+second reviewer, so the typed form remains the fallback it always was.
+Availability is treated as a capability rather than an error: the probe
+returns false on Android, where the ML Kit half has not been built, and the
+affordance simply does not appear.
+
+**Deterministic production planning — not built, and it has no screen.** An
+earlier design specified a `/production` route with a "coming soon" stub
+screen and a disabled tile on the event detail screen. Both were built and
+then **deleted**: a disabled dead end taught the owner nothing. Nothing under
+`lib/` references production planning today — no route, no screen, no service,
+no seam beyond the frozen `ForecastEngine` interface it will extend. It is a
+future capability, and when it arrives it brings its own surface with it. See
+[docs/architecture/gates-2-3-design.md](docs/architecture/gates-2-3-design.md)
+§13.
