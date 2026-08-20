@@ -23,6 +23,13 @@ enum DiagEvent {
   scratchSweepOk,
   migrationOk,
   migrationFail,
+
+  /// The app could not start at all: `bootstrapLoadout` threw and the owner
+  /// is looking at the startup-failure screen instead of the app. Recorded
+  /// BEFORE that screen is shown, because the diagnostics viewer lives
+  /// behind the app that will not open — the exported file is the only
+  /// evidence of what happened.
+  startupFailed,
   commandApplied,
   commandRejected,
 }

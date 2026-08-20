@@ -117,7 +117,8 @@ final class RingFileDiag implements Diag {
     DiagEvent.dbCipherMissing ||
     DiagEvent.backupCreateFail ||
     DiagEvent.parkedWorkspaceUnreadable ||
-    DiagEvent.migrationFail => 'E',
+    DiagEvent.migrationFail ||
+    DiagEvent.startupFailed => 'E',
   };
 
   static String formatLine({

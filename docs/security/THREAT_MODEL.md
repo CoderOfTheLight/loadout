@@ -108,15 +108,20 @@ both go through the same `StartupService.startFreshFromRecovery`, which archives
 its key destroys the data as surely as deleting it, and a retained key nobody can enumerate is as
 good as no key at all — hence `retainedKeyLabels()`.
 
-> **Known discrepancy between behaviour and in-app copy.** `/settings/reset` tells the owner:
-> *"The encrypted data file is kept in an archive on this device — it is never deleted — but its
-> key is destroyed, so the archive becomes permanently unreadable."* Only the **live** key entry
-> is destroyed; `startFreshFromRecovery` retains a copy under the archive's label first, on
-> purpose, so a reset the owner regrets is not unrecoverable. The archive is therefore **not**
-> permanently unreadable, and a reset is **not** a secure erase of the old workspace. The
-> behaviour is the right one; the sentence is wrong and should be corrected
-> (`lib/features/settings/presentation/workspace_reset_screen.dart` — a code change, out of
-> scope here).
+> **A reset is not an erase, and the screen now says so.** `/settings/reset` used to tell the
+> owner that the archive's *"key is destroyed, so the archive becomes permanently unreadable"*.
+> Only the **live** key entry is destroyed; `startFreshFromRecovery` retains a copy under the
+> archive's label first, on purpose, so a reset the owner regrets is not unrecoverable. The
+> screen now reads: *"The encrypted data file is kept in an archive on this device — it is never
+> deleted — and the key that opens it is kept with it, so the old workspace can still be
+> recovered. This is not a way to erase it from the device."*
+> (`lib/features/settings/presentation/workspace_reset_screen.dart`, pinned by
+> `test/features/settings/workspace_reset_screen_test.dart`.)
+>
+> **Still open:** there is no "erase permanently" action anywhere in the app. Every path
+> archives and retains. An owner who resets in order to *wipe* the device is not served, and
+> after a reset the archive is only offered again by `/recovery`, which appears solely when no
+> live workspace exists.
 
 **iOS file protection** is the platform default,
 `NSFileProtectionCompleteUntilFirstUserAuthentication`, matching the Keychain class.
@@ -186,7 +191,9 @@ and it never rotates or destroys a key while such ciphertext exists (design §7.
 **iOS caveat, stated plainly:** iOS has no equivalent of Android's `INTERNET` permission. The
 "no network permission" claim is verified for Android only. On iOS the guarantee rests on the
 dependency and source gates above, not on anything the OS enforces — see
-[../RELEASE.md](../RELEASE.md) §6.
+[../RELEASE.md](../RELEASE.md) §6. `/settings/privacy` is worded to match: it leads with the
+claim that holds on both platforms (no network code in the app or its dependencies,
+CI-enforced) and attributes the OS-enforced part to Android by name.
 
 ### 3.5 Diagnostics that physically cannot carry content
 
@@ -291,10 +298,13 @@ it. Two things deliberately never leave with it: **internal ULIDs** (the count e
 item name) and **barcode payloads** (the items export says whether an item has one, never what it
 is).
 
-> **Known stale in-app copy:** `/settings/privacy` still says "What leaves this device:
-> Nothing — except backup files you explicitly save through the save dialog." The CSV export
-> post-dates that sentence. This document is correct; the screen needs updating.
-> (`lib/features/settings/presentation/privacy_screen.dart` — a code change, out of scope here.)
+> **In-app copy matches this.** `/settings/privacy` used to say "What leaves this device:
+> Nothing — except backup files you explicitly save through the save dialog", which pre-dated
+> the CSV export. It now reads "only files you save yourself, through the save dialog" and
+> distinguishes the two: the encrypted, passphrase-protected backup, and "a plain CSV that opens
+> in Excel, with no passphrase on it — treat one like a printout and keep it somewhere you
+> trust." (`lib/features/settings/presentation/privacy_screen.dart`, pinned by
+> `test/features/settings/privacy_about_test.dart`.)
 
 ### 4.6 A rooted, jailbroken, or forensically imaged live device
 

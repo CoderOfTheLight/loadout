@@ -2,7 +2,7 @@
 
 **Prepared:** 12 August 2026 · **For:** owner decision · **Scope:** Gate 1 ("prove model, encrypted database, OCR, offline behavior, latency, memory on devices"), and by extension whether Gates 4–5 are worth scheduling.
 
-Binding constraints read from `/Users/lonegalixy/Desktop/flutter_demo/PRODUCT_PLAN.md` and `/Users/lonegalixy/Desktop/flutter_demo/docs/security/THREAT_MODEL.md`: Android 10/API 29+, iOS 16+, ARM64; no account, cloud sync, analytics, or runtime network; recipe OCR and FunctionGemma remain local and always have form fallbacks; no AI-dependent feature is release-ready until Gate 1 passes.
+Binding constraints read from `PRODUCT_PLAN.md` and `docs/security/THREAT_MODEL.md`: Android 10/API 29+, iOS 16+, ARM64; no account, cloud sync, analytics, or runtime network; recipe OCR and FunctionGemma remain local and always have form fallbacks; no AI-dependent feature is release-ready until Gate 1 passes.
 
 ---
 

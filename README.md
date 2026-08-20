@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/CoderOfTheLight/loadout/actions/workflows/ci.yml/badge.svg)](https://github.com/CoderOfTheLight/loadout/actions/workflows/ci.yml)
 ![Flutter 3.44.7](https://img.shields.io/badge/Flutter-3.44.7%20pinned-02569B?logo=flutter&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-1%2C117%20passing-2F6B57)
+![Tests](https://img.shields.io/badge/tests-1%2C130%20passing-2F6B57)
 ![Platforms](https://img.shields.io/badge/v1-iOS%2016%2B%20%C2%B7%20Android%2010%2B-333)
 ![Offline](https://img.shields.io/badge/network%20permission-none-A33E36)
 ![License](https://img.shields.io/badge/license-MIT-555)
@@ -149,6 +149,13 @@ one**. The counting screen went from an expandable worksheet labelled with an
 algebra formula — `Worksheet (loaded − left over − waste)` — to a single
 question: *how many are left?*
 
+**The receipts:** [`docs/AI_WORKFLOW.md`](docs/AI_WORKFLOW.md) has the actual
+orchestration artifacts — agent roles and the model class assigned to each, a
+real task contract, how file ownership prevented four concurrent agents from
+colliding, what the lead's verification pass consisted of, a failure the agents
+missed entirely, a recommendation I overruled and why, and the acceptance
+criteria a change had to meet before I took it.
+
 ### 5. Ship the story with the software
 
 The final round produced this README, the demo reels above, and an honest
@@ -177,7 +184,7 @@ data if the encryption library is ever missing, and the diagnostic logger has
 **nowhere to put free text** — it accepts event codes, counts and durations, and
 nothing else.
 
-**1,117 tests**, including some that are unusual and were worth the effort:
+**1,130 tests**, including some that are unusual and were worth the effort:
 migration tests that upgrade real encrypted database files from every past
 schema version through the production code path; contrast tests that measure
 every text-and-background pair against WCAG 2.2 in both themes; route tests that
@@ -207,10 +214,13 @@ and the release surface untouched: no signing key, no privacy policy URL, no iOS
 privacy manifest, and neither store's required artifact format ever built.
 [`docs/RELEASE.md`](docs/RELEASE.md) carries the full checklist.
 
-One functional gap deserves naming here rather than being buried: **if the app
-fails to start, it currently shows a blank screen instead of an explanation.**
-The data-integrity half of that failure class is fixed and tested; the
-presentation half is not. It is the first item on the list.
+The functional gap that used to sit here — a failed start showing a blank screen
+— is closed. A bootstrap failure now lands on a screen that says Loadout could
+not start, promises plainly that nothing was changed or deleted, and offers the
+ways out that exist: try again, restore from a backup file, or save the
+diagnostics file so someone can look at it. If the encryption library is ever
+missing the app still refuses to open your data rather than falling back to
+storing it unprotected — but it now says so instead of vanishing.
 
 ---
 
@@ -221,7 +231,7 @@ Requires [FVM](https://fvm.app); the Flutter SDK is pinned to 3.44.7.
 ```bash
 fvm install
 fvm flutter pub get
-fvm flutter test          # 1,117 tests
+fvm flutter test          # 1,130 tests
 fvm flutter run           # connected phone or simulator
 ```
 
@@ -245,7 +255,7 @@ lib/
   features/       catalog, events, closeout, forecasting, recipes, backup, export
   infrastructure/ encrypted database open path, key management, startup recovery
 ios/Runner/       Swift channels: Vision text recognition, AVFoundation barcodes
-test/             1,117 tests, incl. migration, contrast, route and text-scale suites
+test/             1,130 tests, incl. migration, contrast, route and text-scale suites
 test/tooling/     screenshot and GIF harnesses that render the real app
 docs/             architecture notes, threat model, release checklist
 ```
@@ -253,7 +263,8 @@ docs/             architecture notes, threat model, release checklist
 Deeper reading: [architecture index](docs/architecture/README.md) ·
 [data model](docs/architecture/data-model.md) ·
 [forecasting](docs/architecture/forecasting.md) ·
-[threat model](docs/security/THREAT_MODEL.md)
+[threat model](docs/security/THREAT_MODEL.md) ·
+[how it was built](docs/AI_WORKFLOW.md)
 
 ## Roadmap
 

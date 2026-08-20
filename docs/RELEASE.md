@@ -191,48 +191,66 @@ technically hard; all of them are undone.
 
 ### 6.2 Known gaps in the app
 
-- **There is no error boundary.** This is the half of the v5 white-screen
-  failure class that is *not* fixed, and the distinction matters:
-  - **Fixed — the data-integrity half.** Migrations are now atomic (a failure
-    at any step rolls the file back to the bytes it arrived with) and
-    re-entrant (a file stranded part-way through completes the remainder
-    instead of dying on `duplicate column name`), with a
-    `PRAGMA foreign_key_check` after every upgrade and a test that runs the
-    real keyed open path rather than the harness. A migration can no longer
-    strand a workspace. See [architecture/data-model.md](architecture/data-model.md) §3.
-  - **Not fixed — the presentation half.** `lib/main.dart` has no
-    `runZonedGuarded` and no `ErrorWidget.builder`. `bootstrapLoadout` runs
-    *before* `runApp`, so anything it throws — a corrupt key entry, an
+- **The v5 white-screen failure class — both halves now closed.**
+  - **The data-integrity half.** Migrations are atomic (a failure at any step
+    rolls the file back to the bytes it arrived with) and re-entrant (a file
+    stranded part-way through completes the remainder instead of dying on
+    `duplicate column name`), with a `PRAGMA foreign_key_check` after every
+    upgrade and a test that runs the real keyed open path rather than the
+    harness. A migration can no longer strand a workspace. See
+    [architecture/data-model.md](architecture/data-model.md) §3.
+  - **The presentation half.** `bootstrapOrFail` (`lib/app/bootstrap.dart`)
+    wraps the pre-`runApp` bootstrap: a throw — a corrupt key entry, an
     unreadable support directory, an unanticipated drift error, and
-    deliberately the cipher-missing guard — propagates out of `main` and the
-    owner gets a **blank screen with no message and no route to recovery**.
-    The startup machine handles the failures it *anticipates* (§7.3); an
-    unanticipated one still looks exactly like the v5 incident did.
-  - Minimum fix: wrap `main` in `runZonedGuarded`, set an `ErrorWidget.builder`
-    that renders a content-free failure screen with a way into `/recovery`,
-    and log the failure through `Diag` (which physically cannot leak content).
-- **The "no network permission" claim is Android-only, and the app repeats it
-  to iOS users.** The CI gate is real and authoritative *for Android*: it
-  builds a release APK and greps `aapt dump permissions` for `INTERNET`. iOS
-  has no such permission to withhold — an iOS app can open a socket whenever
-  it likes — so on that platform the guarantee rests entirely on the
-  dependency gate (`flutter pub deps --no-dev`), the `HttpClient`/`Socket`
-  source grep, and review. `/settings/privacy` currently tells **every** user,
-  iOS included, that "the app ships without network permission, so it cannot
-  send anything anywhere — and an automated release check enforces that."
-  That sentence is true on Android and misleading on iOS. Either reword the
-  screen per platform or reword it to describe what is actually enforced.
-- **`/settings/privacy` also predates the CSV export.** It says nothing leaves
-  the device "except backup files". `/settings/export` writes four
-  **unencrypted** CSV documents through the same save dialog. See
+    deliberately the cipher-missing guard — becomes
+    `StartupFailureApp`/`StartupFailureScreen` instead of a blank frame. The
+    screen says in plain words that Loadout could not start, offers **Try
+    again** (re-runs the same bootstrap over the same services) and
+    **Restore from backup file** (the §8.2 flow, which needs no open
+    database), and can **save the diagnostics file** — until now the log
+    lived behind the app that would not open. `DiagEvent.startupFailed` is
+    recorded before the screen appears. `ErrorWidget.builder` is set to a
+    readable, content-free widget in every build mode, so a widget-build
+    failure is not a grey rectangle either. Error handling is
+    `PlatformDispatcher.instance.onError`, **not** `runZonedGuarded`:
+    binding and `runApp` stay in the root zone together, which is what
+    Flutter 3.44 wants (see `lib/app/error_handling.dart`). The §7.2
+    cipher-missing refusal is unchanged — it still refuses to run on plain
+    SQLite, it just refuses onto a screen. Covered by
+    `test/app/startup_failure_test.dart`.
+- **The "no network permission" claim is Android-only — the screen now says
+  so.** The CI gate is real and authoritative *for Android*: it builds a
+  release APK and greps `aapt dump permissions` for `INTERNET`. iOS has no
+  such permission to withhold — an iOS app can open a socket whenever it
+  likes — so on that platform the guarantee rests entirely on the dependency
+  gate (`flutter pub deps --no-dev`), the `HttpClient`/`Socket` source grep,
+  and review. `/settings/privacy` leads with the half that is true
+  everywhere ("neither the app nor anything it is built from contains code
+  that opens a network connection, and an automated release check fails the
+  build if that ever changes") and names Android for the OS-enforced half
+  ("on Android it goes further: the app ships without network permission at
+  all").
+- **`/settings/privacy` covers the CSV export.** "What leaves this device" is
+  now "only files you save yourself, through the save dialog", and it
+  distinguishes the encrypted, passphrase-protected backup from the plain
+  CSV that `/settings/export` writes ("treat one like a printout"). See
   [security/THREAT_MODEL.md](security/THREAT_MODEL.md) §4.5.
-- **`/settings/reset` overstates what a reset does.** The screen says the
-  archived data file's "key is destroyed, so the archive becomes permanently
-  unreadable". `StartupService.startFreshFromRecovery` deliberately *retains*
-  a copy of the key under the archive's label before destroying the live
-  entry — which is the right behaviour, because a regretted reset should be
-  recoverable. The sentence is simply wrong. See
+- **`/settings/reset` describes what a reset actually does.** It used to say
+  the archived data file's "key is destroyed, so the archive becomes
+  permanently unreadable". `StartupService.startFreshFromRecovery`
+  deliberately *retains* a copy of the key under the archive's label before
+  destroying the live entry — the right behaviour, because a regretted reset
+  should be recoverable — so the screen now says the key is kept with the
+  archive, that the old workspace can still be recovered, and that this is
+  **not** a way to erase it from the device. See
   [security/THREAT_MODEL.md](security/THREAT_MODEL.md) §3.2.
+- **There is still no "erase this workspace permanently".** Reset archives
+  and retains; recovery's start-fresh archives and retains. Nothing in the
+  app destroys an old workspace, and after a reset the archive is only
+  offered again by `/recovery`, which appears solely when no live workspace
+  exists. An owner who resets *in order to* wipe the device is not served by
+  either flow — the honest completion of `/settings/reset` is a second,
+  separate, typed-confirmation "erase the archives" action. Not built.
 - **No app lock and no `FLAG_SECURE`.** An unlocked phone in someone else's
   hands is undefended, and screenshots and app-switcher thumbnails are
   unrestricted. Both are deliberate v1 decisions (design §12.18, §13), both

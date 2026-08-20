@@ -1,9 +1,17 @@
-/// `/settings/reset` (design §9, §7.3): typed-confirmation destructive
-/// reset. The startup service archives the encrypted database to
-/// `db/orphaned-<utcstamp>.db` (never deleted), destroys the device key —
-/// making the archive permanently unreadable — and opens a fresh, empty
-/// workspace under a new key; the screen then routes to `/welcome` for
-/// naming. Failures are content-free.
+/// `/settings/reset` (design §9, §7.3): typed-confirmation reset. The
+/// startup service archives the encrypted database to
+/// `db/orphaned-<utcstamp>.db` (never deleted), RETAINS a copy of the key
+/// that opens it under the archive's label, destroys the live key entry, and
+/// opens a fresh, empty workspace under a new key; the screen then routes to
+/// `/welcome` for naming. Failures are content-free.
+///
+/// The copy here says exactly that, because the screen used to say the
+/// opposite: that the key was destroyed and the archive was "permanently
+/// unreadable". `StartupService.startFreshFromRecovery` retains the key on
+/// purpose — an archive without its key is deleted data, and a reset the
+/// owner regrets should not be the end of a season's records. A reset is
+/// therefore NOT an erase, and this screen must not imply that it is (see
+/// docs/security/THREAT_MODEL.md §3.2).
 library;
 
 import 'package:flutter/material.dart';
@@ -90,15 +98,23 @@ class _WorkspaceResetScreenState extends ConsumerState<WorkspaceResetScreen> {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'The encrypted data file is kept in an archive on this '
-                  'device — it is never deleted — but its key is destroyed, '
-                  'so the archive becomes permanently unreadable. Everything '
-                  'not saved in a backup file is lost.',
+                  'Loadout starts again empty. Everything you have entered '
+                  'stops showing up in the app: items, events, counts, '
+                  'recipes, history.',
                   style: theme.textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'If you want to keep this data, create a backup first.',
+                  'The encrypted data file is kept in an archive on this '
+                  'device — it is never deleted — and the key that opens it '
+                  'is kept with it, so the old workspace can still be '
+                  'recovered. This is not a way to erase it from the device.',
+                  style: theme.textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'A backup file is the copy you can open yourself, on any '
+                  'device. Create one first if this data matters.',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),

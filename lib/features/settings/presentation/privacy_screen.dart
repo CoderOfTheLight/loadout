@@ -1,6 +1,21 @@
 /// `/settings/privacy` (design §9, §10): static explainer — no accounts, no
-/// cloud, no analytics, no network permission (CI-enforced); encryption at
-/// rest; what a backup contains; content-free diagnostics.
+/// cloud, no analytics, nothing in the app or its dependencies that opens a
+/// network connection (CI-enforced, plus the Android release artifact
+/// carrying no INTERNET permission); encryption at rest; what a backup and
+/// what a CSV export contain; content-free diagnostics.
+///
+/// Two claims on this screen have to stay honest per platform and per
+/// feature, and both were wrong before:
+///
+///  - the "no network permission" guarantee is enforced on the ANDROID
+///    release artifact (`aapt dump permissions`); iOS has no equivalent
+///    permission to withhold, so the cross-platform half of the claim is the
+///    dependency gate and the `HttpClient`/`Socket` source grep. The copy
+///    below leads with what is true on both and names Android for the
+///    stronger, OS-enforced part (docs/security/THREAT_MODEL.md §3.4);
+///  - "what leaves this device" now covers `/settings/export` as well:
+///    four UNENCRYPTED CSV documents, saved by the owner's own action
+///    through the same save dialog (§4.5).
 library;
 
 import 'package:flutter/material.dart';
@@ -25,10 +40,13 @@ class PrivacyScreen extends StatelessWidget {
                 title: 'No accounts, no cloud, no analytics',
                 body:
                     'Loadout works entirely on this device. There is no '
-                    'sign-in, no sync, and no tracking of any kind. The app '
-                    'ships without network permission, so it cannot send '
-                    'anything anywhere — and an automated release check '
-                    'enforces that.',
+                    'sign-in, no sync, and no tracking of any kind. Neither '
+                    'the app nor anything it is built from contains code '
+                    'that opens a network connection, and an automated '
+                    'release check fails the build if that ever changes. On '
+                    'Android it goes further: the app ships without network '
+                    'permission at all, so the phone itself will not let it '
+                    'reach the internet.',
               ),
               _PrivacySection(
                 icon: Icons.lock_outline,
@@ -43,11 +61,14 @@ class PrivacyScreen extends StatelessWidget {
                 icon: Icons.save_outlined,
                 title: 'What leaves this device',
                 body:
-                    'Nothing — except backup files you explicitly save '
-                    'through the save dialog. A backup is one encrypted '
-                    'file protected by a passphrase you choose; without '
-                    'that passphrase it cannot be read. There is no share '
-                    'sheet and no automatic upload.',
+                    'Only files you save yourself, through the save dialog. '
+                    'A backup is one encrypted file protected by a '
+                    'passphrase you choose; without that passphrase it '
+                    'cannot be read. A spreadsheet export is the opposite on '
+                    'purpose: a plain CSV that opens in Excel, with no '
+                    'passphrase on it — treat one like a printout and keep '
+                    'it somewhere you trust. There is no share sheet, no '
+                    'automatic upload, and nothing else goes anywhere.',
               ),
               _PrivacySection(
                 icon: Icons.receipt_long_outlined,
