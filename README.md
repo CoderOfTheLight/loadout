@@ -1,10 +1,11 @@
 # Loadout
 
-[![CI](https://github.com/CoderOfTheLight/flutter_demo/actions/workflows/ci.yml/badge.svg)](https://github.com/CoderOfTheLight/flutter_demo/actions/workflows/ci.yml)
+[![CI](https://github.com/CoderOfTheLight/loadout/actions/workflows/ci.yml/badge.svg)](https://github.com/CoderOfTheLight/loadout/actions/workflows/ci.yml)
 ![Flutter 3.44.7](https://img.shields.io/badge/Flutter-3.44.7%20pinned-02569B?logo=flutter&logoColor=white)
 ![Tests](https://img.shields.io/badge/tests-1%2C138%20passing-2F6B57)
 ![Platforms](https://img.shields.io/badge/v1-iOS%2016%2B%20%C2%B7%20Android%2010%2B-333)
 ![Offline](https://img.shields.io/badge/network%20permission-none-A33E36)
+![License](https://img.shields.io/badge/license-MIT-555)
 
 **A private, offline inventory and forecasting app for people who feed a crowd —
 built end to end with a directed multi-agent AI workflow.**
@@ -95,11 +96,16 @@ Four practices did most of the work:
 - **Every agent gated on the same evidence.** Analyzer clean, formatter clean,
   and the entire test suite passing — not "my tests". Agents reported failures
   they believed belonged to a concurrent agent rather than "fixing" them blindly.
-- **The lead reviews, and overrules.** I reviewed the diffs that mattered. When
-  an audit recommended deleting per-item waste tracking from the counting screen
-  to simplify it, I kept it: waste is what separates *what sold* from *what got
-  thrown out*, and losing it would have quietly corrupted every future forecast.
-  Simplification is not automatically an improvement.
+- **A lead agent that verifies, and a human who overrules.** I assigned the
+  strongest model as lead: it wrote the contracts, reviewed and verified every
+  other agent's work before it landed, and escalated to me — rather than
+  guessing — whenever a decision, a conflict or an open question came up. That
+  kept the expensive model on judgement and the cheaper ones on execution, and
+  it meant I spent my attention on the calls that actually needed a person. One
+  of them: when an audit recommended deleting per-item waste tracking from the
+  counting screen to simplify it, I kept it. Waste is what separates *what sold*
+  from *what got thrown out*, and losing it would have quietly corrupted every
+  future forecast. Simplification is not automatically an improvement.
 
 ### 3. Test on real hardware, and let failures drive the plan
 
@@ -274,3 +280,9 @@ Third-party components: Flutter and Dart, [Drift](https://drift.simonbinder.eu)
 for the database layer, [SQLCipher](https://www.zetetic.net/sqlcipher/) for
 encryption at rest, Apple's Vision and AVFoundation frameworks for on-device text
 and barcode recognition. Everything else in `lib/` is this project's own.
+
+## License
+
+MIT — Hannah Stroble, 2026 — covers the application code and the documentation
+in this repository. Flutter, Drift and SQLCipher are separately licensed by their
+authors. See [LICENSE](LICENSE).
