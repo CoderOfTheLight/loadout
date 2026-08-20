@@ -41,10 +41,20 @@ import '../features/catalog/barcode_scan_support.dart'
     show FakeBarcodeScanService;
 import '../support/app_harness.dart';
 
-final String _outDir =
-    Platform.environment['LOADOUT_SUBPAGES_OUT'] ??
-    '/private/tmp/claude-501/-Users-lonegalixy-Desktop-flutter-demo/'
-        '9ed42290-4643-4c31-8df3-8e43968faba9/scratchpad/subpages';
+/// Where the PNGs land, or null when this file should not write at all.
+/// A developer tool, skipped unless opted into — see screen_capture_test.dart.
+final String? _outDir = () {
+  final explicit = Platform.environment['LOADOUT_SUBPAGES_OUT']?.trim();
+  if (explicit != null && explicit.isNotEmpty) return explicit;
+  final enabled = Platform.environment['LOADOUT_SUBPAGES']?.trim();
+  if (enabled != null && enabled.isNotEmpty) return 'build/subpages';
+  return null;
+}();
+
+/// Reason string for `skip:` — non-null keeps these out of a normal run.
+final String? _skip = _outDir == null
+    ? 'subpage capture: set LOADOUT_SUBPAGES=1 (or LOADOUT_SUBPAGES_OUT=<dir>)'
+    : null;
 
 final List<String> _caveats = [];
 
@@ -615,6 +625,12 @@ Future<KitchenIds> _seedKitchen(AppHarness h, {String? waterBarcode}) async {
 // ----------------------------------------------------------------- tests
 
 void main() {
+  // Developer tool: skipped unless opted into. See screen_capture_test.dart.
+  if (_skip != null) {
+    test('subpage capture', () {}, skip: _skip);
+    return;
+  }
+
   setUpAll(_loadRealFonts);
 
   tearDownAll(() {

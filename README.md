@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/CoderOfTheLight/loadout/actions/workflows/ci.yml/badge.svg)](https://github.com/CoderOfTheLight/loadout/actions/workflows/ci.yml)
 ![Flutter 3.44.7](https://img.shields.io/badge/Flutter-3.44.7%20pinned-02569B?logo=flutter&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-1%2C138%20passing-2F6B57)
+![Tests](https://img.shields.io/badge/tests-1%2C117%20passing-2F6B57)
 ![Platforms](https://img.shields.io/badge/v1-iOS%2016%2B%20%C2%B7%20Android%2010%2B-333)
 ![Offline](https://img.shields.io/badge/network%20permission-none-A33E36)
 ![License](https://img.shields.io/badge/license-MIT-555)
@@ -177,7 +177,7 @@ data if the encryption library is ever missing, and the diagnostic logger has
 **nowhere to put free text** — it accepts event codes, counts and durations, and
 nothing else.
 
-**1,138 tests**, including some that are unusual and were worth the effort:
+**1,117 tests**, including some that are unusual and were worth the effort:
 migration tests that upgrade real encrypted database files from every past
 schema version through the production code path; contrast tests that measure
 every text-and-background pair against WCAG 2.2 in both themes; route tests that
@@ -221,7 +221,7 @@ Requires [FVM](https://fvm.app); the Flutter SDK is pinned to 3.44.7.
 ```bash
 fvm install
 fvm flutter pub get
-fvm flutter test          # 1,138 tests
+fvm flutter test          # 1,117 tests
 fvm flutter run           # connected phone or simulator
 ```
 
@@ -245,7 +245,7 @@ lib/
   features/       catalog, events, closeout, forecasting, recipes, backup, export
   infrastructure/ encrypted database open path, key management, startup recovery
 ios/Runner/       Swift channels: Vision text recognition, AVFoundation barcodes
-test/             1,138 tests, incl. migration, contrast, route and text-scale suites
+test/             1,117 tests, incl. migration, contrast, route and text-scale suites
 test/tooling/     screenshot and GIF harnesses that render the real app
 docs/             architecture notes, threat model, release checklist
 ```

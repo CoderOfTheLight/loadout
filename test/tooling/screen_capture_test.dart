@@ -41,11 +41,24 @@ import '../features/catalog/barcode_scan_support.dart'
     show FakeBarcodeScanService;
 import '../support/app_harness.dart';
 
-/// Where the PNGs land. Override with LOADOUT_SCREENS_OUT.
-final String _outDir =
-    Platform.environment['LOADOUT_SCREENS_OUT'] ??
-    '/private/tmp/claude-501/-Users-lonegalixy-Desktop-flutter-demo/'
-        '9ed42290-4643-4c31-8df3-8e43968faba9/scratchpad/screens';
+/// Where the PNGs land, or null when this file should not write at all.
+///
+/// This is a developer tool, not a product test: it renders every screen and
+/// writes images, which a CI run neither needs nor should depend on a writable
+/// path for. Unset means the whole group is `skip:`ped, exactly as
+/// `gif_capture_test.dart` does.
+final String? _outDir = () {
+  final explicit = Platform.environment['LOADOUT_SCREENS_OUT']?.trim();
+  if (explicit != null && explicit.isNotEmpty) return explicit;
+  final enabled = Platform.environment['LOADOUT_SCREENS']?.trim();
+  if (enabled != null && enabled.isNotEmpty) return 'build/screens';
+  return null;
+}();
+
+/// Reason string for `skip:` — non-null keeps these out of a normal run.
+final String? _skip = _outDir == null
+    ? 'screen capture: set LOADOUT_SCREENS=1 (or LOADOUT_SCREENS_OUT=<dir>)'
+    : null;
 
 /// Rendering caveats observed while capturing (overflows, exceptions).
 final List<String> _caveats = [];
@@ -543,6 +556,15 @@ Future<KitchenIds> _seedKitchen(AppHarness h, {String? waterBarcode}) async {
 // ----------------------------------------------------------------- tests
 
 void main() {
+  // A developer tool, not a product test. Without an opt-in it renders every
+  // screen and needs a writable path, which is why it once broke CI: the
+  // default output directory was a local machine's scratch folder that does
+  // not exist on a Linux runner.
+  if (_skip != null) {
+    test('screen capture', () {}, skip: _skip);
+    return;
+  }
+
   setUpAll(_loadRealFonts);
 
   tearDownAll(() {
