@@ -661,16 +661,19 @@ void main() {
     }
 
     // Chicken soup: loaded 40, 6 left -> Confirmed (Used: 34), and the
-    // confirmed card folds itself to one row.
+    // confirmed card folds itself to one row. (This event has no packing
+    // list, so Loaded is a box on the card rather than a quiet line.)
     await typeIn('Chicken soup', 'Loaded', '40');
-    await typeIn('Chicken soup', 'Left', '6');
+    await typeIn('Chicken soup', 'How many are left?', '6');
 
     // Tortilla chips: a loaded count only -> In progress.
     await typeIn('Tortilla chips (party bag)', 'Loaded', '30');
 
-    // Bottled water: deliberately skipped.
+    // Bottled water: deliberately skipped, from the card's overflow.
     await reveal('Bottled water');
-    await tapIn('Bottled water', find.text('Skip'));
+    await tapIn('Bottled water', find.text('More'));
+    await tester.tap(find.text('Skip this item'));
+    await tester.pumpAndSettle();
 
     // Flush the 500 ms draft autosave, then scroll back to the top.
     await tester.pump(const Duration(seconds: 1));

@@ -3,8 +3,8 @@
 /// event" lines start SKIPPED — because a made-up number would become
 /// permanent history. A skipped line records nothing and teaches nothing,
 /// the closeout confirms without it, and the forecast afterwards rests only
-/// on real counts. Skip is one word and one control on every card now, so
-/// there is nothing per-basis left to learn.
+/// on real counts. Skip is one overflow item on every card now, so there is
+/// nothing per-basis left to learn.
 library;
 
 import 'package:flutter/material.dart';
@@ -23,6 +23,12 @@ Future<void> _tap(WidgetTester tester, Finder finder) async {
   await tester.pumpAndSettle();
   await tester.tap(finder);
   await tester.pumpAndSettle();
+}
+
+/// Opens a card's overflow and picks [item] from it.
+Future<void> _fromMore(WidgetTester tester, String item) async {
+  await _tap(tester, find.text('More'));
+  await _tap(tester, find.text(item));
 }
 
 void main() {
@@ -85,21 +91,27 @@ void main() {
     // folds straight down to its one-row summary, so it costs one line of
     // screen rather than a card full of controls nobody will use.
     expect(find.text('Skipped'), findsOneWidget);
-    expect(find.text('Some was thrown out'), findsOneWidget); // tortillas only
     // The header and the confirm bar count the SAME population: the one
     // line that still needs counting. They used to disagree out loud.
     expect(find.text('0 of 1 confirmed'), findsOneWidget);
     expect(find.text('1 item not confirmed yet'), findsOneWidget);
-    // One word, one control, both bases.
-    expect(find.text('Skip'), findsOneWidget);
+    // One overflow item, both bases — and the folded skip carries no
+    // controls at all, so the only More on screen is the tortillas card's.
+    expect(find.text('More'), findsOneWidget);
     expect(find.text('Skip item'), findsNothing);
     expect(find.text("Didn't count it"), findsNothing);
-    expect(find.widgetWithText(TextFormField, 'Left'), findsOneWidget);
+    expect(
+      find.widgetWithText(TextFormField, 'How many are left?'),
+      findsOneWidget,
+    );
 
     // Count the tortillas the ordinary way; the soap stays uncounted.
     await tester.enterText(find.widgetWithText(TextFormField, 'Loaded'), '10');
     await tester.pumpAndSettle();
-    await tester.enterText(find.widgetWithText(TextFormField, 'Left'), '7');
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'How many are left?'),
+      '7',
+    );
     await tester.pumpAndSettle();
     expect(find.text('Used: 3'), findsOneWidget);
     expect(find.text('1 of 1 confirmed'), findsOneWidget);
@@ -235,21 +247,30 @@ void main() {
     await h.go(tester, '/events/$eventId/closeout');
 
     // Starts skipped and folded: no boxes, nothing to confuse.
-    expect(find.widgetWithText(TextFormField, 'Left'), findsNothing);
+    expect(
+      find.widgetWithText(TextFormField, 'How many are left?'),
+      findsNothing,
+    );
     expect(find.text('Skipped'), findsOneWidget);
     expect(find.text('0 of 0 confirmed'), findsOneWidget);
 
-    // This time somebody counted. Tap the folded card open, untick Skip.
+    // This time somebody counted. Tap the folded card open, take the skip
+    // back off through the overflow.
     await _tap(tester, find.text('Dish soap'));
-    await _tap(tester, find.widgetWithText(FilterChip, 'Skip'));
-    expect(find.widgetWithText(TextFormField, 'Left'), findsOneWidget);
+    await _fromMore(tester, 'Count this item after all');
+    expect(
+      find.widgetWithText(TextFormField, 'How many are left?'),
+      findsOneWidget,
+    );
     expect(find.text('0 of 1 confirmed'), findsOneWidget);
 
     // Nobody counts leftover soap, so the overflow's used-instead mode
-    // swaps the two boxes for the one number that means something here.
-    await _tap(tester, find.text('More'));
-    await _tap(tester, find.text('Enter what was used instead'));
-    expect(find.widgetWithText(TextFormField, 'Left'), findsNothing);
+    // swaps the boxes for the one number that means something here.
+    await _fromMore(tester, 'Enter what was used instead');
+    expect(
+      find.widgetWithText(TextFormField, 'How many are left?'),
+      findsNothing,
+    );
     expect(find.text('What was used or sold.'), findsOneWidget);
     await tester.enterText(find.widgetWithText(TextFormField, 'Used'), '1');
     await tester.pumpAndSettle();

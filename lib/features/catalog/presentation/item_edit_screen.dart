@@ -1,12 +1,20 @@
 /// `/items/new` and `/items/:itemId/edit` — ItemEditScreen.
 ///
-/// CREATE asks FOUR questions and nothing else — the same four the scan-in
-/// "New item" sheet asks, which is the shape this form was rebuilt to match:
+/// CREATE asks FOUR questions and nothing else:
 ///
 ///   * **Item name** — required, live unique-among-live check.
-///   * **How many do you have?** — rides inside `CreateItem` as the opening
-///     `adjust` movement. Accepts decimals and simple/mixed fractions
-///     ("1.5", "1/2", "1 1/2") exactly like every other amount field.
+///   * **How many do you have?** *beside* **Unit (optional)** — ONE question
+///     said the way a kitchen says it ("18 quarts of soup"), so the two
+///     halves of an amount are typed together. The amount rides inside
+///     `CreateItem` as the opening `adjust` movement and accepts decimals
+///     and simple/mixed fractions ("1.5", "1/2", "1 1/2") exactly like every
+///     other amount field. The unit is an optional DISPLAY label (1–24
+///     chars, free text): shown after the amount everywhere, never
+///     converted, never computed with. This is the same `amount | unit`
+///     pairing a recipe ingredient row uses (`recipe_edit_screen.dart`), so
+///     the two screens teach one grammar; on a viewport too narrow for both
+///     abreast — a 320 dp phone, or any phone at large text scale — the pair
+///     stacks rather than shrinking either box past use.
 ///   * **Price each** — optional money entry ([MoneyFormField], exact
 ///     integer cents, v7).
 ///   * **Folder** — a pick-list over the owner's folders ("New folder…" at
@@ -17,9 +25,6 @@
 /// Everything else lives on the SAVED item behind ONE plain row, **More
 /// options**, so the front door stays one screen long:
 ///
-///   * **Unit** — an optional DISPLAY label for the amount ("tsp", "cup",
-///     "lbs"; 1–24 chars), free text. Shown after the amount everywhere; the
-///     app never converts between labels and never does unit arithmetic.
 ///   * **The one question**, as ONE checkbox: "Bring the same amount however
 ///     many people come" (the forecast engine's `DemandBasis`). On create it
 ///     is never asked — the folder answers it and the stored override is
@@ -34,11 +39,19 @@
 ///   * **Notes**.
 ///
 /// Edit mode also shows the ledger-derived count read-only with a button to
-/// record a count, and the barcode row (v6).
+/// record a count, and the barcode row (v6). The unit box sits beside that
+/// read-only count, in exactly the place it sits on create — create and edit
+/// say the same thing in the same order.
 ///
 /// Changing the answer on an item that already has history is allowed,
 /// never silent: a plain-words confirm explains that past events will be
 /// read differently.
+///
+/// The unit box is a PLAIN text box with a hint, deliberately: the shared
+/// `unitLabelSuggestions` list is not offered here, because the 13-chip strip
+/// it used to draw is the clutter the owner asked to be rid of and an
+/// autocomplete overlay would put weight back on the form the same way. The
+/// recipe ingredient row offers no chips either, so the two agree.
 ///
 /// No unit picker, no pack size, and no free-text group: a legacy row's
 /// stored unit, pack size and category text are resubmitted verbatim so a
@@ -52,6 +65,7 @@ library;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -559,21 +573,25 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
                         unit: detail.item.unit,
                         unitLabel: detail.item.unitLabel,
                         archived: detail.item.isArchived,
+                        unitField: _unitLabelField(),
                       )
                     else
-                      QuantityFormField(
-                        controller: _count,
-                        labelText: 'How many do you have?',
-                        isRequired: false,
-                        allowZero: true,
-                        allowFractions: true,
-                        helperText: 'Leave blank if you have none yet.',
-                        textInputAction: TextInputAction.next,
-                        validator: (value) =>
-                            value.micros > _maxOpeningCountMicros
-                            ? 'Keep it under 1,000,000'
-                            : null,
-                        onChanged: (_) => _markDirty(),
+                      _AmountUnitRow(
+                        amount: QuantityFormField(
+                          controller: _count,
+                          labelText: 'How many do you have?',
+                          isRequired: false,
+                          allowZero: true,
+                          allowFractions: true,
+                          helperText: 'Leave blank if you have none yet.',
+                          textInputAction: TextInputAction.next,
+                          validator: (value) =>
+                              value.micros > _maxOpeningCountMicros
+                              ? 'Keep it under 1,000,000'
+                              : null,
+                          onChanged: (_) => _markDirty(),
+                        ),
+                        unit: _unitLabelField(),
                       ),
                     const SizedBox(height: 24),
                     MoneyFormField(
@@ -629,6 +647,24 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
     );
   }
 
+  /// The optional display label that rides after the amount ("18 quarts").
+  /// Free text with a hint and nothing else: no chips, no dropdown, no
+  /// autocomplete overlay — the same plain box a recipe ingredient row
+  /// carries. The length cap is enforced as it is typed rather than by
+  /// `maxLength`, so no character counter appears under a narrow box.
+  Widget _unitLabelField() => TextFormField(
+    key: const Key('unit-label'),
+    controller: _unitLabel,
+    textInputAction: TextInputAction.next,
+    inputFormatters: [LengthLimitingTextInputFormatter(unitLabelMaxLength)],
+    decoration: const InputDecoration(
+      labelText: 'Unit (optional)',
+      hintText: 'quarts',
+      border: OutlineInputBorder(),
+    ),
+    onChanged: (_) => _markDirty(),
+  );
+
   // -------------------------------------------------------- more options
   // Edit only: one plain row that opens the rest. Nothing here is needed to
   // put an item on the list, so nothing here is on the way in.
@@ -642,20 +678,8 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
       childrenPadding: const EdgeInsets.only(top: 8, bottom: 8),
       expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        TextFormField(
-          controller: _unitLabel,
-          autovalidateMode: AutovalidateMode.onUserInteraction,
-          textInputAction: TextInputAction.next,
-          maxLength: unitLabelMaxLength,
-          decoration: const InputDecoration(
-            labelText: 'Unit (optional)',
-            hintText: 'packages',
-            counterText: '',
-            border: OutlineInputBorder(),
-          ),
-          onChanged: (_) => _markDirty(),
-        ),
-        const SizedBox(height: 16),
+        // No unit box here: it belongs beside the amount, where it is asked
+        // on the way in.
         CheckboxListTile(
           key: const Key('same-every-event'),
           contentPadding: EdgeInsets.zero,
@@ -909,9 +933,48 @@ class _ItemEditScreenState extends ConsumerState<ItemEditScreen> {
   }
 }
 
-/// Edit mode's read-only count. On-hand is derived from the append-only
-/// ledger, so it is never editable here — the way to change it is to record
-/// what happened.
+/// An amount and its optional unit label, side by side — the `amount | unit`
+/// pairing a recipe ingredient row uses, so both screens teach one grammar.
+/// Two labelled fields need roughly 220 dp of type; that budget is scaled by
+/// the reader's own text size rather than guessing a breakpoint in device
+/// pixels. Below it the pair STACKS — neither box is ever squeezed under a
+/// width you can read a word in.
+class _AmountUnitRow extends StatelessWidget {
+  const _AmountUnitRow({required this.amount, required this.unit});
+
+  final Widget amount;
+  final Widget unit;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final scale = MediaQuery.textScalerOf(context).scale(16) / 16;
+      if (constraints.maxWidth >= 220 * scale) {
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // The amount is the question; the label is the tail on it.
+            Expanded(flex: 3, child: amount),
+            const SizedBox(width: Space.m),
+            Expanded(flex: 2, child: unit),
+          ],
+        );
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          amount,
+          const SizedBox(height: Space.m),
+          unit,
+        ],
+      );
+    },
+  );
+}
+
+/// Edit mode's read-only count, with the unit box beside it exactly where
+/// create puts it. On-hand is derived from the append-only ledger, so it is
+/// never editable here — the way to change it is to record what happened.
 class _CurrentCount extends StatelessWidget {
   const _CurrentCount({
     required this.itemId,
@@ -919,6 +982,7 @@ class _CurrentCount extends StatelessWidget {
     required this.unit,
     required this.unitLabel,
     required this.archived,
+    required this.unitField,
   });
 
   final String itemId;
@@ -927,6 +991,9 @@ class _CurrentCount extends StatelessWidget {
   final String? unitLabel;
   final bool archived;
 
+  /// The editable unit-label box, built by the form that owns its controller.
+  final Widget unitField;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -934,18 +1001,21 @@ class _CurrentCount extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        InputDecorator(
-          decoration: const InputDecoration(
-            labelText: 'How many you have now',
-            border: OutlineInputBorder(),
-            enabled: false,
-          ),
-          child: Text(
-            formatAmount(onHandMicros, unit, unitLabel),
-            style: theme.textTheme.titleMedium?.copyWith(
-              color: negative ? theme.colorScheme.error : null,
+        _AmountUnitRow(
+          amount: InputDecorator(
+            decoration: const InputDecoration(
+              labelText: 'How many you have now',
+              border: OutlineInputBorder(),
+              enabled: false,
+            ),
+            child: Text(
+              formatAmount(onHandMicros, unit, unitLabel),
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: negative ? theme.colorScheme.error : null,
+              ),
             ),
           ),
+          unit: unitField,
         ),
         const SizedBox(height: 8),
         Align(

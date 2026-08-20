@@ -312,7 +312,10 @@ void main() {
 
     // Count it the leftover way: loaded 10, 2 left → used 8.
     await tester.enterText(find.widgetWithText(TextFormField, 'Loaded'), '10');
-    await tester.enterText(find.widgetWithText(TextFormField, 'Left'), '2');
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'How many are left?'),
+      '2',
+    );
     await tester.pumpAndSettle();
     expect(find.text('Used: 8'), findsOneWidget);
 

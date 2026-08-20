@@ -42,7 +42,10 @@ void main() {
     // Loaded 10, 2 left → used 8 (thrown out counts as 0), at $2.50 each
     // = $20.
     await tester.enterText(find.widgetWithText(TextFormField, 'Loaded'), '10');
-    await tester.enterText(find.widgetWithText(TextFormField, 'Left'), '2');
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'How many are left?'),
+      '2',
+    );
     await tester.pumpAndSettle();
     expect(find.text('Used: 8'), findsOneWidget);
 
@@ -82,9 +85,9 @@ void main() {
 
     await h.pumpScreen(tester, CloseoutScreen(eventId: eventId));
 
-    // 'Everything left' with nothing on record confirms a direct used of 0.
-    await tester.ensureVisible(find.text('Everything left'));
-    await tester.tap(find.text('Everything left'));
+    // 'None used' with nothing on record confirms a direct used of 0.
+    await tester.ensureVisible(find.text('None used'));
+    await tester.tap(find.text('None used'));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Finish closeout'));

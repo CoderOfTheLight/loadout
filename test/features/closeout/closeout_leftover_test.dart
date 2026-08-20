@@ -1,10 +1,12 @@
 /// Leftover-first entry on the closeout card (owner feedback: ask how much
-/// is LEFT, not how much was used), now with the plan's load already IN the
-/// Loaded box rather than printed beside it as dead text. So the whole job
-/// per line is typing one number — Left — and THE one leftover rule (shared
-/// with the scan-to-count sheet) counts a blank thrown-out as 0 so that one
-/// number completes the line. Used stays the derived depletion: loaded −
-/// left − thrown out.
+/// is LEFT, not how much was used). The plan's load is prefilled onto the
+/// line and READ OUT as a quiet sentence — `Loaded 12` — rather than asked
+/// for again, so the whole job per line is answering one question, "How many
+/// are left?", and THE one leftover rule (shared with the scan-to-count
+/// sheet) counts a blank thrown-out as 0 so that one number completes the
+/// line. Used stays the derived depletion: loaded − left − thrown out. On a
+/// line the plan says nothing about the Loaded box comes back onto the card,
+/// because a leftover count would otherwise have nothing to subtract from.
 library;
 
 import 'package:flutter/material.dart';
@@ -28,8 +30,8 @@ String _boxText(WidgetTester tester, String label) => tester
     .text;
 
 void main() {
-  testWidgets('the planned load is prefilled INTO Loaded, stays editable, '
-      'and one number finishes the line', (tester) async {
+  testWidgets('the planned load reads as a sentence, stays editable through '
+      'More, and one number finishes the line', (tester) async {
     final h = (await tester.runAsync(
       () => AppHarness.start(state: AppHarnessState.workspace),
     ))!;
@@ -63,9 +65,10 @@ void main() {
 
     await h.pumpScreen(tester, CloseoutScreen(eventId: eventId));
 
-    // The 12 is IN the box, not in a caption beside it — and the card says
-    // out loud that it is only a starting value.
-    expect(_boxText(tester, 'Loaded'), '12');
+    // The 12 is on the card as a sentence, not as a box to fill in — and
+    // the header says out loud that it is only a starting value.
+    expect(find.text('Loaded 12'), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, 'Loaded'), findsNothing);
     expect(find.textContaining('Planned load was'), findsNothing);
     expect(
       find.text(
@@ -77,7 +80,10 @@ void main() {
     expect(find.text('In progress'), findsNothing);
     expect(find.text('0 of 1 confirmed'), findsOneWidget);
 
-    await tester.enterText(find.widgetWithText(TextFormField, 'Left'), '2');
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'How many are left?'),
+      '2',
+    );
     await tester.pumpAndSettle();
 
     // Thrown out defaulted to 0: used derives 12 − 2 − 0 and the line
@@ -86,7 +92,12 @@ void main() {
     expect(find.text('Confirmed'), findsOneWidget);
     expect(find.text('1 of 1 confirmed'), findsOneWidget);
 
-    // Still editable: overtyping the plan's number re-derives.
+    // Still editable, through More: overtyping the plan's number re-derives.
+    await tester.tap(find.text('More'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Change what was loaded'));
+    await tester.pumpAndSettle();
+    expect(_boxText(tester, 'Loaded'), '12');
     await tester.enterText(find.widgetWithText(TextFormField, 'Loaded'), '20');
     await tester.pumpAndSettle();
     expect(find.text('Used: 18'), findsOneWidget);
@@ -107,8 +118,9 @@ void main() {
     await h.flushTimers(tester);
   });
 
-  testWidgets('with no forecast Loaded starts empty; a Left count alone '
-      'stays in progress until Loaded is filled in', (tester) async {
+  testWidgets('with no forecast the Loaded box is on the card and starts '
+      'empty; a leftover count alone stays in progress until it is filled '
+      'in', (tester) async {
     final h = (await tester.runAsync(
       () => AppHarness.start(state: AppHarnessState.workspace),
     ))!;
@@ -128,10 +140,15 @@ void main() {
 
     await h.pumpScreen(tester, CloseoutScreen(eventId: eventId));
 
-    // Nothing to prefill from, so nothing is invented.
+    // Nothing to prefill from, so nothing is invented — and nothing is read
+    // out as a sentence either; the box is the only truth here.
     expect(_boxText(tester, 'Loaded'), isEmpty);
+    expect(find.textContaining('Loaded 1'), findsNothing);
 
-    await tester.enterText(find.widgetWithText(TextFormField, 'Left'), '4');
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'How many are left?'),
+      '4',
+    );
     await tester.pumpAndSettle();
 
     // Partial must never look like done (§4), and the card says which of

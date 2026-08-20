@@ -1,14 +1,15 @@
-/// Quick-fill chips on the closeout line card — the fastest path, and with
-/// Loaded now prefilled from the plan, usually a whole line in ONE tap.
-/// 'Everything left' writes left = loaded (else the planned load) and the
-/// one leftover rule derives a used of 0; with neither number on record
-/// nothing-used needs no count — the chip writes a direct used of 0. 'None
-/// left' writes left = 0 and flips the stockout flag ON, deriving used from
-/// loaded or the planned load the same way; with neither on record it
+/// The two shortcuts on the closeout line card — the fastest path, and with
+/// Loaded prefilled from the plan, usually a whole line in ONE tap. They are
+/// the plainest words for the two answers a volunteer actually gives:
+/// 'None used' writes left = loaded (else the planned load) and the one
+/// leftover rule derives a used of 0; with neither number on record
+/// nothing-used needs no count — it writes a direct used of 0. 'All gone'
+/// writes left = 0 and answers "did you run out?" with Yes, deriving used
+/// from loaded or the planned load the same way; with neither on record it
 /// invents nothing — it focuses Loaded, the one number that then determines
 /// the line. Both ride the same debounced autosave path typing does, and a
-/// chip that FINISHES a line folds the card down to its one-row summary.
-/// Chips hide on skipped lines.
+/// shortcut that FINISHES a line folds the card down to its one-row summary.
+/// Shortcuts hide on skipped lines.
 library;
 
 import 'package:flutter/material.dart';
@@ -69,12 +70,19 @@ Future<void> _tap(WidgetTester tester, Finder finder) async {
 Future<void> _reopen(WidgetTester tester, String itemName) =>
     _tap(tester, find.text(itemName));
 
-bool _ranOutSelected(WidgetTester tester) => tester
-    .widget<FilterChip>(find.widgetWithText(FilterChip, 'Ran out'))
-    .selected;
+/// Whether the card's "did you run out?" question is answered Yes. The
+/// question is only on screen when the line reads empty.
+bool _ranOut(WidgetTester tester) =>
+    tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Yes')).selected;
+
+/// Opens a card's overflow and picks [item] from it.
+Future<void> _fromMore(WidgetTester tester, String item) async {
+  await _tap(tester, find.text('More'));
+  await _tap(tester, find.text(item));
+}
 
 void main() {
-  testWidgets("'Everything left' with nothing on record needs no count: a "
+  testWidgets("'None used' with nothing on record needs no count: a "
       'direct used of 0 confirms, folds the card, and rides the autosave', (
     tester,
   ) async {
@@ -87,22 +95,28 @@ void main() {
     await h.pumpScreen(tester, CloseoutScreen(eventId: eventId));
     expect(find.text('0 of 1 confirmed'), findsOneWidget);
 
-    await _tap(tester, find.text('Everything left'));
+    await _tap(tester, find.text('None used'));
 
     // Nothing used IS depletion 0 — a legal label (§5) with no leftover
     // count invented; the card flips confirmed and folds to one row.
     expect(find.text('Confirmed'), findsOneWidget);
     expect(find.text('1 of 1 confirmed'), findsOneWidget);
-    expect(find.widgetWithText(TextFormField, 'Left'), findsNothing);
-    expect(find.text('Everything left'), findsNothing);
+    expect(
+      find.widgetWithText(TextFormField, 'How many are left?'),
+      findsNothing,
+    );
+    expect(find.text('None used'), findsNothing);
 
     // Reopening brings the whole card back, untouched.
     await _reopen(tester, 'Tortillas');
-    expect(find.widgetWithText(TextFormField, 'Left'), findsOneWidget);
-    // 'Everything left' never touches the stockout flag.
-    expect(_ranOutSelected(tester), isFalse);
+    expect(
+      find.widgetWithText(TextFormField, 'How many are left?'),
+      findsOneWidget,
+    );
+    // 'None used' never raises the stockout question — nothing ran out.
+    expect(find.text('Did you run out?'), findsNothing);
 
-    // The chip flows through the same handler typing does: the debounced
+    // The shortcut flows through the same handler typing does: the debounced
     // draft carries the zero — directly, since there was nothing to count
     // against.
     await tester.pump(const Duration(milliseconds: 600));
@@ -118,7 +132,7 @@ void main() {
     await h.flushTimers(tester);
   });
 
-  testWidgets("'Everything left' with a loaded value counts them all back", (
+  testWidgets("'None used' with a loaded value counts them all back", (
     tester,
   ) async {
     final h = (await tester.runAsync(
@@ -132,7 +146,7 @@ void main() {
     await tester.enterText(find.widgetWithText(TextFormField, 'Loaded'), '10');
     await tester.pumpAndSettle();
 
-    await _tap(tester, find.text('Everything left'));
+    await _tap(tester, find.text('None used'));
 
     // left = loaded, thrown out counts as 0: used derives to 0 and confirms.
     expect(find.text('Used: 0'), findsOneWidget);
@@ -153,7 +167,7 @@ void main() {
     await h.flushTimers(tester);
   });
 
-  testWidgets("'Everything left' on a prefilled line is the whole count in "
+  testWidgets("'None used' on a prefilled line is the whole count in "
       'one tap', (tester) async {
     final h = (await tester.runAsync(
       () => AppHarness.start(state: AppHarnessState.workspace),
@@ -163,7 +177,7 @@ void main() {
 
     await h.pumpScreen(tester, CloseoutScreen(eventId: eventId));
 
-    await _tap(tester, find.text('Everything left'));
+    await _tap(tester, find.text('None used'));
 
     expect(find.text('Used: 0'), findsOneWidget);
     expect(find.text('Confirmed'), findsOneWidget);
@@ -183,8 +197,8 @@ void main() {
     await h.flushTimers(tester);
   });
 
-  testWidgets("'None left' with a loaded value derives used = loaded and "
-      'flags the stockout', (tester) async {
+  testWidgets("'All gone' with a loaded value derives used = loaded and "
+      'answers the stockout question', (tester) async {
     final h = (await tester.runAsync(
       () => AppHarness.start(state: AppHarnessState.workspace),
     ))!;
@@ -196,14 +210,16 @@ void main() {
     await tester.enterText(find.widgetWithText(TextFormField, 'Loaded'), '10');
     await tester.pumpAndSettle();
 
-    await _tap(tester, find.text('None left'));
+    await _tap(tester, find.text('All gone'));
 
     expect(find.text('Used: 10'), findsOneWidget);
     expect(find.text('Confirmed'), findsOneWidget);
     expect(find.text('1 of 1 confirmed'), findsOneWidget);
-    // All gone means demand was probably censored: 'Ran out' flips ON.
+    // All gone means demand was probably censored: the question is answered
+    // Yes on the way past, and it is right there to be taken back.
     await _reopen(tester, 'Tortillas');
-    expect(_ranOutSelected(tester), isTrue);
+    expect(find.text('Did you run out?'), findsOneWidget);
+    expect(_ranOut(tester), isTrue);
 
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pump();
@@ -219,7 +235,7 @@ void main() {
     await h.flushTimers(tester);
   });
 
-  testWidgets("'None left' on a prefilled line derives from the plan", (
+  testWidgets("'All gone' on a prefilled line derives from the plan", (
     tester,
   ) async {
     final h = (await tester.runAsync(
@@ -230,7 +246,7 @@ void main() {
 
     await h.pumpScreen(tester, CloseoutScreen(eventId: eventId));
 
-    await _tap(tester, find.text('None left'));
+    await _tap(tester, find.text('All gone'));
 
     expect(find.text('Used: 12'), findsOneWidget);
     expect(find.text('Confirmed'), findsOneWidget);
@@ -250,7 +266,7 @@ void main() {
     await h.flushTimers(tester);
   });
 
-  testWidgets("'None left' with neither number records the zero and focuses "
+  testWidgets("'All gone' with neither number records the zero and focuses "
       'Loaded — which then completes the line', (tester) async {
     final h = (await tester.runAsync(
       () => AppHarness.start(state: AppHarnessState.workspace),
@@ -260,16 +276,16 @@ void main() {
 
     await h.pumpScreen(tester, CloseoutScreen(eventId: eventId));
 
-    await _tap(tester, find.text('None left'));
+    await _tap(tester, find.text('All gone'));
 
     // left = 0 is a real count, but alone it cannot say how many were
     // used: the line is NOT confirmed, so the card stays open.
     expect(find.text('0 of 1 confirmed'), findsOneWidget);
     expect(find.text('Confirmed'), findsNothing);
-    expect(_ranOutSelected(tester), isTrue);
+    expect(_ranOut(tester), isTrue);
     final leftEditable = tester.widget<EditableText>(
       find.descendant(
-        of: find.widgetWithText(TextFormField, 'Left'),
+        of: find.widgetWithText(TextFormField, 'How many are left?'),
         matching: find.byType(EditableText),
       ),
     );
@@ -310,7 +326,7 @@ void main() {
     await h.flushTimers(tester);
   });
 
-  testWidgets('quick fills hide on skipped lines', (tester) async {
+  testWidgets('shortcuts hide on skipped lines', (tester) async {
     final h = (await tester.runAsync(
       () => AppHarness.start(state: AppHarnessState.workspace),
     ))!;
@@ -333,23 +349,23 @@ void main() {
     await h.pumpApp(tester);
     await h.go(tester, '/events/$eventId/closeout');
 
-    // The per-event soap line starts skipped and folded: no chips there —
-    // only the per-person tortillas card shows them.
-    expect(find.text('Everything left'), findsOneWidget);
-    expect(find.text('None left'), findsOneWidget);
+    // The per-event soap line starts skipped and folded: no shortcuts there
+    // — only the per-person tortillas card shows them.
+    expect(find.text('All gone'), findsOneWidget);
+    expect(find.text('None used'), findsOneWidget);
 
-    // The folded soap card carries no chips at all, so the only Skip on
-    // screen is the tortillas card's. Skipping it hides its chips too.
-    expect(find.text('Skip'), findsOneWidget);
-    await _tap(tester, find.text('Skip'));
-    expect(find.text('Everything left'), findsNothing);
-    expect(find.text('None left'), findsNothing);
+    // The folded soap card carries no controls at all, so the only More on
+    // screen is the tortillas card's. Skipping it hides its shortcuts too.
+    await _fromMore(tester, 'Skip this item');
+    expect(find.text('All gone'), findsNothing);
+    expect(find.text('None used'), findsNothing);
 
-    // Reopening the soap card and unticking Skip brings its chips out.
+    // Reopening the soap card and counting it after all brings its
+    // shortcuts out.
     await _reopen(tester, 'Dish soap');
-    await _tap(tester, find.widgetWithText(FilterChip, 'Skip'));
-    expect(find.text('Everything left'), findsOneWidget);
-    expect(find.text('None left'), findsOneWidget);
+    await _fromMore(tester, 'Count this item after all');
+    expect(find.text('All gone'), findsOneWidget);
+    expect(find.text('None used'), findsOneWidget);
 
     // Let the debounced autosave fire before the test ends.
     await tester.pump(const Duration(milliseconds: 600));

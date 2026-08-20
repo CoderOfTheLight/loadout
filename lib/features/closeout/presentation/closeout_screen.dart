@@ -15,6 +15,24 @@
 /// (proposal §3), and per-event lines start skipped — see
 /// closeout_line_card.dart.
 ///
+/// ## Finishing without counting
+///
+/// An event can be closed with NO counts at all: the write path already
+/// allows it (`CommandValidator._closeoutShared` needs only a confirmed
+/// exposure in 1..1000000 and validates each line if present, so an empty
+/// line list is a real closeout, not a hack). The way in is the app-bar
+/// overflow — findable, but not a second big button beside "Finish
+/// closeout" where a tired thumb could hit it. It confirms first, in words
+/// that say exactly what is gained and lost, collects the headcount in the
+/// same dialog when the field on the screen is empty, and then submits
+/// through the ordinary [CloseoutService.confirm] path with zero lines. The
+/// event closes exactly as it does after a full count, and it lands on the
+/// same report — which says, honestly, that nothing was counted.
+///
+/// The same overflow carries "Skip the rest and finish", because the
+/// confirm button is enabled only when every line is done: a volunteer who
+/// counted five of thirteen would otherwise have to tap Skip eight times.
+///
 /// ## Built for a sixty-item list on an old phone
 ///
 /// The card list is a [CustomScrollView] of [SliverList.builder]s, so only
@@ -91,6 +109,9 @@ import '../domain/closeout_form.dart';
 import 'closeout_line_card.dart';
 import 'closeout_report_screen.dart';
 import '../../../app/widgets/form_action_bar.dart';
+
+/// The two items behind the screen's app-bar overflow.
+enum _ScreenMenuAction { closeWithoutCounting, skipTheRest }
 
 class CloseoutScreen extends ConsumerStatefulWidget {
   const CloseoutScreen({super.key, required this.eventId});
@@ -361,6 +382,11 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
       line.depletion.text = QuantityCodec.format(depletion);
     }
     line.stockout = stockout;
+    // A stored stockout is somebody's answer to "did you run out?"; a
+    // stored false is indistinguishable from never having been asked, so it
+    // is treated as unanswered and the card asks again if the line still
+    // reads empty.
+    line.stockoutAnswered = stockout;
     line.approximate = approximate;
     line.skipped = skipped;
   }
@@ -608,39 +634,25 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
       ),
     );
     if (proceed != true || !mounted) return;
+    await _submit(_buildDraft(), celebrate: true);
+  }
 
+  /// The one commit path: confirm or revise, then the landing. [celebrate]
+  /// is false for a closeout with nothing in it — there is no count to
+  /// celebrate, and "0 of 13 accounted for" would be a strange thing to
+  /// cheer.
+  Future<void> _submit(
+    CloseoutFormDraft draft, {
+    required bool celebrate,
+  }) async {
     setState(() => _submitting = true);
     final service = ref.read(closeoutServiceProvider);
-    final draft = _buildDraft();
     final result = _revising
         ? await service.revise(draft)
         : await service.confirm(draft);
     if (!mounted) return;
     final receipt = result.fold<CommandReceipt?>((value) => value, (_) => null);
-    if (receipt != null) {
-      _confirmed = true;
-      _autosave?.cancel();
-      final messenger = ScaffoldMessenger.of(context);
-      final navigator = Navigator.of(context);
-      // Captured before the celebration's await, like the two above: after
-      // the route goes this element's context can no longer be looked up.
-      // Null when this screen was pumped without a router (widget tests),
-      // where the old pop-back behaviour still applies.
-      final router = GoRouter.maybeOf(context);
-      // The session commit's haptic (§7: mediumImpact, commit only).
-      unawaited(HapticFeedback.mediumImpact());
-      await _showCelebration();
-      messenger.showSnackBar(SnackBar(content: Text(_receiptMessage(receipt))));
-      // A count ends in an ARTIFACT, not a snackbar: the worksheet is
-      // REPLACED by its report, so Back leads to the event rather than
-      // into a finished worksheet. The report is a read surface — see
-      // closeout_report_screen.dart.
-      if (router != null) {
-        router.pushReplacement(closeoutReportLocation(widget.eventId));
-      } else if (navigator.canPop()) {
-        navigator.pop();
-      }
-    } else {
+    if (receipt == null) {
       setState(() => _submitting = false);
       // Content-free by design (§9.1).
       ScaffoldMessenger.of(context).showSnackBar(
@@ -648,7 +660,83 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
           content: Text("Couldn't record this closeout. Try again."),
         ),
       );
+      return;
     }
+    _confirmed = true;
+    _autosave?.cancel();
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    // Captured before the celebration's await, like the two above: after
+    // the route goes this element's context can no longer be looked up.
+    // Null when this screen was pumped without a router (widget tests),
+    // where the old pop-back behaviour still applies.
+    final router = GoRouter.maybeOf(context);
+    // The session commit's haptic (§7: mediumImpact, commit only).
+    unawaited(HapticFeedback.mediumImpact());
+    if (celebrate) await _showCelebration();
+    messenger.showSnackBar(SnackBar(content: Text(_receiptMessage(receipt))));
+    // A count ends in an ARTIFACT, not a snackbar: the worksheet is
+    // REPLACED by its report, so Back leads to the event rather than
+    // into a finished worksheet. The report is a read surface — see
+    // closeout_report_screen.dart.
+    if (router != null) {
+      router.pushReplacement(closeoutReportLocation(widget.eventId));
+    } else if (navigator.canPop()) {
+      navigator.pop();
+    }
+  }
+
+  /// "Close without counting": the way out for an event nobody counted.
+  /// Confirms first, in plain words about what is gained and lost, and asks
+  /// for the headcount in the same dialog when the field on the screen has
+  /// none — the record is not real without it. On confirm it submits a
+  /// closeout with ZERO lines through the ordinary confirm path.
+  Future<void> _closeWithoutCounting(String exposureLabel) async {
+    final exposure = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => _CloseWithoutCountingDialog(
+        exposureLabel: exposureLabel,
+        initialExposure: _exposureValue,
+        plannedExposure: _plannedExposure,
+        maxExposure: _maxExposure,
+      ),
+    );
+    if (exposure == null || !mounted) return;
+    // Keep the field on the screen in step with what was just recorded.
+    _exposure.text = exposure.toString();
+    await _submit(
+      CloseoutFormDraft(
+        eventId: widget.eventId,
+        confirmedExposure: exposure,
+        note: _note.text.trim(),
+        lines: const [],
+      ),
+      celebrate: false,
+    );
+  }
+
+  /// "Skip the rest and finish": the confirm button waits for every line to
+  /// be resolved, so a partial count needs one tap rather than eight. Marks
+  /// every unfinished line skipped — a skip records nothing and teaches
+  /// nothing — then opens the ordinary confirmation sheet.
+  Future<void> _skipTheRestAndFinish(String exposureLabel) async {
+    // Asked for before anything is changed: skipping thirteen lines and
+    // then refusing to finish would be a rude way to ask for a number.
+    if (_exposureValue == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Enter the confirmed $exposureLabel first.')),
+      );
+      return;
+    }
+    for (final line in _lines) {
+      if (!line.done) {
+        line.skipped = true;
+        line.markExternallyChanged();
+      }
+    }
+    _touched();
+    setState(() {});
+    await _confirmFlow(exposureLabel);
   }
 
   /// The ONE per-session celebration (spec §4): a check disc scaling in and
@@ -739,6 +827,7 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
               onPressed: _scanToCount,
               child: const Text('Scan to count'),
             ),
+          _screenOverflow(exposureLabel),
         ],
       ),
       body: SafeArea(
@@ -936,6 +1025,52 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
     );
   }
 
+  /// The screen's overflow — the standard app-bar one, the only icon-only
+  /// action the design allows. It holds the two ways to finish that are not
+  /// "count everything": closing with nothing counted, and skipping what is
+  /// left of a partial count. Both are deliberately here rather than beside
+  /// "Finish closeout", where a tired thumb would find them by accident.
+  Widget _screenOverflow(String exposureLabel) => ListenableBuilder(
+    // Rebuilt on every edit like the header and the confirm bar: whether
+    // there is a rest to skip changes with each line that finishes.
+    listenable: _tick,
+    builder: (context, _) => _screenOverflowMenu(exposureLabel),
+  );
+
+  Widget _screenOverflowMenu(String exposureLabel) {
+    final canCloseWithoutCounting = !_revising && !_submitting;
+    final canSkipTheRest =
+        !_submitting && _lines.isNotEmpty && _lines.any((line) => !line.done);
+    if (!canCloseWithoutCounting && !canSkipTheRest) {
+      return const SizedBox.shrink();
+    }
+    return PopupMenuButton<_ScreenMenuAction>(
+      key: const Key('closeout-overflow'),
+      tooltip: 'More ways to finish',
+      position: PopupMenuPosition.under,
+      onSelected: (action) async {
+        switch (action) {
+          case _ScreenMenuAction.closeWithoutCounting:
+            await _closeWithoutCounting(exposureLabel);
+          case _ScreenMenuAction.skipTheRest:
+            await _skipTheRestAndFinish(exposureLabel);
+        }
+      },
+      itemBuilder: (context) => [
+        if (canSkipTheRest)
+          const PopupMenuItem(
+            value: _ScreenMenuAction.skipTheRest,
+            child: Text('Skip the rest and finish'),
+          ),
+        if (canCloseWithoutCounting)
+          const PopupMenuItem(
+            value: _ScreenMenuAction.closeWithoutCounting,
+            child: Text('Close without counting'),
+          ),
+      ],
+    );
+  }
+
   /// The commit bar (§4): a summary line while lines remain, then a plain
   /// 64 dp labeled button — friction is the enablement rule plus the
   /// confirmation sheet, never a hold or a gesture.
@@ -974,6 +1109,121 @@ class _CloseoutScreenState extends ConsumerState<CloseoutScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The "Close without counting" confirmation. It says in plain words what
+/// is gained (the event is on record, with the headcount) and what is lost
+/// (nothing to learn from, so the packing lists do not improve), and it
+/// collects the headcount right here when the screen's own field is empty —
+/// rather than dismissing and sending her back to find it.
+///
+/// Pops the confirmed exposure, or null on Cancel.
+class _CloseWithoutCountingDialog extends StatefulWidget {
+  const _CloseWithoutCountingDialog({
+    required this.exposureLabel,
+    required this.initialExposure,
+    required this.plannedExposure,
+    required this.maxExposure,
+  });
+
+  final String exposureLabel;
+
+  /// The valid figure already on the screen, or null when it is empty or
+  /// out of range — the case where this dialog has to ask.
+  final int? initialExposure;
+
+  /// The planned estimate, for the same "Estimate was N" helper the screen
+  /// carries.
+  final int? plannedExposure;
+  final int maxExposure;
+
+  @override
+  State<_CloseWithoutCountingDialog> createState() =>
+      _CloseWithoutCountingDialogState();
+}
+
+class _CloseWithoutCountingDialogState
+    extends State<_CloseWithoutCountingDialog> {
+  late final bool _asksExposure = widget.initialExposure == null;
+  final _exposure = TextEditingController();
+
+  @override
+  void dispose() {
+    _exposure.dispose();
+    super.dispose();
+  }
+
+  int? get _value {
+    if (!_asksExposure) return widget.initialExposure;
+    final parsed = int.tryParse(_exposure.text.trim());
+    if (parsed == null || parsed < 1 || parsed > widget.maxExposure) {
+      return null;
+    }
+    return parsed;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final value = _value;
+    return AlertDialog(
+      // Title and body scroll together: at 200 % on a 320 dp phone the
+      // sentence alone is taller than the dialog can be.
+      scrollable: true,
+      title: const Text('Close this event without counting?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'It records that the event happened and how many people came. '
+            "Loadout won't learn anything about what got used, so future "
+            'packing lists won\'t improve from this one.',
+          ),
+          if (_asksExposure) ...[
+            const SizedBox(height: Space.l),
+            TextField(
+              key: const Key('close-without-counting-exposure'),
+              controller: _exposure,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: InputDecoration(
+                labelText: 'Confirmed ${widget.exposureLabel}',
+                helperText: widget.plannedExposure == null
+                    ? 'How many people actually came?'
+                    : 'How many people actually came? '
+                          'Estimate was ${widget.plannedExposure}.',
+                border: const OutlineInputBorder(),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+          ] else ...[
+            const SizedBox(height: Space.m),
+            Text(
+              '${widget.initialExposure} ${widget.exposureLabel} will be '
+              'recorded.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: value == null
+              ? null
+              : () => Navigator.of(context).pop(value),
+          child: const Text('Close without counting'),
+        ),
+      ],
     );
   }
 }

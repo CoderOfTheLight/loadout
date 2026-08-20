@@ -1,33 +1,49 @@
-/// One per-item closeout card (design §9 CloseoutScreen), rebuilt for the
-/// person actually doing the count: a volunteer at the end of a long day
+/// One per-item closeout card (design §9 CloseoutScreen), rebuilt AGAIN for
+/// the person actually doing the count: a volunteer at the end of a long day
 /// who knows Excel and Word and nothing else.
 ///
-/// The card asks for TWO numbers, both always visible, no disclosure of any
-/// kind: **Loaded** (prefilled from the planned load, still editable) and
-/// **Left**. Used is the arithmetic consequence — `loaded − left − thrown
-/// out` — shown as a read-out ("Used: 34") the moment both numbers are
-/// there. `depletion` stays the stored label and the forecasting semantics
-/// are untouched (§12.3: forecasts learn what SELLS). So the whole job per
-/// line is typing one number: Left.
+/// Yesterday's card asked for two numbers and carried eight controls
+/// (`Loaded`, `Left`, `Everything left`, `None left`, `Ran out`, `Skip`,
+/// `Some was thrown out`, `More`). The owner's verdict was that it is still
+/// too complicated. So the face of the card is now ONE question and three
+/// words:
 ///
-/// What used to be a "Worksheet (loaded − left over − waste)" toggle over
-/// three more fields is gone. What survived, and where:
+///  * **`How many are left?`** — one box. That is the job.
+///  * **`All gone`** and **`None used`** — the two shortcuts. `All gone`
+///    writes left = 0; `None used` writes left = loaded (nothing used).
+///  * **`More`** — the overflow that holds everything else: *Change what was
+///    loaded*, *Some was thrown out*, *Enter what was used instead*, *Skip
+///    this item*.
 ///
-///  * **Thrown out** is still recorded — it is what keeps a forecast honest
-///    about what sold versus what was binned — but it is not a field on
-///    every card any more: "Some was thrown out" reveals ONE box, which
-///    defaults to 0 and stays out of sight until somebody asks for it.
-///    [CloseoutFormDraft] keeps writing waste exactly as it always did.
-///  * **"Enter what was used instead"** lives in the card's overflow, for
-///    the lines where counting leftovers means nothing. It is a MODE, not a
-///    fourth field: the card swaps its two boxes for one "Used" box, so
-///    there is never a precedence rule to explain.
+/// Four controls on a normal card, down from eight.
+///
+/// **Loaded is no longer a box on the face.** It is still prefilled from the
+/// plan exactly as it was, but it reads as a quiet line of text — `Loaded
+/// 42` — and is edited through More → *Change what was loaded*. The one
+/// exception is a line the plan says nothing about ([plannedLoadMicros] is
+/// null): a leftover count is meaningless without a loaded figure, so THERE
+/// the box comes back inline. That keeps a single grammar — count what is
+/// left, let the app do the arithmetic — on every line, and keeps both
+/// shortcuts meaningful (`All gone` cannot say what was used without a
+/// loaded figure either).
+///
+/// **`Ran out` is contextual, not permanent.** It drives stockout handling
+/// in the forecast — a sold-out item that is not marked teaches the forecast
+/// that demand was exactly what you brought — so it may never disappear
+/// silently, but it has no business on a card where nothing ran out. It
+/// appears as a question, `Did you run out?` / Yes / No, exactly when the
+/// line reads as empty: a leftover count of 0, or the flag already on.
+/// `All gone` answers it Yes on the way past (all gone usually means demand
+/// was censored; the owner taps No when supply exactly met demand). A hand-
+/// typed 0 leaves it UNANSWERED: the line still confirms — the question is
+/// never a gate — but the card stays open so the question is asked rather
+/// than lost.
 ///
 /// THE one leftover rule, shared verbatim with the scan-to-count sheet via
 /// [CloseoutLineController.applyLeftoverDefaults]: committing a leftover
-/// count fills a blank loaded from the planned load, and whenever a
-/// leftover count and a loaded value coexist a blank waste counts as 0 — so
-/// a leftover count alone completes a line.
+/// count fills a blank loaded from the planned load, and whenever a leftover
+/// count and a loaded value coexist a blank waste counts as 0 — so a
+/// leftover count alone completes a line.
 ///
 /// The card carries the design-spec §4 checklist grammar — every state is
 /// color + icon + word, the name always fully legible, no strikethrough
@@ -42,27 +58,12 @@
 ///
 /// A card that is DONE (confirmed or skipped) collapses to one row — name,
 /// "Used: N", the state word — and is tappable to reopen. That is most of
-/// the scrolling win on a sixty-item worksheet: a finished line does not
-/// need its chips and boxes on screen. It re-opens on its own if focus
-/// lands inside it, and never collapses out from under a typing finger:
-/// the collapse waits for focus to leave.
+/// the scrolling win on a sixty-item worksheet. It re-opens on its own if
+/// focus lands inside it, and never collapses out from under a typing
+/// finger: the collapse waits for focus to leave.
 ///
-/// Quick fills ("a faster way to check what was used"), in leftover
-/// language: 'Everything left' writes left = loaded (else the planned
-/// load) and lets the rule derive a used of 0; with neither number on
-/// record nothing-used needs no count at all — it IS a direct used of 0,
-/// and that is what the chip writes. 'None left' writes left = 0 and flags
-/// the stockout (all gone usually means demand was censored; the owner
-/// untoggles it when supply exactly met demand), deriving from loaded or
-/// the planned load the same way; with neither number on record it invents
-/// nothing — it hands focus to Loaded, the one number that now determines
-/// the line. Both flow through the same [CloseoutLineCard.onChanged] path
-/// typing does, so state recompute, the confirm-flip haptic, and the
-/// debounced autosave all fire normally.
-///
-/// 'Ran out' stays a chip because it is load-bearing: it censors demand in
-/// the forecast. 'Estimate' is gone from the card; `approximate` is still
-/// written, just never set here.
+/// 'Estimate' is gone from the card; `approximate` is still written, just
+/// never set here.
 library;
 
 import 'package:flutter/material.dart';
@@ -78,10 +79,10 @@ import '../../catalog/domain/demand_basis.dart';
 /// Depletion envelope cap (design §3): the frozen engine's safe range.
 const int maxDepletionMicros = 1000000000000;
 
-/// Above this text scale the two number boxes stack instead of sitting side
-/// by side: at 200 % on a 320 dp phone two boxes in a row leave neither
-/// label readable.
-const double _stackBoxesAboveScale = 1.3;
+/// Above this text scale the state word drops under the item's name instead
+/// of sitting beside it: at 200 % on a 320 dp phone the word alone is wider
+/// than what is left of the row.
+const double _stackStateWordAboveScale = 1.3;
 
 /// Mutable UI state for one worksheet line, owned by the screen. All
 /// parsing goes through [QuantityFormField.tryParse] — exact micros, never
@@ -119,33 +120,44 @@ final class CloseoutLineController {
   String get unitSuffix => unitLabel == null ? '' : ' $unitLabel';
 
   /// What the plan says was loaded; null when no snapshot exists. It is
-  /// PREFILLED into [loaded] rather than printed as dead text beside it.
+  /// PREFILLED into [loaded] and read out as a quiet line of text rather
+  /// than asked for again.
   final int? plannedLoadMicros;
 
   final TextEditingController depletion = TextEditingController();
   final TextEditingController loaded = TextEditingController();
 
-  /// The leftover count — "Left". `returned` stays the stored name (schema
-  /// and domain rename NOTHING); only the UI words changed.
+  /// The leftover count — "How many are left?". `returned` stays the stored
+  /// name (schema and domain rename NOTHING); only the UI words changed.
   final TextEditingController returned = TextEditingController();
   final TextEditingController waste = TextEditingController();
 
   /// Bumped when something OTHER than this card's own controls changes the
-  /// line — the scan-to-count sheet, a draft restore — so a card that is
-  /// only listening to its text controllers still rebuilds.
+  /// line — the scan-to-count sheet, a draft restore, "skip the rest" — so a
+  /// card that is only listening to its text controllers still rebuilds.
   final ValueNotifier<int> externalChanges = ValueNotifier<int>(0);
 
   bool stockout = false;
   bool approximate = false;
   bool skipped = false;
 
+  /// True once somebody has actually answered "did you run out?" — either by
+  /// tapping Yes/No, or by taking the `All gone` shortcut, which answers it
+  /// Yes on the way past. A hand-typed leftover 0 leaves it false.
+  bool stockoutAnswered = false;
+
   /// True when the owner asked for the thrown-out box; the value itself
   /// defaults to 0 and is written whether or not the box was ever shown.
   bool wasteOpen = false;
 
+  /// True when the owner asked to change what was loaded. Loaded is a quiet
+  /// line of text until then — except on a line the plan says nothing about,
+  /// where [showsLoadedBox] puts the box on the face regardless.
+  bool loadedOpen = false;
+
   /// True on the lines where counting leftovers means nothing and the owner
-  /// entered what was USED directly. A mode, not a fourth field: the two
-  /// boxes are swapped for one, so nothing has to take precedence over
+  /// entered what was USED directly. A mode, not a fourth field: the box is
+  /// swapped rather than added, so nothing has to take precedence over
   /// anything.
   bool directEntry = false;
 
@@ -178,7 +190,7 @@ final class CloseoutLineController {
       : QuantityCodec.formatDisplayMicros(plannedLoadMicros!);
 
   /// True while Loaded still holds exactly the number the plan put there —
-  /// what the card says is "just a starting value", and what keeps an
+  /// what the header says is "just a starting value", and what keeps an
   /// untouched line from claiming to be in progress.
   bool get loadedIsPlanPrefill {
     final text = plannedLoadText;
@@ -192,6 +204,21 @@ final class CloseoutLineController {
     if (text != null && loaded.text.trim().isEmpty) {
       loaded.text = text;
     }
+  }
+
+  /// Whether Loaded is a BOX on the face of the card rather than a quiet
+  /// line of text: because the owner asked to change it, or because the plan
+  /// says nothing about this line and a leftover count would otherwise have
+  /// nothing to subtract from.
+  bool get showsLoadedBox =>
+      !directEntry && (loadedOpen || plannedLoadMicros == null);
+
+  /// What the quiet `Loaded 42` line reads: whatever is actually on the
+  /// line, which is the plan's prefill until somebody changes it (a draft
+  /// restore or a revise can put its own figure there).
+  String get loadedReadout {
+    final text = loaded.text.trim();
+    return text.isEmpty ? (plannedLoadText ?? '—') : text;
   }
 
   /// Both numbers the derivation needs are on record.
@@ -215,7 +242,7 @@ final class CloseoutLineController {
         return Quantity.fromMicros(derived);
       }
     }
-    // 'Everything left' on a line with no numbers at all writes a used of 0
+    // 'None used' on a line with no numbers at all writes a used of 0
     // straight here; so does the overflow's direct-entry mode.
     final direct = directDepletion;
     if (direct == null || direct.micros > maxDepletionMicros) return null;
@@ -235,6 +262,7 @@ final class CloseoutLineController {
       !done &&
       (wasteOpen ||
           directEntry ||
+          loadedOpen ||
           depletion.text.trim().isNotEmpty ||
           returned.text.trim().isNotEmpty ||
           waste.text.trim().isNotEmpty ||
@@ -245,14 +273,37 @@ final class CloseoutLineController {
   bool get leftoverCanComplete =>
       loaded.text.trim().isNotEmpty || plannedLoadMicros != null;
 
-  /// Swaps the two boxes for one "Used" box. The leftover numbers are
-  /// cleared so the draft never carries two contradictory stories.
+  /// The line reads as EMPTY — nothing was left — so "did you run out?" is
+  /// a question worth asking. A flag already on keeps it on screen too: it
+  /// must never vanish from under an answer somebody gave.
+  ///
+  /// Direct entry has no leftover count to read, and the flag would
+  /// otherwise be unreachable there, so any direct figure asks.
+  bool get asksStockout =>
+      !skipped &&
+      (stockout ||
+          (directEntry
+              ? directDepletion != null
+              : returnedQuantity?.micros == 0));
+
+  /// A hand-typed leftover 0 that nobody has interpreted yet. The line still
+  /// confirms — this is never a gate — but the card refuses to fold away
+  /// with the question unasked.
+  bool get stockoutUnanswered =>
+      !skipped &&
+      !directEntry &&
+      !stockoutAnswered &&
+      returnedQuantity?.micros == 0;
+
+  /// Swaps the leftover question for one "Used" box. The leftover numbers
+  /// are cleared so the draft never carries two contradictory stories.
   void useDirectEntry() {
     directEntry = true;
     loaded.clear();
     returned.clear();
     waste.clear();
     wasteOpen = false;
+    loadedOpen = false;
   }
 
   /// Back to counting leftovers: the direct number goes, the plan's
@@ -263,7 +314,13 @@ final class CloseoutLineController {
     fillLoadedFromPlan();
   }
 
-  /// THE one leftover rule — the card's Left box, its quick fills, and the
+  /// Records an answer to "did you run out?".
+  void answerStockout(bool ranOut) {
+    stockout = ranOut;
+    stockoutAnswered = true;
+  }
+
+  /// THE one leftover rule — the card's leftover box, its shortcuts, and the
   /// scan-to-count sheet all commit through here so there are never two
   /// subtly different behaviours. On a leftover commit: a blank loaded
   /// fills from the planned load, and once a leftover count and a loaded
@@ -285,8 +342,15 @@ final class CloseoutLineController {
   }
 }
 
-/// The one item behind the card's overflow.
-enum _LineMenuAction { useDirect, useLeftover }
+/// The items behind the card's overflow.
+enum _LineMenuAction {
+  changeLoaded,
+  throwSomeOut,
+  useDirect,
+  useLeftover,
+  skip,
+  unskip,
+}
 
 class CloseoutLineCard extends StatefulWidget {
   const CloseoutLineCard({
@@ -314,16 +378,21 @@ class _CloseoutLineCardState extends State<CloseoutLineCard> {
   /// False = the one-row summary. A line that is already done when the card
   /// first builds (draft restore, revise, the per-event skip default) opens
   /// collapsed.
-  late bool _open = !widget.line.done;
+  late bool _open = _wantsOpen;
 
   /// Whether focus is anywhere inside this card — the signal that says a
   /// finger is still working here, so a card that just became done must not
   /// fold up yet.
   bool _hasFocus = false;
 
-  /// Marks the Loaded box's subtree so 'None left' can focus it when it has
+  /// Marks the Loaded box's subtree so 'All gone' can focus it when it has
   /// no number to derive from.
   final GlobalKey _loadedFieldKey = GlobalKey();
+
+  /// True while this card's overflow menu is showing. The menu takes focus,
+  /// which would otherwise fold a finished card away underneath itself —
+  /// and the item you were about to pick with it.
+  bool _menuOpen = false;
 
   @override
   void initState() {
@@ -370,11 +439,17 @@ class _CloseoutLineCardState extends State<CloseoutLineCard> {
     if (!identical(oldWidget.line, widget.line)) {
       _unsubscribe(oldWidget.line);
       _subscribe(widget.line);
-      _open = !widget.line.done;
+      _open = _wantsOpen;
       _wasConfirmed = widget.line.confirmed;
     }
     _sync();
   }
+
+  /// A card wants to be open while there is still something to do on it —
+  /// including an unanswered "did you run out?", which is the one question
+  /// that confirms the line without being answered.
+  bool get _wantsOpen =>
+      _menuOpen || !widget.line.done || widget.line.stockoutUnanswered;
 
   /// The once-per-flip side effects, shared by every path that can change
   /// the line: the §4 check-off haptic, and re-opening a card that stopped
@@ -386,17 +461,17 @@ class _CloseoutLineCardState extends State<CloseoutLineCard> {
       HapticFeedback.lightImpact();
     }
     _wasConfirmed = nowConfirmed;
-    if (!widget.line.done) _open = true;
+    if (_wantsOpen) _open = true;
   }
 
   /// One of the card's own controls changed something. [collapseWhenDone]
-  /// is for the controls that FINISH a line in a single tap — a quick fill,
+  /// is for the controls that FINISH a line in a single tap — a shortcut,
   /// Skip — where folding the card away immediately is the point. Typing
   /// never collapses under the finger; that waits for focus to leave.
   void _edited({bool collapseWhenDone = false}) {
     setState(() {
       _sync();
-      if (collapseWhenDone && widget.line.done) {
+      if (collapseWhenDone && !_wantsOpen) {
         _open = false;
         FocusScope.of(context).unfocus();
       }
@@ -408,21 +483,21 @@ class _CloseoutLineCardState extends State<CloseoutLineCard> {
   /// the keyboard leaves it; deferred to the next frame because focus
   /// notifications can land mid-build.
   void _onFocusChange(bool hasFocus) {
-    final wantOpen = hasFocus || !widget.line.done;
+    final wantOpen = hasFocus || _wantsOpen;
     if (wantOpen == _open) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final stillWanted = _hasFocus || !widget.line.done;
+      final stillWanted = _hasFocus || _wantsOpen;
       if (_open != stillWanted) setState(() => _open = stillWanted);
     });
   }
 
   /// True once the system text is big enough that a row of two things stops
-  /// fitting side by side on a narrow phone. Everything the card lays out
-  /// horizontally stacks instead: the two number boxes, and the state word
-  /// under the item's name rather than beside it.
+  /// fitting side by side on a narrow phone: the state word then goes under
+  /// the item's name rather than beside it.
   bool get _bigText =>
-      MediaQuery.textScalerOf(context).scale(16) > 16 * _stackBoxesAboveScale;
+      MediaQuery.textScalerOf(context).scale(16) >
+      16 * _stackStateWordAboveScale;
 
   Duration _duration(int milliseconds) =>
       MediaQuery.disableAnimationsOf(context)
@@ -653,12 +728,12 @@ class _CloseoutLineCardState extends State<CloseoutLineCard> {
     );
   }
 
-  /// 'Everything left': left = loaded, else the planned load, and the one
-  /// leftover rule derives a used of 0. With neither number on record
-  /// nothing-used needs no count at all — it IS a direct used of 0 (§5:
-  /// zero is a legal label), written through the same handler typing
-  /// reaches. Never touches the stockout flag.
-  void _quickFillEverythingLeft() {
+  /// 'None used': left = loaded, else the planned load, and the one leftover
+  /// rule derives a used of 0. With neither number on record nothing-used
+  /// needs no count at all — it IS a direct used of 0 (§5: zero is a legal
+  /// label), written through the same handler typing reaches. Never touches
+  /// the stockout flag.
+  void _quickFillNoneUsed() {
     final line = widget.line;
     final loaded = line.loadedQuantity;
     // Never ride on a used figure an earlier tap left behind.
@@ -676,16 +751,16 @@ class _CloseoutLineCardState extends State<CloseoutLineCard> {
     _edited(collapseWhenDone: true);
   }
 
-  /// 'None left': left = 0 — a real count, not an invention — and the
-  /// stockout flag flips ON, because all gone usually means demand was
-  /// censored (the owner untoggles it when supply exactly met demand). The
-  /// one leftover rule then derives used from loaded or the planned load;
-  /// with neither on record the zero alone cannot say how many were used,
-  /// so the chip hands focus to Loaded — the one number that now determines
+  /// 'All gone': left = 0 — a real count, not an invention — and it answers
+  /// "did you run out?" with Yes, because all gone usually means demand was
+  /// censored (the owner taps No when supply exactly met demand). The one
+  /// leftover rule then derives used from loaded or the planned load; with
+  /// neither on record the zero alone cannot say how many were used, so the
+  /// shortcut hands focus to Loaded — the one number that now determines
   /// the line.
-  void _quickFillNoneLeft() {
+  void _quickFillAllGone() {
     final line = widget.line;
-    line.stockout = true;
+    line.answerStockout(true);
     line.depletion.clear();
     line.returned.text = QuantityCodec.format(Quantity.zero);
     line.applyLeftoverDefaults();
@@ -717,12 +792,12 @@ class _CloseoutLineCardState extends State<CloseoutLineCard> {
     node?.requestFocus();
   }
 
-  /// The two number boxes — the whole of the counting job. Side by side on
-  /// a normal phone; stacked once the system text is large enough that two
-  /// labels no longer fit beside each other.
-  Widget _numberBoxes(ThemeData theme) {
+  /// The Loaded box, for the two cases that put it on the face of the card:
+  /// a line the plan says nothing about, and one where the owner asked to
+  /// change what was loaded.
+  Widget _loadedBox() {
     final line = widget.line;
-    final loadedBox = KeyedSubtree(
+    return KeyedSubtree(
       key: _loadedFieldKey,
       child: QuantityFormField(
         controller: line.loaded,
@@ -739,41 +814,10 @@ class _CloseoutLineCardState extends State<CloseoutLineCard> {
         },
       ),
     );
-    final leftBox = QuantityFormField(
-      controller: line.returned,
-      labelText: 'Left',
-      unitLabel: line.unitLabel,
-      isRequired: false,
-      allowZero: true,
-      allowFractions: true,
-      onChanged: (_) {
-        line.applyLeftoverDefaults();
-        _edited();
-      },
-    );
-    if (_bigText) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          loadedBox,
-          const SizedBox(height: Space.m),
-          leftBox,
-        ],
-      );
-    }
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(child: loadedBox),
-        const SizedBox(width: Space.m),
-        Expanded(child: leftBox),
-      ],
-    );
   }
 
-  /// The counting body: the boxes (or the one direct box), the thrown-out
-  /// box when it has been asked for, and the read-out that does the
-  /// arithmetic so nobody else has to.
+  /// The counting body: the one question, the boxes the rare cases add to
+  /// it, and the read-out that does the arithmetic so nobody else has to.
   List<Widget> _entryFields(ThemeData theme, Color contentInk) {
     final line = widget.line;
     return [
@@ -792,8 +836,33 @@ class _CloseoutLineCardState extends State<CloseoutLineCard> {
               ? 'Larger than Loadout supports'
               : null,
         )
-      else
-        _numberBoxes(theme),
+      else ...[
+        // Loaded reads as a quiet line of text, not a box: it came from the
+        // plan and is right on almost every line. More → 'Change what was
+        // loaded' turns it into the box below.
+        if (line.showsLoadedBox) ...[
+          _loadedBox(),
+          const SizedBox(height: Space.m),
+        ] else ...[
+          Text(
+            'Loaded ${line.loadedReadout}${line.unitSuffix}',
+            style: theme.textTheme.bodyMedium?.copyWith(color: contentInk),
+          ),
+          const SizedBox(height: Space.s),
+        ],
+        QuantityFormField(
+          controller: line.returned,
+          labelText: 'How many are left?',
+          unitLabel: line.unitLabel,
+          isRequired: false,
+          allowZero: true,
+          allowFractions: true,
+          onChanged: (_) {
+            line.applyLeftoverDefaults();
+            _edited();
+          },
+        ),
+      ],
       if (line.wasteOpen) ...[
         const SizedBox(height: Space.m),
         QuantityFormField(
@@ -811,7 +880,7 @@ class _CloseoutLineCardState extends State<CloseoutLineCard> {
     ];
   }
 
-  /// What the two numbers add up to — "Used: 34" — or the one thing that is
+  /// What the numbers add up to — "Used: 34" — or the one thing that is
   /// missing, or the warning when they do not add up at all.
   List<Widget> _readout(ThemeData theme, Color contentInk) {
     final line = widget.line;
@@ -820,8 +889,9 @@ class _CloseoutLineCardState extends State<CloseoutLineCard> {
       return [
         WarningBanner(
           message: (line.wasteQuantity?.micros ?? 0) > 0
-              ? 'Left plus thrown out is more than Loaded — check the numbers.'
-              : 'Left is more than Loaded — check the numbers.',
+              ? 'That plus what was thrown out is more than was loaded — '
+                    'check the numbers.'
+              : 'That is more than was loaded — check the numbers.',
         ),
       ];
     }
@@ -855,102 +925,151 @@ class _CloseoutLineCardState extends State<CloseoutLineCard> {
     return const [];
   }
 
-  /// Every control the card carries, in two runs of words: the fast path,
-  /// then the flags and the two rare escape hatches. Wraps rather than Rows
-  /// so 200 % text simply takes more lines.
+  /// The question that used to be a permanent chip. It appears only once the
+  /// line reads as empty, in words a volunteer can answer, and it never
+  /// blocks the line from confirming.
+  Widget _stockoutQuestion(ThemeData theme, Color contentInk) {
+    final line = widget.line;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Space.s),
+      child: Wrap(
+        spacing: Space.s,
+        runSpacing: Space.s,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(
+            'Did you run out?',
+            style: theme.textTheme.bodyMedium?.copyWith(color: contentInk),
+          ),
+          ChoiceChip(
+            label: const Text('Yes'),
+            tooltip:
+                'Demand was at least this — the forecast will allow for '
+                'more next time',
+            selected: line.stockoutAnswered && line.stockout,
+            onSelected: (_) {
+              line.answerStockout(true);
+              _edited(collapseWhenDone: true);
+            },
+          ),
+          ChoiceChip(
+            label: const Text('No'),
+            tooltip: 'There was enough — this is what people wanted',
+            selected: line.stockoutAnswered && !line.stockout,
+            onSelected: (_) {
+              line.answerStockout(false);
+              _edited(collapseWhenDone: true);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Every control the card carries: the two shortcuts and the overflow —
+  /// four things counting the box above them, where yesterday there were
+  /// eight. Wraps rather than Rows so 200 % text simply takes more lines.
   Widget _controls(ThemeData theme) {
     final line = widget.line;
+    final scheme = theme.colorScheme;
+    final contentInk = line.confirmed
+        ? scheme.onPrimaryContainer
+        : scheme.onSurface;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (!line.skipped && !line.directEntry) ...[
-          Wrap(
-            spacing: Space.s,
-            runSpacing: Space.s,
-            children: [
-              ActionChip(
-                label: const Text('Everything left'),
-                tooltip: 'Nothing was used',
-                onPressed: _quickFillEverythingLeft,
-              ),
-              ActionChip(
-                label: const Text('None left'),
-                tooltip: 'All gone — turns on Ran out',
-                onPressed: _quickFillNoneLeft,
-              ),
-            ],
-          ),
-          const SizedBox(height: Space.s),
-        ],
+        if (line.asksStockout) _stockoutQuestion(theme, contentInk),
         Wrap(
           spacing: Space.s,
           runSpacing: Space.s,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            if (!line.skipped)
-              FilterChip(
-                label: const Text('Ran out'),
-                tooltip: 'Demand was at least this',
-                selected: line.stockout,
-                onSelected: (selected) {
-                  line.stockout = selected;
-                  _edited();
-                },
+            if (!line.skipped && !line.directEntry) ...[
+              ActionChip(
+                label: const Text('All gone'),
+                tooltip: 'Nothing was left',
+                onPressed: _quickFillAllGone,
               ),
-            FilterChip(
-              label: const Text('Skip'),
-              tooltip: 'Record nothing for this item',
-              selected: line.skipped,
-              onSelected: (selected) {
-                line.skipped = selected;
-                _edited(collapseWhenDone: true);
-              },
-            ),
-            if (!line.skipped && !line.wasteOpen)
-              TextButton(
-                onPressed: () {
-                  line.wasteOpen = true;
-                  if (line.waste.text.trim().isEmpty) {
-                    line.waste.text = QuantityCodec.format(Quantity.zero);
-                  }
-                  _edited();
-                },
-                child: const Text('Some was thrown out'),
+              ActionChip(
+                label: const Text('None used'),
+                tooltip: 'It all came back',
+                onPressed: _quickFillNoneUsed,
               ),
-            if (!line.skipped) _overflow(theme),
+            ],
+            _overflow(theme),
           ],
         ),
       ],
     );
   }
 
-  /// The card's overflow: one plain item, for the lines where counting
-  /// leftovers means nothing.
+  /// The card's overflow — everything that is not the one number: changing
+  /// what was loaded, thrown-out, the used-instead mode, and Skip.
   Widget _overflow(ThemeData theme) {
     final line = widget.line;
     return PopupMenuButton<_LineMenuAction>(
       tooltip: 'Other ways to fill this in',
       position: PopupMenuPosition.under,
+      onOpened: () => setState(() => _menuOpen = true),
+      onCanceled: () => setState(() => _menuOpen = false),
       onSelected: (action) {
+        _menuOpen = false;
         switch (action) {
+          case _LineMenuAction.changeLoaded:
+            line.loadedOpen = true;
+            line.fillLoadedFromPlan();
+          case _LineMenuAction.throwSomeOut:
+            line.wasteOpen = true;
+            if (line.waste.text.trim().isEmpty) {
+              line.waste.text = QuantityCodec.format(Quantity.zero);
+            }
           case _LineMenuAction.useDirect:
             line.useDirectEntry();
           case _LineMenuAction.useLeftover:
             line.useLeftoverEntry();
+          case _LineMenuAction.skip:
+            line.skipped = true;
+          case _LineMenuAction.unskip:
+            line.skipped = false;
         }
-        _edited();
+        // Everything but Skip reveals something to fill in, so the card
+        // stays open to show it even on a line that already confirmed.
+        if (action != _LineMenuAction.skip) _open = true;
+        _edited(collapseWhenDone: action == _LineMenuAction.skip);
       },
       itemBuilder: (context) => [
-        if (line.directEntry)
+        if (line.skipped)
           const PopupMenuItem(
-            value: _LineMenuAction.useLeftover,
-            child: Text("Count what's left instead"),
+            value: _LineMenuAction.unskip,
+            child: Text('Count this item after all'),
           )
-        else
+        else ...[
+          if (line.directEntry)
+            const PopupMenuItem(
+              value: _LineMenuAction.useLeftover,
+              child: Text("Count what's left instead"),
+            )
+          else ...[
+            if (!line.showsLoadedBox)
+              const PopupMenuItem(
+                value: _LineMenuAction.changeLoaded,
+                child: Text('Change what was loaded'),
+              ),
+            if (!line.wasteOpen)
+              const PopupMenuItem(
+                value: _LineMenuAction.throwSomeOut,
+                child: Text('Some was thrown out'),
+              ),
+            const PopupMenuItem(
+              value: _LineMenuAction.useDirect,
+              child: Text('Enter what was used instead'),
+            ),
+          ],
           const PopupMenuItem(
-            value: _LineMenuAction.useDirect,
-            child: Text('Enter what was used instead'),
+            value: _LineMenuAction.skip,
+            child: Text('Skip this item'),
           ),
+        ],
       ],
       child: ConstrainedBox(
         constraints: const BoxConstraints(minHeight: 48, minWidth: 48),

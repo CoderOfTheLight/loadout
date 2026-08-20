@@ -1,13 +1,12 @@
 /// ItemEditScreen widget tests.
 ///
-/// THE FRONT DOOR IS FOUR FIELDS. `/items/new` asks for a NAME, HOW MANY YOU
-/// HAVE, a PRICE EACH (optional) and a FOLDER (picked, never typed) — the
-/// same four the scan-in "New item" sheet asks, which is the shape this form
-/// was rebuilt to match. Nothing else is on the way in.
+/// THE FRONT DOOR IS FOUR QUESTIONS. `/items/new` asks for a NAME, HOW MANY
+/// YOU HAVE *with its optional UNIT beside it*, a PRICE EACH (optional) and a
+/// FOLDER (picked, never typed). Nothing else is on the way in.
 ///
-/// Everything else lives on the SAVED item behind one "More options" row:
-/// the display-label Unit, the one question as a single checkbox ("Bring the
-/// same amount however many people come"), the cold-start number, and notes.
+/// Everything else lives on the SAVED item behind one "More options" row: the
+/// one question as a single checkbox ("Bring the same amount however many
+/// people come"), the cold-start number, and notes.
 ///
 /// Deliberately superseded pins from the long-form era:
 /// * the one question is NOT on the create form — the folder answers it and
@@ -16,9 +15,19 @@
 ///   longer two fields that clear each other: ONE number plus a two-option
 ///   phrasing pick, round-tripped both ways below;
 /// * the 13 unit-suggestion chips are gone — a plain text box with a hint
-///   is the whole control;
+///   is the whole control, and no autocomplete or dropdown replaced them;
 /// * the "this item is the exception" caption is gone (the checkbox shows
 ///   the answer); the BEHAVIOUR it described is pinned below unchanged.
+///
+/// Deliberately superseded pin from the five-control cut (owner's words:
+/// "the new item menu needs an optional unit button… like the recipes
+/// have"): the unit is NO LONGER behind More options and is NO LONGER absent
+/// from create. It sits beside the amount on BOTH screens — the same
+/// `amount | unit` pairing a recipe ingredient row uses — because "18 quarts
+/// of soup" is one thought, and saving and re-opening an item to name the
+/// amount is worse than one more box. Pinned below: it round-trips from
+/// create, blank stores null, More options no longer offers it, and an
+/// untouched unit survives a save.
 ///
 /// Older superseded pins that still hold: no unit dropdown, no pack size, no
 /// free-text group — a legacy row's unit, pack size and category ride along
@@ -44,6 +53,7 @@ import 'package:loadout/features/catalog/application/catalog_service.dart';
 import 'package:loadout/features/catalog/domain/demand_basis.dart';
 import 'package:loadout/features/catalog/domain/item.dart';
 import 'package:loadout/features/catalog/presentation/item_edit_screen.dart';
+import 'package:loadout/features/catalog/presentation/item_list_screen.dart';
 import 'package:loadout/features/inventory/application/inventory_service.dart';
 import 'package:loadout/features/inventory/domain/movement.dart';
 
@@ -68,6 +78,7 @@ Future<String> seedItem(
   required String name,
   String? category,
   String? folderId,
+  String? unitLabel,
   Quantity? servesPerUnit,
   UnitRatio? perPersonRatio,
   DemandBasis? demandBasis,
@@ -82,6 +93,7 @@ Future<String> seedItem(
       .createItem(
         ItemDraft(
           name: name,
+          unitLabel: unitLabel,
           servesPerUnit: servesPerUnit,
           perPersonRatio: perPersonRatio,
           folderId: folderId,
@@ -94,6 +106,13 @@ Future<String> seedItem(
       );
   return (result as Ok<String>).value;
 }
+
+/// A text inside the sectioned items list itself — never the identically
+/// labeled jump chip in the floating search region above it.
+Finder inSectionedList(String text) => find.descendant(
+  of: find.byType(SliverMainAxisGroup),
+  matching: find.text(text),
+);
 
 Future<ItemDetail> readDetail(AppHarness h, String itemId) =>
     h.read(catalogServiceProvider).watchItem(itemId).first;
@@ -145,6 +164,18 @@ Future<void> openMoreOptions(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+/// The unit box's current text, read off its controller. It lives in the
+/// form body now, so no row has to be opened to reach it.
+String? unitBoxText(WidgetTester tester) => tester
+    .widget<TextField>(
+      find.descendant(
+        of: find.byKey(const Key('unit-label')),
+        matching: find.byType(TextField),
+      ),
+    )
+    .controller
+    ?.text;
+
 /// The cold-start row's number, read off its controller.
 String? coldStartText(WidgetTester tester) => tester
     .widget<TextField>(
@@ -178,8 +209,10 @@ Future<void> pickPhrasing(WidgetTester tester, String label) async {
 }
 
 void main() {
-  testWidgets('/items/new is FOUR fields: a name, how many, a price and a '
-      'folder — and nothing else', (tester) async {
+  testWidgets('/items/new is FOUR questions: a name, how many (with its '
+      'optional unit), a price and a folder — and nothing else', (
+    tester,
+  ) async {
     final h = await startWorkspace(tester);
     addTearDown(h.dispose);
 
@@ -187,11 +220,15 @@ void main() {
 
     expect(find.widgetWithText(TextFormField, nameField), findsOneWidget);
     expect(find.widgetWithText(TextFormField, countField), findsOneWidget);
+    // DELIBERATE CHANGE (owner, "like the recipes have"): the unit box is on
+    // the way in, beside the amount — not behind More options on a saved
+    // item, and not absent.
+    expect(find.widgetWithText(TextFormField, unitField), findsOneWidget);
     expect(find.widgetWithText(TextFormField, priceField), findsOneWidget);
     expect(find.text('Folder'), findsOneWidget);
     expect(find.text('Unfiled'), findsOneWidget);
-    // Three text fields and the folder pick-list. Exactly.
-    expect(find.byType(TextFormField), findsNWidgets(3));
+    // Four text fields and the folder pick-list. Exactly.
+    expect(find.byType(TextFormField), findsNWidgets(4));
 
     // The forecast engine's DemandBasis in costume is not asked at all.
     expect(
@@ -208,10 +245,15 @@ void main() {
     expect(find.widgetWithText(TextFormField, usualBringField), findsNothing);
     expect(find.byKey(const Key('per-person-phrasing')), findsNothing);
 
-    // Nor the unit label, its 13 chips, the notes box, or the row that
-    // opens them — that row belongs to a SAVED item.
-    expect(find.widgetWithText(TextFormField, unitField), findsNothing);
+    // The unit's 13 chips stay gone, and nothing replaced them: no chip
+    // strip, no dropdown, no autocomplete — a plain box with a hint.
     expect(find.byType(ActionChip), findsNothing);
+    expect(find.byType(Autocomplete<String>), findsNothing);
+    expect(find.byType(DropdownButtonFormField<String>), findsNothing);
+    expect(find.text('quarts'), findsOneWidget); // the hint, nothing more
+
+    // Nor the notes box, nor the row that opens it — that row belongs to a
+    // SAVED item.
     expect(find.text('Notes'), findsNothing);
     expect(find.text('More options'), findsNothing);
 
@@ -456,16 +498,25 @@ void main() {
 
     await pumpForm(tester, h, id);
 
-    // Closed: the four fields, the barcode row, and one plain row.
+    // Closed: the four questions, the barcode row, and one plain row. The
+    // unit is one of the four now, so it is visible with the row shut.
     expect(find.text('More options'), findsOneWidget);
-    expect(find.widgetWithText(TextFormField, unitField), findsNothing);
+    expect(find.widgetWithText(TextFormField, unitField), findsOneWidget);
     expect(find.text(basisCheckbox), findsNothing);
     expect(find.text('Notes'), findsNothing);
     expect(find.byKey(const Key('per-person-phrasing')), findsNothing);
 
     await openMoreOptions(tester);
 
+    // Still exactly one unit box, and NOT inside the row that opened.
     expect(find.widgetWithText(TextFormField, unitField), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('more-options')),
+        matching: find.byKey(const Key('unit-label')),
+      ),
+      findsNothing,
+    );
     expect(find.text(basisCheckbox), findsOneWidget);
     expect(find.text('Notes'), findsOneWidget);
     // Unfiled answers per-person, so the cold-start row is the number pair.
@@ -772,17 +823,20 @@ void main() {
     await h.flushTimers(tester);
   });
 
-  testWidgets('the unit label is a plain text box under More options: typing '
-      'stores it, clearing it erases it', (tester) async {
-    // Deliberately superseded pin: the 13 suggestion chips are gone — a
-    // bespoke keyboard for a field most items leave blank.
+  testWidgets('the unit label is a plain text box beside the amount on EDIT '
+      'too: typing stores it, clearing it erases it, and More options no '
+      'longer offers it', (tester) async {
+    // Deliberately superseded pins: the 13 suggestion chips are gone (a
+    // bespoke keyboard for a field most items leave blank), and so is the
+    // More options row the box used to hide in.
     final h = await startWorkspace(tester);
     addTearDown(h.dispose);
     final id = (await tester.runAsync(() => seedItem(h, name: 'Sugar')))!;
 
     await pumpForm(tester, h, id);
-    await openMoreOptions(tester);
+    // No opening of anything: the box is in the body, beside the count.
     expect(find.byType(ActionChip), findsNothing);
+    expect(unitBoxText(tester), isEmpty);
     await tester.enterText(
       find.widgetWithText(TextFormField, unitField),
       'cup',
@@ -796,18 +850,15 @@ void main() {
     // Edit prefills the label; clearing it clears the stored value (the
     // form always submits its complete state).
     await pumpForm(tester, h, id);
+    expect(unitBoxText(tester), 'cup');
+    // And the row that used to hold it does not hold it any more.
     await openMoreOptions(tester);
     expect(
-      tester
-          .widget<TextField>(
-            find.descendant(
-              of: find.widgetWithText(TextFormField, unitField),
-              matching: find.byType(TextField),
-            ),
-          )
-          .controller
-          ?.text,
-      'cup',
+      find.descendant(
+        of: find.byKey(const Key('more-options')),
+        matching: find.byKey(const Key('unit-label')),
+      ),
+      findsNothing,
     );
     await tester.enterText(find.widgetWithText(TextFormField, unitField), '');
     await tester.tap(find.text('Save changes'));
@@ -815,6 +866,113 @@ void main() {
 
     detail = await tester.runAsync(() => readDetail(h, id));
     expect(detail!.item.unitLabel, isNull);
+    await h.flushTimers(tester);
+  });
+
+  testWidgets('a unit typed on the CREATE form round-trips to the saved item '
+      'and reads amount → unit → name on the items list', (tester) async {
+    // The owner's words: "18 quarts of soup" is how her kitchen names an
+    // amount. Typing the amount without its unit, then saving and
+    // re-opening the item to add it, is what this replaces.
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+
+    await pumpForm(tester, h);
+    await tester.enterText(
+      find.widgetWithText(TextFormField, nameField),
+      'Chicken soup',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, countField),
+      '18',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, unitField),
+      'quarts',
+    );
+    await tester.tap(find.text('Add item'));
+    await tester.pumpAndSettle();
+
+    final items = await tester.runAsync(
+      () => h.read(catalogServiceProvider).watchItems(const ItemFilter()).first,
+    );
+    expect(items!.single.item.name, 'Chicken soup');
+    expect(items.single.item.unitLabel, 'quarts');
+    expect(items.single.onHandMicros, 18000000);
+
+    // And it reads on the row the way she says it: amount, unit, then name.
+    await h.pumpScreen(tester, const ItemListScreen());
+    await tester.dragUntilVisible(
+      inSectionedList('Chicken soup'),
+      find.byType(CustomScrollView),
+      const Offset(0, -120),
+    );
+    await tester.pumpAndSettle();
+    expect(inSectionedList('18 quarts'), findsOneWidget);
+    expect(
+      tester.getTopLeft(inSectionedList('18 quarts')).dx,
+      lessThan(tester.getTopLeft(inSectionedList('Chicken soup')).dx),
+    );
+    await h.flushTimers(tester);
+  });
+
+  testWidgets('creating with the unit box left blank stores null and puts no '
+      'label on the row', (tester) async {
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+
+    await pumpForm(tester, h);
+    await tester.enterText(
+      find.widgetWithText(TextFormField, nameField),
+      'Bread rolls',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, countField),
+      '48',
+    );
+    // Whitespace is not a label either.
+    await tester.enterText(find.widgetWithText(TextFormField, unitField), '  ');
+    await tester.tap(find.text('Add item'));
+    await tester.pumpAndSettle();
+
+    final items = await tester.runAsync(
+      () => h.read(catalogServiceProvider).watchItems(const ItemFilter()).first,
+    );
+    expect(items!.single.item.unitLabel, isNull);
+
+    await h.pumpScreen(tester, const ItemListScreen());
+    await tester.dragUntilVisible(
+      inSectionedList('Bread rolls'),
+      find.byType(CustomScrollView),
+      const Offset(0, -120),
+    );
+    await tester.pumpAndSettle();
+    // The bare amount, with nothing trailing it.
+    expect(inSectionedList('48'), findsOneWidget);
+    await h.flushTimers(tester);
+  });
+
+  testWidgets('saving an edit WITHOUT touching the unit preserves it — the '
+      'whole-state save never clears a stored label', (tester) async {
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+    final id = (await tester.runAsync(
+      () => seedItem(h, name: 'Soup', unitLabel: 'quarts'),
+    ))!;
+
+    await pumpForm(tester, h, id);
+    expect(unitBoxText(tester), 'quarts');
+    // An unrelated edit, nowhere near the unit box.
+    await tester.enterText(
+      find.widgetWithText(TextFormField, nameField),
+      'Chicken soup',
+    );
+    await tester.tap(find.text('Save changes'));
+    await tester.pumpAndSettle();
+
+    final detail = await tester.runAsync(() => readDetail(h, id));
+    expect(detail!.item.name, 'Chicken soup');
+    expect(detail.item.unitLabel, 'quarts');
     await h.flushTimers(tester);
   });
 
@@ -926,8 +1084,34 @@ void main() {
     await h.flushTimers(tester);
   });
 
+  testWidgets('amount and unit share ONE line when the line can hold them', (
+    tester,
+  ) async {
+    // A normal phone at normal text size: the pair reads as one thought,
+    // and the unit box is the narrower of the two.
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final h = await startWorkspace(tester);
+    addTearDown(h.dispose);
+
+    await pumpForm(tester, h);
+    final amount = tester.getRect(
+      find.widgetWithText(TextFormField, countField),
+    );
+    final unit = tester.getRect(find.byKey(const Key('unit-label')));
+    // Side by side, tops level — one line.
+    expect(unit.left, greaterThan(amount.right));
+    expect(unit.top, amount.top);
+    // Narrower, but never squeezed out of use.
+    expect(unit.width, lessThan(amount.width));
+    expect(unit.width, greaterThan(96));
+  });
+
   testWidgets('create and edit both survive 200% text scale on a 320 dp '
-      'viewport — More options open, cold-start row and all', (tester) async {
+      'viewport — the amount/unit pair WRAPS rather than shrinking, More '
+      'options open, cold-start row and all', (tester) async {
     tester.view.physicalSize = const Size(320, 640);
     tester.view.devicePixelRatio = 1.0;
     tester.platformDispatcher.textScaleFactorTestValue = 2.0;
@@ -940,6 +1124,7 @@ void main() {
       () => seedItem(
         h,
         name: 'Chicken soup',
+        unitLabel: 'quarts',
         servesPerUnit: Quantity.whole(8),
         openingCount: Quantity.whole(40),
       ),
@@ -948,13 +1133,30 @@ void main() {
     // An overflow at this scale would throw and fail the test here.
     await pumpForm(tester, h);
     expect(find.widgetWithText(TextFormField, nameField), findsOneWidget);
+
+    // Two boxes abreast do not fit here, so they stack — full width each,
+    // rather than either being shrunk below a width you can read a word in.
+    var amount = tester.getRect(find.widgetWithText(TextFormField, countField));
+    var unit = tester.getRect(find.byKey(const Key('unit-label')));
+    expect(unit.top, greaterThan(amount.bottom));
+    expect(unit.left, amount.left);
+    expect(unit.width, amount.width);
+    expect(unit.width, greaterThan(200));
+
     await tester.drag(
       find.byType(SingleChildScrollView),
       const Offset(0, -300),
     );
     await tester.pumpAndSettle();
 
+    // Edit says the same thing the same way: the unit box under the
+    // read-only count, both full width, and the label prefilled.
     await pumpForm(tester, h, id);
+    expect(unitBoxText(tester), 'quarts');
+    amount = tester.getRect(find.text('How many you have now'));
+    unit = tester.getRect(find.byKey(const Key('unit-label')));
+    expect(unit.top, greaterThan(amount.bottom));
+
     await openMoreOptions(tester);
     expect(find.text(basisCheckbox), findsOneWidget);
     await tester.drag(

@@ -53,7 +53,10 @@ void main() {
     );
     expect(draft, isNull);
 
-    await tester.enterText(find.widgetWithText(TextFormField, 'Left'), '5');
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'How many are left?'),
+      '5',
+    );
     // 200 ms in: still inside the debounce window — nothing saved yet.
     await tester.pump(const Duration(milliseconds: 200));
     draft = await tester.runAsync<CloseoutFormDraft?>(
@@ -61,7 +64,7 @@ void main() {
     );
     expect(draft, isNull);
 
-    // 600 ms in: the debounced save has fired. A Left count alone (no
+    // 600 ms in: the debounced save has fired. A leftover count alone (no
     // loaded value, no planned load) stays exactly that — no depletion is
     // invented.
     await tester.pump(const Duration(milliseconds: 400));
@@ -75,22 +78,34 @@ void main() {
     expect(draft.confirmedExposure, 150);
 
     // More edits: flags and exposure ride the same debounced save. The
-    // exposure field goes first — scrolling down to the card's chips takes
-    // it out of the lazily built list.
+    // exposure field goes first — scrolling down to the card takes it out
+    // of the lazily built list.
     await tester.enterText(
       find.widgetWithText(TextFormField, 'Confirmed attendance'),
       '140',
     );
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Ran out'));
+    // Counting the line down to nothing raises the stockout question; the
+    // answer rides the same save the numbers do.
+    await tester.ensureVisible(
+      find.widgetWithText(TextFormField, 'How many are left?'),
+    );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Ran out'));
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'How many are left?'),
+      '0',
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'Yes'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Yes'));
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pump();
     draft = await tester.runAsync<CloseoutFormDraft?>(
       () => h.read(closeoutServiceProvider).loadDraft(eventId),
     );
     expect(draft!.confirmedExposure, 140);
+    expect(draft.lines.single.returned!.micros, 0);
     expect(draft.lines.single.stockout, isTrue);
 
     // Process death: tear the widget tree down, then pump a fresh screen —
@@ -99,10 +114,10 @@ void main() {
     await tester.pump();
     await h.pumpScreen(tester, CloseoutScreen(eventId: eventId));
     expect(find.text('140'), findsOneWidget);
-    expect(_boxText(tester, 'Left'), '5');
+    expect(_boxText(tester, 'How many are left?'), '0');
     expect(
       tester
-          .widget<FilterChip>(find.widgetWithText(FilterChip, 'Ran out'))
+          .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Yes'))
           .selected,
       isTrue,
     );

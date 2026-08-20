@@ -836,15 +836,20 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    // One line counted the ordinary way: two boxes, no disclosure.
-    await typeIn('Chicken soup', 'Loaded', '40');
-    await typeIn('Chicken soup', 'Left', '6');
+    // One line counted the ordinary way: one box, and the plan's load
+    // already read out on the card.
+    await typeIn('Chicken soup', 'How many are left?', '6');
     await _snap(tester, 'F3-closeout-card-counted.png');
 
-    // A second line left mid-entry, a third skipped.
+    // A second line left mid-entry (its load corrected through More, the
+    // leftover count not yet given), a third skipped.
+    await reveal('Rice trays');
+    await tapIn('Rice trays', find.text('More'));
+    await _tap(tester, find.text('Change what was loaded'));
     await typeIn('Rice trays', 'Loaded', '9');
     await reveal('Beef chili');
-    await tapIn('Beef chili', find.text('Skip'));
+    await tapIn('Beef chili', find.text('More'));
+    await _tap(tester, find.text('Skip this item'));
     await tester.pump(const Duration(seconds: 1));
     await tester.drag(find.byType(Scrollable).first, const Offset(0, 4000));
     await tester.pumpAndSettle();
@@ -858,7 +863,7 @@ void main() {
     await tester.drag(find.byType(Scrollable).first, const Offset(0, 6000));
     await tester.pumpAndSettle();
     for (var step = 0; step < 80; step++) {
-      final chip = find.text('Everything left');
+      final chip = find.text('None used');
       if (chip.evaluate().isNotEmpty) {
         await _tap(tester, chip.first);
         continue;

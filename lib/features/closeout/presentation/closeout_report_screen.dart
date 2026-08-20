@@ -20,7 +20,12 @@
 ///    to compare against, rather than inventing an expectation;
 ///  * a line whose price was unknown at confirm is counted out loud and
 ///    contributes nothing, and with no priced line at all there is no total
-///    at all — a "$0" over unknown prices would claim the event was free.
+///    at all — a "$0" over unknown prices would claim the event was free;
+///  * a closeout with NO lines — "Close without counting" — gets no totals,
+///    no variance table and no item list, because there is no count. It gets
+///    the headcount that was recorded and one honest sentence. That is a
+///    different page from an event nobody has closed out at all, which still
+///    says there is no report to show yet.
 ///
 /// Data comes from two existing read surfaces, joined here on itemId; no
 /// application-layer change was needed:
@@ -76,15 +81,18 @@ class CloseoutReportScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final linesAsync = ref.watch(_reportLinesProvider(eventId));
     final reviewAsync = ref.watch(accuracyReviewProvider(eventId));
+    final exposureLabel =
+        ref.watch(workspaceProvider).valueOrNull?.exposureLabel ?? 'attendance';
     return Scaffold(
       appBar: AppBar(title: const Text('Closeout report')),
-      body: _body(linesAsync, reviewAsync),
+      body: _body(linesAsync, reviewAsync, exposureLabel),
     );
   }
 
   Widget _body(
     AsyncValue<List<CloseoutCostLine>> linesAsync,
     AsyncValue<AccuracyReview> reviewAsync,
+    String exposureLabel,
   ) {
     // Content-free by design (§10): no exception text reaches the UI.
     if (linesAsync.hasError || reviewAsync.hasError) {
@@ -99,14 +107,87 @@ class CloseoutReportScreen extends ConsumerWidget {
       return const Center(child: CircularProgressIndicator());
     }
     if (lines.isEmpty) {
-      return const EmptyState(
-        icon: Icons.fact_check_outlined,
-        message:
-            'Nothing has been counted for this event yet, so there is no '
-            'report to show.',
+      // Two different emptinesses, and they must not be told the same way.
+      // No closeout at all = there is nothing to report yet. A closeout with
+      // no lines = "Close without counting": the event IS on record, with a
+      // headcount, and the page says so plainly rather than pretending the
+      // count is still to come.
+      if (review.closeoutId == null) {
+        return const EmptyState(
+          icon: Icons.fact_check_outlined,
+          message:
+              'Nothing has been counted for this event yet, so there is no '
+              'report to show.',
+        );
+      }
+      return _NothingCountedBody(
+        confirmedExposure: review.confirmedExposure,
+        exposureLabel: exposureLabel,
       );
     }
     return _ReportBody(lines: lines, review: review);
+  }
+}
+
+/// The report for an event closed WITHOUT a count. There is no total, no
+/// variance table and no per-item list, because there is no count — so the
+/// page hands back the one thing that was recorded (who came) and says the
+/// rest out loud instead of leaving a page of empty sections.
+class _NothingCountedBody extends StatelessWidget {
+  const _NothingCountedBody({
+    required this.confirmedExposure,
+    required this.exposureLabel,
+  });
+
+  final int? confirmedExposure;
+  final String exposureLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.textTheme.bodyMedium?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    return ContentColumn(
+      child: ListView(
+        children: [
+          Card(
+            margin: const EdgeInsets.symmetric(vertical: 4),
+            child: Padding(
+              padding: const EdgeInsets.all(Space.l),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'CONFIRMED ${exposureLabel.toUpperCase()}',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: Space.xs),
+                  if (confirmedExposure case final exposure?)
+                    Text('$exposure', style: Numerals.hero(theme.textTheme))
+                  else
+                    Text('Not recorded.', style: theme.textTheme.bodyMedium),
+                  const Divider(height: Space.xl),
+                  Text(
+                    'Nothing was counted for this event.',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: Space.xs),
+                  Text(
+                    'The event is closed and on record. Because nothing was '
+                    'counted, your forecasts learn nothing from it.',
+                    style: muted,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: Space.xl),
+        ],
+      ),
+    );
   }
 }
 

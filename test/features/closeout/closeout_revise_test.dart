@@ -68,13 +68,19 @@ void main() {
     expect(find.text('Confirming appends revision 2.'), findsOneWidget);
     expect(find.text('120'), findsOneWidget); // confirmed exposure
     expect(find.text('Used: 7'), findsOneWidget); // derived, on the summary
-    expect(find.widgetWithText(TextFormField, 'Left'), findsNothing);
+    expect(
+      find.widgetWithText(TextFormField, 'How many are left?'),
+      findsNothing,
+    );
 
     // Tap it open and correct the leftover count: 2 → 3, used re-derives
     // live. The thrown-out box is back out because there is a 1 in it.
     await _tap(tester, find.text('Tortillas'));
     expect(find.widgetWithText(TextFormField, 'Thrown out'), findsOneWidget);
-    await tester.enterText(find.widgetWithText(TextFormField, 'Left'), '3');
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'How many are left?'),
+      '3',
+    );
     await tester.pumpAndSettle();
     expect(find.text('Used: 6'), findsOneWidget);
 
@@ -180,7 +186,10 @@ void main() {
     // recorded it: a plain "used" figure, entered directly.
     await _tap(tester, find.text('Al pastor'));
     expect(find.widgetWithText(TextFormField, 'Used'), findsOneWidget);
-    expect(find.widgetWithText(TextFormField, 'Left'), findsNothing);
+    expect(
+      find.widgetWithText(TextFormField, 'How many are left?'),
+      findsNothing,
+    );
     expect(find.text('4'), findsOneWidget);
   });
 }
