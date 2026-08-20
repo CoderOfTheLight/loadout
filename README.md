@@ -1,207 +1,276 @@
 # Loadout
 
-**Know what to bring. Know what it cost. Keep it on your phone.**
+[![CI](https://github.com/CoderOfTheLight/flutter_demo/actions/workflows/ci.yml/badge.svg)](https://github.com/CoderOfTheLight/flutter_demo/actions/workflows/ci.yml)
+![Flutter 3.44.7](https://img.shields.io/badge/Flutter-3.44.7%20pinned-02569B?logo=flutter&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-1%2C138%20passing-2F6B57)
+![Platforms](https://img.shields.io/badge/v1-iOS%2016%2B%20%C2%B7%20Android%2010%2B-333)
+![Offline](https://img.shields.io/badge/network%20permission-none-A33E36)
 
-Loadout is an inventory and planning app for people who feed a crowd — community
-kitchens, church halls, market stalls, anyone who packs a van, serves a few
-hundred people, and has to work out what to buy for next time.
+**A private, offline inventory and forecasting app for people who feed a crowd —
+built end to end with a directed multi-agent AI workflow.**
 
-It runs entirely on your phone. No account, no cloud, no analytics, and no
-network permission at all. Your supply lists, your costs, and your event history
-never leave the device.
+Community kitchens, church halls and market stalls run on the same cycle: pack a
+van, serve a few hundred people, then guess what to buy next time. Loadout
+replaces the guess with what actually happened last time, and never sends any of
+it anywhere — the Android release build ships with **no internet permission at
+all**, and CI fails if that ever changes.
 
-<table>
-  <tr>
-    <td align="center"><img src="docs/media/add-item.gif" width="300" alt="Adding an item: four fields and Save"></td>
-    <td align="center"><img src="docs/media/closeout.gif" width="300" alt="Counting after an event: one question per item"></td>
-    <td align="center"><img src="docs/media/event-cost.gif" width="300" alt="Planning an event, with the cost adding up live"></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Add what you have</b><br>Name, how many, unit, folder.</td>
-    <td align="center"><b>Count what came back</b><br>One question per item.</td>
-    <td align="center"><b>See what it costs</b><br>Totals as you pick.</td>
-  </tr>
-</table>
+This repository is two things at once: a working v1 application, and a record of
+how it was built. The engineering is real. So is the method — I planned it
+first, directed specialist agents to build it, tested every release on a
+physical phone, and let live failures drive the next round of work.
 
 ---
 
-## The loop
+## The result, in one look
 
-Loadout is built around one cycle, and everything in it exists to serve that
-cycle:
+<table>
+  <tr>
+    <td align="center"><img src="docs/media/add-item.gif" width="290" alt="Adding an item: four fields and Save"></td>
+    <td align="center"><img src="docs/media/closeout.gif" width="290" alt="Counting after an event: one question per item"></td>
+    <td align="center"><img src="docs/media/event-cost.gif" width="290" alt="Planning an event with live cost totals"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Add what you have</b><br><sub>Four fields. One screen.</sub></td>
+    <td align="center"><b>Count what came back</b><br><sub>One question per item.</sub></td>
+    <td align="center"><b>See what it costs</b><br><sub>Totals as you pick.</sub></td>
+  </tr>
+</table>
 
-1. **Organise** your supplies into folders — cooked on site, bought ready to
-   serve, cleaning, paper goods, the sales table.
-2. **Plan an event.** Say how many people you expect. Loadout works out a
-   packing list and what it should cost.
-3. **Count what's left** afterwards. One number per item.
-4. **Next time is better.** That count — and only that count — is what the
-   forecast learns from.
+<sub>These are not screen recordings. A test drives the real app — taps the real
+buttons, types real text — and captures each frame, so the demo can never drift
+from what the app actually does. Regenerate with
+`LOADOUT_GIFS=1 fvm flutter test test/tooling/gif_capture_test.dart`.</sub>
 
-The fourth step is the point. Loadout never learns from a guess, a plan, or an
-estimate. Only from what you confirmed actually happened.
+**The loop the whole product serves:** organise supplies into folders → plan an
+event and get a packing list → count what's left afterwards → next time is
+better. Only step three teaches the forecast anything. Plans, estimates and
+overrides never become evidence.
 
-## What it does
+---
 
-**Supplies.** Items live in colour-coded folders with an amount, an optional
-unit ("18 quarts"), an optional price, and an optional barcode. The items screen
-totals what's on your shelves.
+## How this was built
 
-**Events.** Build a list by hand, copy the whole list from a previous event, or
-let Loadout suggest one. See the estimated cost before you shop, and what
-similar events actually cost afterwards.
+The theme of this repository is method. I did not sit down and prompt an AI to
+"build an inventory app". I ran it like a project with an engineering team, and
+the sequence mattered more than any individual prompt.
 
-**Packing lists.** A deterministic forecast — no AI, no black box. It takes the
-median of what you actually used at past events, adjusts for how many people are
-coming, and tells you what to bring. Tap any line and it explains itself in a
-sentence: *"Bring 16. Last time you used 16 for 165 people; before that, 14 for
-150. You have 18."*
+### 1. Plan before prompting
 
-**Counting after an event.** Each item asks one thing: how many are left. It
-already knows what you loaded, so it works out what got used. Sold out? Say so,
-and the forecast knows demand might have been higher than what you brought. In a
-hurry? Close the event without counting at all — it records honestly that
-nothing was learned.
+Before any code existed, I worked through the problem in depth: what the app was
+for, who would actually hold the phone, which platform to target first, the data
+model the forecasting honesty depended on, and the security posture — offline
+only, encrypted at rest, no accounts. I wrote the reasoning down, and those
+documents became the contract the build worked from rather than notes nobody
+read again.
 
-**Recipes.** Write them, or photograph a printed one and let the phone read it.
-Scale a batch to an event. See what a batch costs at today's prices.
+| Planning artifact | What it fixed in advance |
+|---|---|
+| [`PRODUCT_PLAN.md`](PRODUCT_PLAN.md) | Scope, the release contract, seven delivery gates |
+| [`docs/adr/0001-authoritative-deterministic-core.md`](docs/adr/0001-authoritative-deterministic-core.md) | Why forecasting is deterministic and AI-free |
+| [`docs/architecture/gates-2-3-design.md`](docs/architecture/gates-2-3-design.md) | The implementation contract: schema, write path, screens |
+| [`docs/security/THREAT_MODEL.md`](docs/security/THREAT_MODEL.md) | What is protected, from whom, and what is not |
 
-**Scanning.** Scan a barcode once, tell Loadout what it is, and it recognises
-that item forever. Restocking becomes scan, type a number, scan the next thing.
-Counting after an event works the same way.
+The most consequential decision was made here, on paper: **the forecast engine is
+pure, deterministic, and frozen.** No AI touches a number a user relies on. That
+constraint shaped everything downstream and never had to be revisited.
 
-**Spreadsheets.** Export items, events, a single event's count, or recipes as
-CSV files that open properly in Excel — for a treasurer, a committee, or
-whoever takes over the kitchen next year.
+### 2. Build with directed agents, not a single conversation
 
-**Backups.** One encrypted file, protected by a passphrase you choose, saved
-wherever you keep files.
+I directed the build as a multi-agent workflow, assigning **specific models to
+specific jobs** — heavier reasoning where architecture and correctness were at
+stake, lighter and cheaper models for mechanical work — so effort and tokens went
+where they changed the outcome.
 
-## Status
+Four practices did most of the work:
 
-**This is version 1: phones only.** Desktop support (macOS, Windows, Linux) is
-planned for version 2.
+- **Contracts first.** Before parallel agents touched a feature, the interface
+  between their halves was written and committed — the Swift↔Dart channel for
+  the camera work, the money and prediction types for event costing. Agents
+  building opposite sides of a boundary could not drift, because the boundary
+  existed before they did.
+- **Disjoint ownership.** Each agent got an explicit file territory and a list of
+  what it must not touch. Four agents could rebuild four areas of the UI at once
+  without stepping on each other.
+- **Every agent gated on the same evidence.** Analyzer clean, formatter clean,
+  and the entire test suite passing — not "my tests". Agents reported failures
+  they believed belonged to a concurrent agent rather than "fixing" them blindly.
+- **The lead reviews, and overrules.** I reviewed the diffs that mattered. When
+  an audit recommended deleting per-item waste tracking from the counting screen
+  to simplify it, I kept it: waste is what separates *what sold* from *what got
+  thrown out*, and losing it would have quietly corrupted every future forecast.
+  Simplification is not automatically an improvement.
+
+### 3. Test on real hardware, and let failures drive the plan
+
+Every round was installed on a physical iPhone and used — not demoed. I ran real
+counts, hit edge cases, and reported back what was broken, missing or confusing.
+That loop found things no test suite had:
+
+> **The white screen.** After one release the app opened to a blank screen and
+> nothing else. It was root-caused from the device's own diagnostic log to a
+> schema migration that had half-applied and left the database stranded between
+> versions — invisible to tests, because tests migrated in-memory databases while
+> the phone migrated a real encrypted file.
+>
+> The fix was not just the bug. Migrations became atomic and re-runnable, and a
+> test now **recreates the exact stranded state** and proves the next launch
+> recovers it. Every schema version since is covered the same way.
+
+Live testing also produced most of the UI direction. "The new recipe form won't
+let me select anything." "I don't get the new item form — a weight?" "The
+closeout is still too complicated." Each of those became a round of work, and
+each round went back on the phone.
+
+### 4. Research the design, don't invent it
+
+Rather than guessing at a visual language, I directed a research pass: what
+Apple and Google's design systems actually specify today, and what the best
+apps in adjacent categories — inventory, recipes, field checklists — genuinely
+do. The findings became rules, not opinions:
+
+- One saturated brand colour for everything interactive; all other colour
+  belongs to the user's own data.
+- Colour means **state** before anything else. Green is counted, amber is
+  pending, red is short — and a hue that carries state is never decorative.
+- Numbers are the content, so numbers get the size.
+
+Then the audience constraint sharpened everything: the volunteers using this app
+know Excel and Word, and not much else software. Screens were measured against
+that standard and rebuilt. Adding an item went from **24 controls and 106 words
+of helper text across three screens** to **five controls and eleven words on
+one**. The counting screen went from an expandable worksheet labelled with an
+algebra formula — `Worksheet (loaded − left over − waste)` — to a single
+question: *how many are left?*
+
+### 5. Ship the story with the software
+
+The final round produced this README, the demo reels above, and an honest
+roadmap. A project an employer or a volunteer can understand in ninety seconds is
+part of the deliverable, not an afterthought.
+
+---
+
+## Verified, not asserted
+
+The privacy claims are enforced by CI against real build artifacts, which is the
+only version of a privacy claim worth making:
+
+| Gate in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | What it proves |
+|---|---|
+| `Assert no Android internet permission` | The release manifest cannot request network access |
+| `Assert no network-capable packages` | No dependency can reach the network |
+| `Assert no raw sockets or HttpClient in app code` | No code path opens a connection |
+| `Assert SQLCipher source hook is configured` | The database is genuinely encrypted, not plain SQLite |
+| `Assert Android backups disabled` | Data cannot leave via cloud backup or device transfer |
+| `Assert no debugPrint in lib` | Kitchen data cannot leak into logs |
+| `Assert committed drift schema dump is current` | The schema on disk matches the code |
+
+Beyond CI, the app refuses to start rather than silently writing unencrypted
+data if the encryption library is ever missing, and the diagnostic logger has
+**nowhere to put free text** — it accepts event codes, counts and durations, and
+nothing else.
+
+**1,138 tests**, including some that are unusual and were worth the effort:
+migration tests that upgrade real encrypted database files from every past
+schema version through the production code path; contrast tests that measure
+every text-and-background pair against WCAG 2.2 in both themes; route tests that
+walk every screen at a real phone viewport across four workspace states,
+asserting nothing overflows and no screen is a dead end; and text-scale tests at
+200%, because this audience uses large text.
+
+---
+
+## Where it stands — and what's not done
+
+This is **version 1: phones only.**
 
 | | iOS 16+ | Android 10+ |
 |---|---|---|
-| Everything above | ✅ | ✅ |
+| Core app | ✅ | ✅ |
 | Barcode scanning | ✅ | ❌ not yet |
-| Recipe photos (OCR) | ✅ | ❌ not yet |
-| Tested on real hardware | ✅ | ⚠️ emulator only |
+| Recipe photo (OCR) | ✅ | ❌ not yet |
+| Tested on physical hardware | ✅ | ⚠️ emulator only |
 
-Both scanning features degrade honestly on Android — the buttons simply don't
-appear rather than appearing and failing.
+Both camera features degrade honestly on Android — the buttons don't appear,
+rather than appearing and failing.
 
-**Not in an app store yet.** The app is feature-complete for version 1 and
-heavily tested, but store packaging is unfinished: no signing key, no privacy
-policy URL, no iOS privacy manifest, and no store listing. See
-[docs/RELEASE.md](docs/RELEASE.md) for the full, honest checklist of what
-remains — including one known gap worth naming here: if the app fails to start,
-it currently shows a blank screen instead of an explanation.
+**It is not in an app store, and I would rather say why than imply otherwise.** A
+readiness audit of the current code found the application itself in good shape
+and the release surface untouched: no signing key, no privacy policy URL, no iOS
+privacy manifest, and neither store's required artifact format ever built.
+[`docs/RELEASE.md`](docs/RELEASE.md) carries the full checklist.
 
-## Privacy, concretely
+One functional gap deserves naming here rather than being buried: **if the app
+fails to start, it currently shows a blank screen instead of an explanation.**
+The data-integrity half of that failure class is fixed and tested; the
+presentation half is not. It is the first item on the list.
 
-Most apps say "we respect your privacy". Here is what that means in this
-codebase, and how each claim is enforced rather than promised:
+---
 
-- **No network permission.** The Android release build declares exactly one
-  permission, and it isn't internet access. CI unpacks a real release APK and
-  fails the build if `INTERNET` ever appears.
-- **Encrypted at rest.** The database is SQLCipher-encrypted with a key held in
-  the iOS Keychain / Android Keystore. If the encryption library is ever missing,
-  the app refuses to run rather than quietly writing plain text.
-- **Excluded from cloud backups** and from phone-to-phone transfer, deliberately.
-  The trade-off is real and worth knowing: **a new phone means starting over
-  unless you have a backup file.**
-- **Diagnostics cannot leak your data.** The logging function has nowhere to put
-  free text — it accepts event codes, counts and durations, and nothing else.
-- **Camera stays local.** Barcode and recipe scanning use Apple's on-device
-  frameworks. Photos are never written to disk or sent anywhere.
+## Quick start
 
-The full model, including what is *not* protected, is in
-[docs/security/THREAT_MODEL.md](docs/security/THREAT_MODEL.md).
-
-## Building it
-
-Requires [FVM](https://fvm.app) — the Flutter SDK is pinned to **3.44.7**.
+Requires [FVM](https://fvm.app); the Flutter SDK is pinned to 3.44.7.
 
 ```bash
-fvm install          # fetch the pinned SDK
+fvm install
 fvm flutter pub get
-fvm flutter test     # 1,138 tests
-fvm flutter run      # on a connected phone or simulator
+fvm flutter test          # 1,138 tests
+fvm flutter run           # connected phone or simulator
 ```
 
-Release builds:
-
 ```bash
+# Release builds
 fvm flutter build ios --release
 fvm flutter build apk --release
-```
 
-Regenerate the demo GIFs and screenshots after a UI change:
-
-```bash
+# Regenerate the demo GIFs and screenshots after a UI change
 LOADOUT_GIFS=1 fvm flutter test test/tooling/gif_capture_test.dart
 LOADOUT_SCREENS_OUT=/tmp/shots fvm flutter test test/tooling/screen_capture_test.dart
 ```
 
-## How it's built
+## Repository layout
 
-Loadout is a Flutter app over an encrypted SQLite database, with a few rules it
-holds strictly:
+```
+lib/
+  app/            theme, router, providers — the design system lives in theme.dart
+  core/           exact arithmetic: quantities in micros, money in whole cents
+  data/db/        Drift schema, migrations, the append-only tables and triggers
+  features/       catalog, events, closeout, forecasting, recipes, backup, export
+  infrastructure/ encrypted database open path, key management, startup recovery
+ios/Runner/       Swift channels: Vision text recognition, AVFoundation barcodes
+test/             1,138 tests, incl. migration, contrast, route and text-scale suites
+test/tooling/     screenshot and GIF harnesses that render the real app
+docs/             architecture notes, threat model, release checklist
+```
 
-- **History is append-only.** Movements, closeouts and recipe revisions can never
-  be edited or deleted — corrections are new entries that reverse old ones. This
-  is enforced three ways at once: SQL triggers, foreign-key restrictions, and a
-  validator.
-- **One write path.** Every change is a command that goes
-  `Proposal → CommandValidator → DriftCommandApplier`, in one transaction. There
-  is no second way to write to the database.
-- **Integer arithmetic only.** Quantities are fixed-point micros; money is whole
-  cents. No floating point anywhere in the maths, so totals never drift.
-- **Migrations are all-or-nothing.** Every schema upgrade runs in a single
-  transaction and can be safely re-run, and is tested from every previous version
-  through the real production open path. This discipline came from a real
-  incident — a half-applied migration once left a phone showing a white screen —
-  and there is now a test that recreates exactly that stranded state.
-- **The forecast engine is frozen.** It is pure, deterministic, and takes no
-  dependencies. Prices, display formatting and policy live outside it.
-
-| Document | What's in it |
-|---|---|
-| [docs/architecture/README.md](docs/architecture/README.md) | Index — start here |
-| [docs/architecture/data-model.md](docs/architecture/data-model.md) | The schema, the write path, migration discipline |
-| [docs/architecture/forecasting.md](docs/architecture/forecasting.md) | How a number gets produced |
-| [docs/security/THREAT_MODEL.md](docs/security/THREAT_MODEL.md) | What's protected, what isn't |
-| [docs/RELEASE.md](docs/RELEASE.md) | Shipping checklist and known gaps |
-| [PRODUCT_PLAN.md](PRODUCT_PLAN.md) | Delivery gates and scope |
-
-## Testing
-
-1,138 tests, run with `fvm flutter test`. They cover more than units:
-
-- **Migration tests** upgrade real encrypted database files from every past
-  schema version through the production code path, including deliberately
-  half-migrated ones.
-- **Contrast tests** measure every text-and-background pair in the app against
-  WCAG 2.2, in both light and dark.
-- **Route tests** walk every screen at a real phone viewport across four
-  different workspace states, asserting nothing overflows and no screen is a
-  dead end.
-- **Text-scale tests** render the dense screens at 200% text size on a narrow
-  phone, because the people using this app often need large text.
-- **Screenshot and GIF harnesses** render the real app with realistic data, so
-  the images in this README can never drift from what the app actually looks
-  like.
+Deeper reading: [architecture index](docs/architecture/README.md) ·
+[data model](docs/architecture/data-model.md) ·
+[forecasting](docs/architecture/forecasting.md) ·
+[threat model](docs/security/THREAT_MODEL.md)
 
 ## Roadmap
 
-**Version 1 (now):** phones, everything above.
+**Version 2 — desktop.** macOS, Windows and Linux, plus Android parity for
+barcode scanning and recipe photos.
 
-**Version 2:** desktop — macOS, Windows and Linux — plus Android parity for
-scanning and recipe photos.
+**Also planned:** a shareable count report, production planning (working
+backwards from a menu to a prep schedule), and the release-readiness work above.
 
-**Under consideration:** a shareable count report, production planning (working
-backwards from a menu to a prep schedule), and voice entry for hands-free
-counting.
+## Attribution
+
+I planned this application, chose its architecture and security posture, directed
+the multi-agent build, decided which models did which jobs, tested every release
+on physical hardware, and made the product calls — including the ones that
+overruled my own agents.
+
+The implementation was written by AI agents working under that direction, from my
+planning documents, against contracts I specified, and reviewed by me. The
+forecasting mathematics, the offline and encryption posture, and the honesty
+rules — never invent a number, never learn from a guess, always say what a total
+leaves out — are design decisions I made and held.
+
+Third-party components: Flutter and Dart, [Drift](https://drift.simonbinder.eu)
+for the database layer, [SQLCipher](https://www.zetetic.net/sqlcipher/) for
+encryption at rest, Apple's Vision and AVFoundation frameworks for on-device text
+and barcode recognition. Everything else in `lib/` is this project's own.
