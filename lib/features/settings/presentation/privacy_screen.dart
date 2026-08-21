@@ -9,10 +9,14 @@
 ///
 ///  - the "no network permission" guarantee is enforced on the ANDROID
 ///    release artifact (`aapt dump permissions`); iOS has no equivalent
-///    permission to withhold, so the cross-platform half of the claim is the
-///    dependency gate and the `HttpClient`/`Socket` source grep. The copy
-///    below leads with what is true on both and names Android for the
-///    stronger, OS-enforced part (docs/security/THREAT_MODEL.md §3.4);
+///    permission to withhold, so the cross-platform half of the claim rests
+///    on the two source gates in CI: the no-network-package dependency check
+///    and the grep for network client classes in `lib/`. (Those class names
+///    are deliberately NOT written out here — the grep is a plain text
+///    search over this directory, so naming them in a comment fails the very
+///    gate the comment describes.) The copy below leads with what is true on
+///    both platforms and names Android for the stronger, OS-enforced part
+///    (docs/security/THREAT_MODEL.md §3.4);
 ///  - "what leaves this device" now covers `/settings/export` as well:
 ///    four UNENCRYPTED CSV documents, saved by the owner's own action
 ///    through the same save dialog (§4.5).
